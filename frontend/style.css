@@ -1,0 +1,573 @@
+/* ═══════════════════════════════════════════════════
+   AGENT HUB — Pixel Art UI
+   ═══════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+/* ── Reset & base ──────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg:       #0a0a0f;
+  --panel:    #111118;
+  --border:   #252530;
+  --text:     #d0d0e0;
+  --dim:      #44445a;
+  --font:     'Press Start 2P', monospace;
+  --px:       4px;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 8px 8px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 8px;
+}
+
+/* ── CRT scanline overlay ──────────────────────────── */
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0,0,0,0.10) 3px,
+    rgba(0,0,0,0.10) 4px
+  );
+}
+
+/* ── Layout ────────────────────────────────────────── */
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Sidebar ───────────────────────────────────────── */
+.sidebar {
+  width: 272px;
+  min-width: 272px;
+  background: var(--panel);
+  border-right: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.hub-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 16px 16px;
+  border-bottom: 2px solid var(--border);
+}
+
+.hub-logo canvas {
+  image-rendering: pixelated;
+}
+
+.logo-title {
+  font-size: 14px;
+  color: #fff;
+  text-align: center;
+  line-height: 2;
+  letter-spacing: 3px;
+  text-shadow: 0 0 24px rgba(255,255,255,0.5);
+}
+
+.logo-hub {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 6px;
+}
+
+/* ── Agent list ────────────────────────────────────── */
+.agent-list {
+  flex: 1;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-card {
+  --agent-color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: box-shadow 0.05s, border-color 0.05s;
+}
+
+.agent-card:hover {
+  border-color: var(--agent-color);
+  box-shadow: 3px 3px 0 0 var(--agent-color);
+}
+
+.agent-card.active {
+  border-color: var(--agent-color);
+  box-shadow: 4px 4px 0 0 var(--agent-color);
+  background: rgba(255,255,255,0.03);
+}
+
+.agent-card canvas {
+  image-rendering: pixelated;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.agent-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-card-name {
+  font-size: 8px;
+  color: var(--agent-color);
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-card-desc {
+  font-size: 6px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.6;
+}
+
+/* Blinking status dot */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--agent-color);
+  flex-shrink: 0;
+  animation: blink 2.4s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.15; }
+}
+
+/* ── Sidebar footer ────────────────────────────────── */
+.sidebar-footer {
+  padding: 10px 14px;
+  border-top: 2px solid var(--border);
+  font-size: 6px;
+  text-align: center;
+}
+
+.dim { color: var(--dim); }
+
+/* ── Main content ──────────────────────────────────── */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Welcome screen ────────────────────────────────── */
+.welcome-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 40px;
+  text-align: center;
+}
+
+.welcome-screen canvas {
+  image-rendering: pixelated;
+}
+
+.welcome-title {
+  font-size: 22px;
+  color: #fff;
+  letter-spacing: 4px;
+  text-shadow: 0 0 40px rgba(255,255,255,0.4);
+}
+
+.welcome-sub {
+  font-size: 8px;
+  color: var(--dim);
+  line-height: 2.8;
+  letter-spacing: 1px;
+}
+
+/* ── Chat area ─────────────────────────────────────── */
+.chat-area {
+  --agent-color: #ffffff;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Agent header ──────────────────────────────────── */
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--panel);
+  border-bottom: 2px solid var(--border);
+  flex-shrink: 0;
+}
+
+.agent-header canvas {
+  image-rendering: pixelated;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+}
+
+.agent-header-info { flex: 1; }
+
+.agent-header-name {
+  font-size: 11px;
+  color: var(--agent-color);
+  margin-bottom: 6px;
+  text-shadow: 0 0 16px color-mix(in srgb, var(--agent-color) 40%, transparent);
+}
+
+.agent-header-desc {
+  font-size: 6px;
+  color: var(--dim);
+  line-height: 1.8;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Connection indicator */
+.conn-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.conn-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--dim);
+  display: block;
+}
+
+.conn-dot.online  { background: #44ff88; animation: blink 2s infinite; }
+.conn-dot.offline { background: #ff3366; }
+.conn-dot.connecting { background: #ffd700; animation: blink 0.8s infinite; }
+
+.conn-label { font-size: 6px; color: var(--dim); }
+
+/* ── Messages ──────────────────────────────────────── */
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.chat-empty {
+  text-align: center;
+  padding: 32px 0;
+}
+
+.chat-empty-name {
+  font-size: 10px;
+  color: var(--agent-color);
+  margin-bottom: 10px;
+  text-shadow: 0 0 20px color-mix(in srgb, var(--agent-color) 50%, transparent);
+}
+
+.chat-empty-hint {
+  font-size: 6px;
+  color: var(--dim);
+  line-height: 2.4;
+}
+
+/* Individual message */
+.message {
+  display: flex;
+  flex-direction: column;
+  max-width: 78%;
+  gap: 5px;
+}
+
+.message.user      { align-self: flex-end;  align-items: flex-end; }
+.message.assistant { align-self: flex-start; align-items: flex-start; }
+
+.message-label {
+  font-size: 6px;
+  color: var(--dim);
+}
+
+.message.assistant .message-label { color: var(--agent-color); }
+
+.message-bubble {
+  padding: 12px 14px;
+  font-size: 8px;
+  line-height: 2.2;
+  border: 2px solid transparent;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.message.user .message-bubble {
+  background: rgba(255,255,255,0.04);
+  border-color: var(--border);
+  box-shadow: 3px 3px 0 0 var(--border);
+}
+
+.message.assistant .message-bubble {
+  background: var(--panel);
+  border-color: var(--agent-color);
+  box-shadow: 4px 4px 0 0 var(--agent-color);
+}
+
+/* ── Markdown inside bubbles ────────────────────────── */
+.message-bubble p  { margin-bottom: 10px; }
+.message-bubble p:last-child { margin-bottom: 0; }
+
+.message-bubble ul,
+.message-bubble ol { padding-left: 18px; margin: 8px 0; }
+
+.message-bubble li { margin-bottom: 5px; }
+
+.message-bubble h1,
+.message-bubble h2,
+.message-bubble h3 {
+  font-size: 9px;
+  margin: 14px 0 8px;
+  color: var(--agent-color);
+}
+
+.message-bubble strong { color: #fff; }
+
+.message-bubble a {
+  color: var(--agent-color);
+  text-decoration: underline;
+}
+
+.message-bubble blockquote {
+  border-left: 3px solid var(--agent-color);
+  padding-left: 10px;
+  margin: 8px 0;
+  color: var(--dim);
+}
+
+.message-bubble code {
+  font-family: var(--font);
+  font-size: 7px;
+  background: #000;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+}
+
+.message-bubble pre {
+  margin: 10px 0;
+  background: #000 !important;
+  border: 2px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.message-bubble pre code {
+  font-size: 7px;
+  font-family: var(--font);
+  background: transparent;
+  border: none;
+  padding: 12px;
+  display: block;
+  line-height: 2;
+}
+
+/* ── Streaming cursor ────────────────────────────────── */
+.stream-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 13px;
+  background: var(--agent-color);
+  margin-left: 3px;
+  vertical-align: middle;
+  animation: cursor-blink 0.75s step-end infinite;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+/* ── Typing dots ─────────────────────────────────────── */
+.typing-dots {
+  display: flex;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--agent-color);
+  animation: tdot 1.2s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes tdot {
+  0%, 100% { opacity: 0.2; transform: translateY(0);    }
+  50%       { opacity: 1;   transform: translateY(-4px); }
+}
+
+/* ── Input area ──────────────────────────────────────── */
+.input-area {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 14px 18px;
+  background: var(--panel);
+  border-top: 2px solid var(--border);
+  flex-shrink: 0;
+}
+
+.input-area textarea {
+  flex: 1;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 8px;
+  line-height: 2;
+  padding: 10px 12px;
+  resize: none;
+  outline: none;
+  min-height: 52px;
+  max-height: 180px;
+  transition: border-color 0.08s;
+}
+
+.input-area textarea:focus {
+  border-color: var(--agent-color);
+}
+
+.input-area textarea::placeholder { color: var(--dim); }
+
+.input-area textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Buttons ─────────────────────────────────────────── */
+.pixel-btn {
+  background: transparent;
+  border: 2px solid var(--border);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 0 var(--border);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.pixel-btn:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: var(--text);
+  box-shadow: 3px 3px 0 0 var(--text);
+}
+
+.pixel-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 0 var(--border);
+}
+
+.pixel-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 3px 3px 0 0 var(--border);
+}
+
+.send-btn {
+  border-color: var(--agent-color);
+  color: var(--agent-color);
+  box-shadow: 3px 3px 0 0 var(--agent-color);
+  padding: 10px 16px;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: var(--agent-color);
+  color: var(--bg);
+  box-shadow: 3px 3px 0 0 var(--agent-color);
+}
+
+.clear-btn {
+  font-size: 7px;
+  padding: 6px 10px;
+}
+
+.clear-btn:hover {
+  border-color: #ff3366;
+  color: #ff3366;
+  box-shadow: 3px 3px 0 0 #ff3366;
+}
+
+/* ── Scrollbars ──────────────────────────────────────── */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+/* ── Error toast ─────────────────────────────────────── */
+.error-bubble {
+  border-color: #ff3366 !important;
+  box-shadow: 4px 4px 0 0 #ff3366 !important;
+  color: #ff3366;
+}
+
+/* ── Mobile fallback ─────────────────────────────────── */
+@media (max-width: 700px) {
+  .sidebar { display: none; }
+}
