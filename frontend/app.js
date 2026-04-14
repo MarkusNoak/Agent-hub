@@ -1,81 +1,6 @@
 /* ═══════════════════════════════════════════════════
-   AGENT HUB — Frontend Logic
+   AGENT HUB — Frontend Logic + Pixel Art Animation
    ═══════════════════════════════════════════════════ */
-
-// ── Pixel art sprite definitions (8×8) ────────────────
-// 0 = transparent, 1 = primary, 2 = dark, 3 = light
-const SPRITES = {
-  nexus: [
-    [0,0,1,1,1,1,0,0],
-    [0,1,2,1,1,2,1,0],
-    [1,2,1,3,3,1,2,1],
-    [1,1,3,2,2,3,1,1],
-    [1,1,3,2,2,3,1,1],
-    [1,2,1,3,3,1,2,1],
-    [0,1,2,1,1,2,1,0],
-    [0,0,1,1,1,1,0,0],
-  ],
-  oracle: [
-    [0,0,1,1,1,1,0,0],
-    [0,1,1,2,2,1,1,0],
-    [1,1,2,3,3,2,1,1],
-    [1,2,3,1,1,3,2,1],
-    [1,2,3,1,1,3,2,1],
-    [1,1,2,3,3,2,1,1],
-    [0,1,1,2,2,1,1,0],
-    [0,0,1,1,1,1,0,0],
-  ],
-  forge: [
-    [0,0,2,2,2,2,0,0],
-    [0,2,1,1,1,1,2,0],
-    [2,1,1,3,3,1,1,2],
-    [1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1],
-    [0,1,1,1,1,1,1,0],
-    [0,0,0,1,1,0,0,0],
-    [0,0,2,1,1,2,0,0],
-  ],
-  scroll: [
-    [0,1,1,1,1,1,1,0],
-    [1,2,1,1,1,1,2,1],
-    [1,1,3,1,1,3,1,1],
-    [1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1],
-    [1,1,3,1,1,3,1,1],
-    [1,2,1,1,1,1,2,1],
-    [0,1,1,1,1,1,1,0],
-  ],
-  lens: [
-    [0,0,1,1,1,0,0,0],
-    [0,1,1,2,1,1,0,0],
-    [1,1,2,3,2,1,1,0],
-    [1,2,3,2,3,2,1,0],
-    [0,1,2,3,2,1,0,0],
-    [0,0,1,1,1,0,1,0],
-    [0,0,0,0,0,1,1,0],
-    [0,0,0,0,0,0,1,1],
-  ],
-  shield: [
-    [0,1,1,1,1,1,1,0],
-    [1,1,2,1,1,2,1,1],
-    [1,1,1,3,3,1,1,1],
-    [1,1,3,1,1,3,1,1],
-    [0,1,1,3,3,1,1,0],
-    [0,0,1,1,1,1,0,0],
-    [0,0,0,1,1,0,0,0],
-    [0,0,0,0,0,0,0,0],
-  ],
-  herald: [
-    [0,0,0,1,1,0,0,0],
-    [0,0,1,1,1,1,0,0],
-    [0,1,1,2,2,1,1,0],
-    [1,1,2,3,3,2,1,1],
-    [1,1,2,3,3,2,1,1],
-    [0,1,1,2,2,1,1,0],
-    [0,0,1,1,1,1,0,0],
-    [0,0,0,1,1,0,0,0],
-  ],
-};
 
 // ── Colour helpers ─────────────────────────────────────
 function hexToRgb(hex) {
@@ -89,70 +14,309 @@ function toHex(r,g,b) {
 function darken(hex, t)  { const c = hexToRgb(hex); return c ? toHex(c.r*(1-t), c.g*(1-t), c.b*(1-t)) : hex; }
 function lighten(hex, t) { const c = hexToRgb(hex); return c ? toHex(c.r+(255-c.r)*t, c.g+(255-c.g)*t, c.b+(255-c.b)*t) : hex; }
 
-// ── Sprite renderer ────────────────────────────────────
-function renderSprite(canvas, spriteKey, agentColor, px = 4) {
-  const grid = SPRITES[spriteKey];
-  if (!grid) return;
-  const sz = grid.length;
-  canvas.width  = sz * px;
-  canvas.height = sz * px;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const palette = {
-    1: agentColor,
-    2: darken(agentColor, 0.38),
-    3: lighten(agentColor, 0.45),
+// ── Character colour palette ───────────────────────────
+// 0 transparent · 1 skin · 2 skin-shadow/mouth · 3 hair
+// 4 outfit(primary) · 5 outfit(shadow) · 6 eye/black
+// 7 desk-gray · 8 desk-dark · 9 screen-glow
+function charPalette(agentColor) {
+  return {
+    1: '#f5c892',
+    2: '#c47832',
+    3: '#1e0f00',
+    4: agentColor,
+    5: darken(agentColor, 0.40),
+    6: '#000000',
+    7: '#4a5a6a',
+    8: '#2a3a4a',
+    9: lighten(agentColor, 0.55),
   };
-  grid.forEach((row, y) => {
-    row.forEach((idx, x) => {
-      if (!idx) return;
-      ctx.fillStyle = palette[idx];
-      ctx.fillRect(x*px, y*px, px, px);
-    });
-  });
 }
 
-// ── Welcome screen animation ───────────────────────────
+// ── Character sprite frames (10 wide × 12 tall) ────────
+//   work  : 3 frames – seated at desk, typing
+//   idle  : 6 frames – standing, walking, stretching
+const CHAR_FRAMES = {
+  work: [
+    // 0 – seated, reading screen (arms on desk)
+    [
+      [0,0,3,3,3,3,0,0,0,0],
+      [0,0,3,1,1,3,0,0,9,0],
+      [0,0,3,6,1,6,3,0,9,0],
+      [0,0,3,1,1,1,3,0,9,0],
+      [0,0,0,3,1,3,0,0,0,0],
+      [0,4,4,4,4,4,4,0,0,0],
+      [1,4,0,5,5,0,4,1,0,0],
+      [1,1,7,7,7,7,1,1,0,0],
+      [0,0,7,7,7,7,0,0,0,0],
+      [0,0,8,8,8,8,0,0,0,0],
+      [0,0,0,8,8,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+    // 1 – head leaning forward (engaged)
+    [
+      [0,0,0,3,3,3,0,0,0,0],
+      [0,0,3,1,1,1,3,0,9,0],
+      [0,0,3,6,1,6,1,0,9,0],
+      [0,0,3,1,1,1,3,0,9,0],
+      [0,0,0,0,3,3,0,0,0,0],
+      [0,4,4,4,4,4,4,0,0,0],
+      [1,4,0,5,5,0,4,1,0,0],
+      [1,1,7,7,7,7,1,1,0,0],
+      [0,0,7,7,7,7,0,0,0,0],
+      [0,0,8,8,8,8,0,0,0,0],
+      [0,0,0,8,8,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+    // 2 – typing (arms pressing keys)
+    [
+      [0,0,3,3,3,3,0,0,0,0],
+      [0,0,3,1,1,3,0,0,9,0],
+      [0,0,3,6,1,6,3,0,9,0],
+      [0,0,3,1,1,1,3,0,9,0],
+      [0,0,0,3,1,3,0,0,0,0],
+      [0,4,4,4,4,4,4,0,0,0],
+      [0,4,5,4,4,5,4,0,0,0],
+      [1,1,7,7,7,7,1,1,0,0],
+      [0,0,7,7,7,7,0,0,0,0],
+      [0,0,8,8,8,8,0,0,0,0],
+      [0,0,0,8,8,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+  ],
+  idle: [
+    // 0 – standing neutral (pause frame)
+    [
+      [0,0,3,3,3,3,0,0,0,0],
+      [0,0,3,1,1,3,0,0,0,0],
+      [0,0,3,6,1,6,3,0,0,0],
+      [0,0,3,1,1,1,3,0,0,0],
+      [0,0,0,3,1,3,0,0,0,0],
+      [0,4,4,4,4,4,4,0,0,0],
+      [1,4,0,5,5,0,4,1,0,0],
+      [0,1,0,4,4,0,1,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,5,5,5,5,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+    // 1 – walk step A (right leg forward)
+    [
+      [0,0,3,3,3,3,0,0,0,0],
+      [0,0,3,1,1,3,0,0,0,0],
+      [0,0,3,6,1,6,3,0,0,0],
+      [0,0,3,1,1,1,3,0,0,0],
+      [0,0,0,3,1,3,0,0,0,0],
+      [0,4,4,4,4,4,4,0,0,0],
+      [0,4,0,5,5,0,4,1,0,0],
+      [1,1,0,4,4,0,0,0,0,0],
+      [0,0,5,4,0,0,0,0,0,0],
+      [0,0,0,4,5,0,0,0,0,0],
+      [0,0,0,5,0,5,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+    // 2 – walk step B (left leg forward)
+    [
+      [0,0,3,3,3,3,0,0,0,0],
+      [0,0,3,1,1,3,0,0,0,0],
+      [0,0,3,6,1,6,3,0,0,0],
+      [0,0,3,1,1,1,3,0,0,0],
+      [0,0,0,3,1,3,0,0,0,0],
+      [0,4,4,4,4,4,4,0,0,0],
+      [1,4,0,5,5,0,4,0,0,0],
+      [0,0,0,4,4,0,1,1,0,0],
+      [0,0,0,0,4,5,0,0,0,0],
+      [0,0,0,5,4,0,0,0,0,0],
+      [0,0,5,0,0,5,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+    // 3 – stretch start (arms rising)
+    [
+      [0,0,3,3,3,3,0,0,0,0],
+      [0,0,3,1,1,3,0,0,0,0],
+      [0,0,3,6,1,6,3,0,0,0],
+      [0,0,3,1,2,1,3,0,0,0],
+      [0,0,0,3,3,3,0,0,0,0],
+      [1,4,4,4,4,4,4,1,0,0],
+      [0,1,0,5,5,0,1,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,5,5,5,5,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+    // 4 – fully stretched / yawn
+    [
+      [1,0,3,3,3,3,0,1,0,0],
+      [0,0,3,1,1,3,0,0,0,0],
+      [0,0,3,6,1,6,3,0,0,0],
+      [0,0,3,1,2,1,3,0,0,0],
+      [0,0,0,3,3,3,0,0,0,0],
+      [0,4,4,4,4,4,4,0,0,0],
+      [0,0,0,5,5,0,0,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,5,5,5,5,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+    // 5 – arms coming down, relaxing
+    [
+      [0,0,3,3,3,3,0,0,0,0],
+      [0,1,3,1,1,3,1,0,0,0],
+      [0,0,3,6,1,6,3,0,0,0],
+      [0,0,3,1,1,1,3,0,0,0],
+      [0,0,0,3,1,3,0,0,0,0],
+      [1,4,4,4,4,4,4,1,0,0],
+      [0,1,0,5,5,0,1,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,4,4,0,0,0,0,0],
+      [0,0,5,5,5,5,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0],
+    ],
+  ],
+};
+
+// ── Animation engine ───────────────────────────────────
+// Registry: { key → { canvas, agentId, px, mode, frameIdx,
+//                      lastTick, cycleCount, flipX, paused, pauseUntil } }
+const animReg = {};
+
+const WORK_SPEED  = 300;   // ms per work frame
+const IDLE_SPEED  = 480;   // ms per idle frame
+const IDLE_PAUSE  = 2800;  // ms to stand still between cycles
+
+function registerAnim(key, canvas, agentId, px) {
+  animReg[key] = {
+    canvas, agentId, px,
+    mode: 'idle', frameIdx: 0, lastTick: 0,
+    cycleCount: 0, flipX: false,
+    paused: true, pauseUntil: 0,
+  };
+}
+
+function setAgentMode(agentId, mode) {
+  for (const key of Object.keys(animReg)) {
+    const a = animReg[key];
+    if (a.agentId !== agentId) continue;
+    a.mode      = mode;
+    a.frameIdx  = 0;
+    a.lastTick  = 0;
+    a.paused    = mode === 'idle';
+    a.pauseUntil = mode === 'idle' ? performance.now() + IDLE_PAUSE : 0;
+    a.flipX     = false;
+    a.cycleCount = 0;
+    const agent = state.agents.find(ag => ag.id === agentId);
+    if (agent) renderChar(a.canvas, mode, 0, agent.color, a.px, false);
+  }
+}
+
+function renderChar(canvas, mode, frameIdx, agentColor, px, flipX) {
+  const frame = CHAR_FRAMES[mode][frameIdx % CHAR_FRAMES[mode].length];
+  const COLS = frame[0].length;
+  const ROWS = frame.length;
+  canvas.width  = COLS * px;
+  canvas.height = ROWS * px;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (flipX) {
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+
+  const pal = charPalette(agentColor);
+  frame.forEach((row, y) => {
+    row.forEach((v, x) => {
+      if (!v) return;
+      ctx.fillStyle = pal[v];
+      ctx.fillRect(x * px, y * px, px, px);
+    });
+  });
+
+  if (flipX) ctx.restore();
+}
+
+let animLoopStarted = false;
+function startAnimLoop() {
+  if (animLoopStarted) return;
+  animLoopStarted = true;
+
+  function loop(ts) {
+    for (const a of Object.values(animReg)) {
+      const agent = state.agents.find(ag => ag.id === a.agentId);
+      if (!agent) continue;
+
+      // Idle pause — stand still until pauseUntil
+      if (a.mode === 'idle' && a.paused) {
+        if (ts >= a.pauseUntil) {
+          a.paused = false;
+          a.frameIdx = 1; // skip neutral frame, start walk
+          a.lastTick = ts;
+          renderChar(a.canvas, 'idle', a.frameIdx, agent.color, a.px, a.flipX);
+        }
+        continue;
+      }
+
+      const speed = a.mode === 'work' ? WORK_SPEED : IDLE_SPEED;
+      if (ts - a.lastTick < speed) continue;
+
+      a.frameIdx++;
+      const total = CHAR_FRAMES[a.mode].length;
+
+      if (a.frameIdx >= total) {
+        a.frameIdx  = 0;
+        a.cycleCount++;
+        if (a.mode === 'idle') {
+          // Return to standing pause
+          a.paused     = true;
+          a.pauseUntil = ts + IDLE_PAUSE;
+          // Flip direction every 2 cycles so agent paces back and forth
+          if (a.cycleCount % 2 === 0) a.flipX = !a.flipX;
+        }
+      }
+
+      a.lastTick = ts;
+      renderChar(a.canvas, a.mode, a.frameIdx, agent.color, a.px, a.flipX);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// ── Welcome animation ──────────────────────────────────
 function startWelcomeAnimation(canvas, agentColors) {
-  const ctx  = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
   let frame = 0;
-
   function draw() {
     ctx.clearRect(0, 0, W, H);
     const cx = W/2, cy = H/2, r = 52;
-
-    // Orbiting agent dots
     agentColors.forEach((col, i) => {
-      const angle = (i / agentColors.length) * Math.PI*2 + frame * 0.008;
+      const angle = (i / agentColors.length) * Math.PI * 2 + frame * 0.008;
       const x = cx + Math.cos(angle) * r;
       const y = cy + Math.sin(angle) * r;
-
-      // Connecting line
       ctx.strokeStyle = col + '30';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
-
-      // Pixel dot (6×6)
       ctx.fillStyle = col;
-      ctx.fillRect(x-3, y-3, 6, 6);
+      ctx.fillRect(x - 3, y - 3, 6, 6);
     });
-
-    // Pulsing centre square
     const pulse = Math.sin(frame * 0.04) * 3 + 5;
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - pulse, cy - pulse, pulse*2, pulse*2);
-
+    ctx.fillRect(cx - pulse, cy - pulse, pulse * 2, pulse * 2);
     frame++;
     requestAnimationFrame(draw);
   }
   draw();
 }
 
-// ── Logo canvas (sidebar) ──────────────────────────────
+// ── Sidebar logo ───────────────────────────────────────
 function drawLogo(canvas) {
-  // Simple pixel art "hub" icon: a 16×16 grid
-  const px = 4;
+  const px = 3;
   canvas.width  = 16 * px;
   canvas.height = 16 * px;
   const ctx = canvas.getContext('2d');
@@ -180,24 +344,23 @@ function drawLogo(canvas) {
     row.forEach((v, x) => {
       if (!v) return;
       ctx.fillStyle = pal[v];
-      ctx.fillRect(x*px, y*px, px, px);
+      ctx.fillRect(x * px, y * px, px, px);
     });
   });
 }
 
 // ── App state ──────────────────────────────────────────
 const state = {
-  agents:    [],           // [{id, name, description, color, sprite_key}]
-  current:   null,         // current agent id
-  sessions:  {},           // { agentId: sessionId }
-  messages:  {},           // { agentId: [{role, content}] }
+  agents:    [],
+  current:   null,
+  sessions:  {},
+  messages:  {},
   ws:        null,
   streaming: false,
   streamBuf: '',
-  streamEl:  null,         // live bubble element
+  streamEl:  null,
 };
 
-// ── marked.js config ───────────────────────────────────
 marked.setOptions({ breaks: true, gfm: true });
 
 // ── Init ───────────────────────────────────────────────
@@ -214,8 +377,8 @@ async function init() {
   }
 
   renderSidebar();
+  startAnimLoop();
 
-  // Welcome animation
   startWelcomeAnimation(
     document.getElementById('welcome-canvas'),
     state.agents.map(a => a.color),
@@ -234,66 +397,70 @@ function renderSidebar() {
     card.style.setProperty('--agent-color', agent.color);
     card.setAttribute('role', 'button');
     card.setAttribute('tabindex', '0');
-    card.setAttribute('aria-label', `${agent.name}: ${agent.description}`);
     card.onclick = () => selectAgent(agent.id);
     card.onkeydown = e => { if (e.key === 'Enter') selectAgent(agent.id); };
 
-    const canvas = document.createElement('canvas');
+    // Animated character canvas (4 px/logical-px → 40×48)
+    const anim = document.createElement('canvas');
+    anim.className = 'anim-canvas';
 
     card.innerHTML = `
-      <div class="sprite-slot"></div>
+      <div class="anim-wrap"></div>
       <div class="agent-card-info">
         <div class="agent-card-name">${agent.name}</div>
         <div class="agent-card-desc">${agent.description}</div>
+        <div class="agent-status-row">
+          <span class="status-dot"></span>
+          <span class="status-label" id="slabel-${agent.id}">IDLE</span>
+        </div>
       </div>
-      <div class="status-dot"></div>
     `;
-    card.querySelector('.sprite-slot').replaceWith(canvas);
-
+    card.querySelector('.anim-wrap').appendChild(anim);
     list.appendChild(card);
-    renderSprite(canvas, agent.sprite_key, agent.color, 4);
+
+    // Register & draw initial frame
+    registerAnim(agent.id, anim, agent.id, 4);
+    renderChar(anim, 'idle', 0, agent.color, 4, false);
   });
 }
 
 // ── Select agent ───────────────────────────────────────
 function selectAgent(id) {
   if (state.ws) { state.ws.close(); state.ws = null; }
-
   state.current = id;
 
-  // Update sidebar active state
   document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
   document.getElementById(`card-${id}`)?.classList.add('active');
 
   const agent = state.agents.find(a => a.id === id);
   if (!agent) return;
 
-  // Show chat area
   document.getElementById('welcome-screen').style.display = 'none';
   const chatArea = document.getElementById('chat-area');
   chatArea.style.display = 'flex';
   chatArea.style.setProperty('--agent-color', agent.color);
 
-  // Header
-  renderSprite(document.getElementById('header-sprite'), agent.sprite_key, agent.color, 6);
-  const nameEl = document.getElementById('header-name');
-  nameEl.textContent = agent.name;
+  // Header animated character (5 px → 50×60)
+  const headerCanvas = document.getElementById('header-anim');
+  registerAnim('header', headerCanvas, id, 5);
+  renderChar(headerCanvas, 'idle', 0, agent.color, 5, false);
 
+  document.getElementById('header-name').textContent = agent.name;
   document.getElementById('header-desc').textContent = agent.description;
 
-  // Send button colour
   const sendBtn = document.getElementById('send-btn');
   sendBtn.style.borderColor = agent.color;
   sendBtn.style.color       = agent.color;
   sendBtn.style.boxShadow   = `3px 3px 0 0 ${agent.color}`;
 
-  // Messages
   if (!state.messages[id]) state.messages[id] = [];
   renderMessages(id);
+  if (!state.sessions[id]) state.sessions[id] = genSessionId();
+  connectWebSocket(id, state.sessions[id]);
+}
 
-  // Session
-  const existingSession = state.sessions[id];
-  connectWebSocket(id, existingSession);
+function genSessionId() {
+  return 'sess_' + Math.random().toString(36).substring(2, 15);
 }
 
 // ── WebSocket ──────────────────────────────────────────
@@ -307,19 +474,17 @@ function connectWebSocket(agentId, sessionId) {
   const ws = new WebSocket(url);
   state.ws = ws;
 
-  ws.onopen = () => setConnStatus('online');
+  ws.onopen  = () => setConnStatus('online');
+  ws.onerror = () => setConnStatus('offline');
 
   ws.onmessage = e => {
     try { handleWsMsg(JSON.parse(e.data), agentId); }
-    catch (err) { console.error('WS parse error', err); }
+    catch(err) { console.error('WS parse error', err); }
   };
-
-  ws.onerror = () => setConnStatus('offline');
 
   ws.onclose = () => {
     setConnStatus('offline');
     if (state.current === agentId) {
-      // Reconnect after 2 s
       setTimeout(() => {
         if (state.current === agentId) connectWebSocket(agentId, state.sessions[agentId]);
       }, 2000);
@@ -347,6 +512,9 @@ function handleWsMsg(data, agentId) {
     case 'start':
       state.streaming = true;
       state.streamBuf = '';
+      // Agent goes to work!
+      setAgentMode(agentId, 'work');
+      setStatusLabel(agentId, 'WORKING');
       appendStreamingBubble(agentId);
       break;
 
@@ -359,12 +527,17 @@ function handleWsMsg(data, agentId) {
       state.streaming = false;
       finaliseStreamingBubble(agentId, state.streamBuf);
       state.streamBuf = '';
+      // Agent takes a break
+      setAgentMode(agentId, 'idle');
+      setStatusLabel(agentId, 'IDLE');
       enableInput();
       break;
 
     case 'error':
       state.streaming = false;
       appendErrorBubble(agentId, data.content);
+      setAgentMode(agentId, 'idle');
+      setStatusLabel(agentId, 'IDLE');
       enableInput();
       break;
 
@@ -375,11 +548,20 @@ function handleWsMsg(data, agentId) {
   }
 }
 
+function setStatusLabel(agentId, text) {
+  const el = document.getElementById(`slabel-${agentId}`);
+  if (el) {
+    el.textContent = text;
+    el.style.color = text === 'WORKING'
+      ? `var(--agent-color)`
+      : 'var(--dim)';
+  }
+}
+
 // ── Message rendering ──────────────────────────────────
 function renderMessages(agentId) {
   const container = document.getElementById('messages');
   container.innerHTML = '';
-
   const msgs  = state.messages[agentId] || [];
   const agent = state.agents.find(a => a.id === agentId);
 
@@ -401,7 +583,6 @@ function renderMessages(agentId) {
 function appendMessageEl(container, msg, agent) {
   const div = document.createElement('div');
   div.className = `message ${msg.role}`;
-
   const label = msg.role === 'user' ? 'YOU' : (agent?.name ?? 'AGENT');
 
   let html;
@@ -419,16 +600,13 @@ function appendMessageEl(container, msg, agent) {
   if (msg.role === 'assistant') {
     div.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
   }
-
   container.appendChild(div);
 }
 
-// ── Streaming helpers ──────────────────────────────────
+// ── Streaming ──────────────────────────────────────────
 function appendStreamingBubble(agentId) {
   const agent = state.agents.find(a => a.id === agentId);
   const container = document.getElementById('messages');
-
-  // Remove empty state placeholder
   container.querySelector('.chat-empty')?.remove();
 
   const div = document.createElement('div');
@@ -463,10 +641,8 @@ function finaliseStreamingBubble(agentId, text) {
       bubble.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
     }
   }
-
   if (!state.messages[agentId]) state.messages[agentId] = [];
   state.messages[agentId].push({ role: 'assistant', content: text });
-
   state.streamEl = null;
   scrollToBottom();
 }
@@ -483,10 +659,9 @@ function appendErrorBubble(agentId, errText) {
   scrollToBottom();
 }
 
-// ── Send message ───────────────────────────────────────
+// ── Send ───────────────────────────────────────────────
 function sendMessage() {
   if (state.streaming) return;
-
   const input = document.getElementById('message-input');
   const text  = input.value.trim();
   if (!text) return;
@@ -500,31 +675,22 @@ function sendMessage() {
   if (!state.messages[agentId]) state.messages[agentId] = [];
   state.messages[agentId].push({ role: 'user', content: text });
 
-  // Add to DOM
   const container = document.getElementById('messages');
   container.querySelector('.chat-empty')?.remove();
-
   const agent = state.agents.find(a => a.id === agentId);
   appendMessageEl(container, { role: 'user', content: text }, agent);
   scrollToBottom();
 
   disableInput();
-
   state.ws.send(JSON.stringify({
-    type:       'message',
-    content:    text,
-    session_id: state.sessions[agentId],
+    type: 'message', content: text, session_id: state.sessions[agentId],
   }));
-
   input.value = '';
   autoResize(input);
 }
 
 function handleKeyDown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 }
 
 function disableInput() {
@@ -539,16 +705,9 @@ function enableInput() {
   inp.focus();
 }
 
-// ── Clear chat ─────────────────────────────────────────
 function clearChat() {
   if (!state.current || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
-
-  state.ws.send(JSON.stringify({
-    type:       'clear',
-    session_id: state.sessions[state.current],
-  }));
-
-  // Generate fresh session for next conversation
+  state.ws.send(JSON.stringify({ type: 'clear', session_id: state.sessions[state.current] }));
   delete state.sessions[state.current];
 }
 
@@ -557,13 +716,11 @@ function scrollToBottom() {
   const c = document.getElementById('messages');
   if (c) c.scrollTop = c.scrollHeight;
 }
-
 function escHtml(str) {
   const d = document.createElement('div');
   d.appendChild(document.createTextNode(str));
   return d.innerHTML;
 }
-
 function autoResize(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 180) + 'px';
