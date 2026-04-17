@@ -239,7 +239,7 @@ export async function executeAgent<O = unknown>(
     }
   }
 
-  const pricing = PRICING[model] ?? PRICING[DEFAULT_MODEL];
+  const pricing = PRICING[model] ?? { input: 1, output: 5 };
   const costUsd =
     (tokensIn / 1_000_000) * pricing.input + (tokensOut / 1_000_000) * pricing.output;
 
