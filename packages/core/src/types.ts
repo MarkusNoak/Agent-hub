@@ -44,7 +44,7 @@ export interface TenantContext {
 // Agent contract
 // ------------------------------------------------------------
 
-export interface AgentDefinition {
+export interface AgentDefinition<Input = any, Output = any> {
   kind: AgentKind;
   /** Human-readable name shown in dashboard. */
   displayName: string;
