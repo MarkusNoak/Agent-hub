@@ -34,15 +34,15 @@ export class TenantScopedDb {
     return {
       select: (cols = "*") =>
         this.client.from(table).select(cols).eq("tenant_id", this.tenantId),
-      insert: <T extends Record<string, unknown>>(row: T | T[]) => {
+      insert: (row: Record<string, unknown> | Record<string, unknown>[]) => {
         const rows = (Array.isArray(row) ? row : [row]).map((r) => ({
           ...r,
           tenant_id: this.tenantId,
         }));
-        return this.client.from(table).insert(rows);
+        return this.client.from(table).insert(rows as never);
       },
       update: (row: Record<string, unknown>) =>
-           this.client.from(table).update(row as never).eq("tenant_id", this.tenantId),
+        this.client.from(table).update(row as never).eq("tenant_id", this.tenantId),
       delete: () =>
         this.client.from(table).delete().eq("tenant_id", this.tenantId),
     };
