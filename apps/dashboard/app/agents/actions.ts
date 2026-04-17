@@ -36,7 +36,9 @@ export async function triggerAgentManual(formData: FormData) {
   if (error || !agentRow) throw new Error("Agent not found.");
 
   const admin = createSupabaseAdminClient();
-  const tenantSlug = (agentRow.tenants as { slug: string }).slug;
+  const tenantsRef = agentRow.tenants as unknown as { slug: string } | { slug: string }[];
+  const tenantSlug = Array.isArray(tenantsRef) ? tenantsRef[0]?.slug : tenantsRef?.slug;
+  if (!tenantSlug) throw new Error("Tenant slug not found.");
   const tenant = await loadTenant(admin as never, tenantSlug);
   const connectors = await loadTenantConnectors(admin as never, tenant);
   const def = AGENT_REGISTRY[agentRow.kind as AgentKind];
