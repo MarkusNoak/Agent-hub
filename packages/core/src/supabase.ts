@@ -41,8 +41,8 @@ export class TenantScopedDb {
         }));
         return this.client.from(table).insert(rows);
       },
-      update: <T extends Record<string, unknown>>(row: T) =>
-        this.client.from(table).update(row).eq("tenant_id", this.tenantId),
+      update: (row: Record<string, unknown>) =>
+           this.client.from(table).update(row as never).eq("tenant_id", this.tenantId),
       delete: () =>
         this.client.from(table).delete().eq("tenant_id", this.tenantId),
     };
