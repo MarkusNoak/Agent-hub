@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm --filter @agent-hub/core build && pnpm --filter @agent-hub/connectors build && pnpm --filter @agent-hub/agents build && pnpm --filter @agent-hub/dashboard build",
+  "installCommand": "pnpm install --frozen-lockfile=false",
+  "framework": "nextjs",
+  "outputDirectory": "apps/dashboard/.next",
+  "regions": ["arn1"],
+  "functions": {
+    "apps/dashboard/app/api/cron/tick/route.ts": {
+      "maxDuration": 300
+    },
+    "apps/dashboard/app/api/agents/[kind]/run/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

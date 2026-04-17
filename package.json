@@ -1,0 +1,35 @@
+{
+  "name": "agent-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "We Know IT Agent Hub — multi-tenant AI agent platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "agents:run": "pnpm --filter @agent-hub/scheduler start",
+    "dashboard": "pnpm --filter @agent-hub/dashboard dev",
+    "db:migrate": "supabase db push",
+    "db:types": "supabase gen types typescript --local > packages/core/src/database.types.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "tsx": "^4.7.0",
+    "prettier": "^3.2.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
