@@ -54,10 +54,10 @@ export const AI_REPLACEABLE_ROLES = [
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
-/** Zod schema for validated input. */
-  inputSchema: z.ZodType<Input, z.ZodTypeDef, any>;
-  /** Zod schema for validated output. */
-  outputSchema: z.ZodType<Output, z.ZodTypeDef, any>;
+
+async function fetchWithRetry(
+  url: string,
+  opts: RequestInit = {},
   retries = 2,
 ): Promise<Response> {
   for (let i = 0; i <= retries; i++) {
@@ -78,7 +78,6 @@ function sleep(ms: number) {
   }
   throw new Error("unreachable");
 }
-
 // ------------------------------------------------------------
 // SOURCE 1 — Breakit / DI / ComputerSweden RSS
 // ------------------------------------------------------------
