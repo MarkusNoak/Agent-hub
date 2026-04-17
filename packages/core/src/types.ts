@@ -44,7 +44,7 @@ export interface TenantContext {
 // Agent contract
 // ------------------------------------------------------------
 
-export interface AgentDefinition<Input = unknown, Output = unknown> {
+export interface AgentDefinition {
   kind: AgentKind;
   /** Human-readable name shown in dashboard. */
   displayName: string;
@@ -55,9 +55,9 @@ export interface AgentDefinition<Input = unknown, Output = unknown> {
   /** Tool definitions this agent has access to (JSON schema). */
   tools: AgentTool[];
   /** Zod schema for validated input. */
-  inputSchema: z.ZodType<Input>;
+  inputSchema: z.ZodTypeAny;
   /** Zod schema for validated output. */
-  outputSchema: z.ZodType<Output>;
+  outputSchema: z.ZodTypeAny;
   /** Optional default cron expression. */
   defaultCron?: string;
   /** Whether actions taken by this agent require human approval before execution. */
