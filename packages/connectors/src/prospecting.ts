@@ -313,22 +313,22 @@ export async function searchWeakDigitalPresence(opts: {
   const limit = opts.limit ?? 6;
   return candidates
     .slice(0, limit)
-    .map((c) => {
-      const nameMatch = c.title.match(/^([\wåäöÅÄÖ\s&]+(?:AB|HB|KB)?)/i);
-      const company = nameMatch?.[1]?.trim() ?? c.title.split("|")[0]?.trim() ?? "";
-      if (!company || company.length < 4) return null;
-      return {
-        source: "digital_presence" as const,
-        company_name: company,
-        signals: [
-          "Funnen via Google med låg digital närvaro",
-          `Snippet: ${c.snippet}`,
-          `URL: ${c.link}`,
-        ],
-        suggested_offer_hint: "webb_design" as const,
-        extra: { link: c.link },
-      };
-    })
+ .map((c): ProspectSignal | null => {
+         const nameMatch = c.title.match(/^([\wåäöÅÄÖ\s&]+(?:AB|HB|KB)?)/i);
+         const company = nameMatch?.[1]?.trim() ?? c.title.split("|")[0]?.trim() ?? "";
+         if (!company || company.length < 4) return null;
+         return {
+           source: "digital_presence",
+           company_name: company,
+           signals: [
+             "Funnen via Google med låg digital närvaro",
+             `Snippet: ${c.snippet}`,
+             `URL: ${c.link}`,
+           ],
+           suggested_offer_hint: "webb_design",
+           extra: { link: c.link },
+         };
+       })
     .filter((x): x is ProspectSignal => x !== null);
 }
 
