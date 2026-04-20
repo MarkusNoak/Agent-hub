@@ -175,7 +175,10 @@ DECISION FLOW:
       - everything else → core ICP
    c. Skip if score < 55, OR if confidence would be "low" (weak signal, unclear ICP).
    d. Pick ONE offer_type matching the source hint + detected pain.
-   e. upsert_lead with all signals + detected_pains + source.
+   e. upsert_lead with all signals + detected_pains + source. This MUST happen
+      before step f — take the UUID that upsert_lead returns and pass it as
+      lead_id in step f. DO NOT invent lead_id values like "vetted_001";
+      draft_outreach_approval will reject anything that isn't a real UUID.
    f. draft_outreach_approval with a ≤130-word Swedish email. First line = specific observation about them, not about us.
       - For agent_platform: include the meta-pitch PS.
       - For upsell: natural, warm tone — "nu när [projekt] gått live, vill du höra om nästa steg?"
@@ -501,12 +504,18 @@ Output JSON matching the schema with a plain-language summary of which sources f
           );
         }
 
-        // ────── DEDUP GUARD ──────
-        // Look up the lead we're drafting for, then block if the same company
-        // (by normalized name OR domain) has an outreach-stage lead or a sales
-        // approval within the last 30 days. This prevents the LLM from re-drafting
-        // to the same company across runs or twice in the same run.
+        // ────── LEAD EXISTENCE CHECK ──────
+        // Reject made-up lead_id values. The LLM must call upsert_lead first
+        // and use the UUID it returns. Otherwise drafts end up in approval_queue
+        // without any matching row in the leads table.
         const leadId = String(args["lead_id"]);
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidPattern.test(leadId)) {
+          throw new Error(
+            `draft_outreach_approval: lead_id "${leadId}" is not a valid UUID. You must call upsert_lead FIRST to create the lead record in the leads table, then pass the UUID it returns here. Do NOT invent lead_id values.`,
+          );
+        }
+
         const { data: thisLead } = await supa
           .from("leads")
           .select("id, company_name, company_domain")
@@ -514,8 +523,17 @@ Output JSON matching the schema with a plain-language summary of which sources f
           .eq("id", leadId)
           .maybeSingle();
 
-        const thisName = (thisLead?.company_name as string | null) ?? "";
-        const thisDomain = (thisLead?.company_domain as string | null) ?? "";
+        if (!thisLead) {
+          throw new Error(
+            `draft_outreach_approval: lead_id ${leadId} does not exist in the leads table for this tenant. Call upsert_lead first to create the lead, then use the returned id.`,
+          );
+        }
+
+        // ────── DEDUP GUARD ──────
+        // Block if the same company (by normalized name OR domain) has an
+        // outreach-stage lead or a sales approval within the last 30 days.
+        const thisName = (thisLead.company_name as string | null) ?? "";
+        const thisDomain = (thisLead.company_domain as string | null) ?? "";
         const norm = (s: string) =>
           s
             .toLowerCase()
