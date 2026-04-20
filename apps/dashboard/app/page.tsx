@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import {
+import { getActiveTenant } from "@/lib/tenant";
   DailyRunVolumeChart,
   OfferMixChart,
   AgentActivityPie,
