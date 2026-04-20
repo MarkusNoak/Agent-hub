@@ -4,13 +4,5 @@
   "installCommand": "npm install -g pnpm@9.15.0 && pnpm install --frozen-lockfile",
   "framework": "nextjs",
   "outputDirectory": "apps/dashboard/.next",
-  "regions": ["arn1"],
-  "functions": {
-    "apps/dashboard/app/api/cron/tick/route.ts": {
-      "maxDuration": 300
-    },
-    "apps/dashboard/app/api/agents/[kind]/run/route.ts": {
-      "maxDuration": 300
-    }
-  }
+  "regions": ["arn1"]
 }
