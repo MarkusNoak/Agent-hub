@@ -27,7 +27,7 @@ const HOURLY_COST_SEK = 950;
 
 export default async function Overview() {
   const tenant = await getActiveTenant();
-  if (!tenant) return null;
+  if (!tenant) redirect("/login");
   const supa = createSupabaseServerClient();
 
   const [agentsRes, approvalsRes, runsRes, leadsRes] = await Promise.all([
