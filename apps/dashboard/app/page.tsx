@@ -73,7 +73,8 @@ export default async function Overview() {
   const hoursSaved = runsThisMonth
     .filter((r) => r.status === "succeeded")
     .reduce((s, r) => {
-      const ag = r.agents as { kind: string } | null;
+      const agRaw = r.agents as unknown;
+      const ag = (Array.isArray(agRaw) ? agRaw[0] : agRaw) as { kind: string } | null;
       const kind = ag?.kind ?? "";
       return s + (TIME_SAVED_PER_RUN[kind] ?? 0.3);
     }, 0);
@@ -131,7 +132,8 @@ export default async function Overview() {
   runs
     .filter((r) => r.finished_at && new Date(r.finished_at) >= thirtyAgo)
     .forEach((r) => {
-      const ag = r.agents as { kind: string } | null;
+      const agRaw = r.agents as unknown;
+      const ag = (Array.isArray(agRaw) ? agRaw[0] : agRaw) as { kind: string } | null;
       const kind = ag?.kind ?? "other";
       activityBuckets[kind] = (activityBuckets[kind] ?? 0) + 1;
     });
@@ -141,7 +143,8 @@ export default async function Overview() {
 
   // Live feed initial payload
   const feedInitial = runs.slice(0, 20).map((r) => {
-    const ag = r.agents as { kind: string; name: string } | null;
+const agRaw = r.agents as unknown;
+    const ag = (Array.isArray(agRaw) ? agRaw[0] : agRaw) as { kind: string; name: string } | null;
     const out = r.output as Record<string, unknown> | null;
     let summary: string | null = null;
     if (out) {
