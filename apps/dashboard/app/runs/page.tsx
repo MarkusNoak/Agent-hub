@@ -38,7 +38,7 @@ export default async function RunsPage() {
           </thead>
           <tbody>
             {runs?.map((r) => {
-              const ag = r.agents as { kind: string; name: string } | null;
+              const ag = r.agents as unknown as { kind: string; name: string } | null;
               const duration = r.started_at && r.finished_at
                 ? `${Math.round((new Date(r.finished_at).getTime() - new Date(r.started_at).getTime()) / 1000)}s`
                 : "—";
