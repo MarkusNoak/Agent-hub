@@ -139,6 +139,21 @@ The outreach MUST include a short PS revealing this email was written by the Sal
   "PS — detta mejl skrevs av vår Sales Agent. Jag godkände det innan det gick ut. Det är produkten jag vill visa dig."
 ` : ""}
 ────────────────────────────────────────
+DEDUP RULE (MANDATORY — do this FIRST):
+
+1. Call \`list_recent_outreach\` ONCE at the start of every run. It returns companies
+   we have already drafted/approved/sent outreach to within the last 30 days.
+2. Build a blocklist of those company names + domains (normalize: lowercase, trim,
+   strip "AB"/"AS"/"Inc"/"Ltd").
+3. As you process prospects from any source, SKIP silently if the company is on
+   the blocklist. Do NOT call upsert_lead or draft_outreach_approval for them.
+4. Within the same run, also skip a company the SECOND time it appears — one
+   draft per company per run, no matter how many sources it shows up in.
+5. The server enforces this: draft_outreach_approval will THROW if a duplicate
+   slips through. If that happens, log it in leads_skipped with reason="dedup"
+   and move on — don't retry.
+
+────────────────────────────────────────
 DATA SOURCES (call as tools — all free):
 
 1. fetch_funding_news          RSS (Breakit, DI, ComputerSweden). Funding/growth signals → app_development or ai_automation.
@@ -175,6 +190,93 @@ Output JSON matching the schema with a plain-language summary of which sources f
   },
 
   tools: [
+    // ────────────────────────────────────────────────────────
+    // DEDUP — must be called first each run
+    // ────────────────────────────────────────────────────────
+    {
+      name: "list_recent_outreach",
+      description:
+        "Returns companies the Sales Agent has already drafted/approved/sent outreach to within the last N days (default 30). Call this FIRST on every run and use the result as a blocklist — do not draft outreach for any company on this list.",
+      input_schema: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Lookback window in days (default 30)" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
+        const days = (args["days"] as number) ?? 30;
+        const since = new Date(Date.now() - days * 86400_000).toISOString();
+
+        // Pull recent sales approvals (payload has company info)
+        const { data: approvals } = await supa
+          .from("approval_queue")
+          .select("payload, created_at, status")
+          .eq("tenant_id", ctx.tenant.tenantId)
+          .eq("agent_kind", "sales")
+          .gte("created_at", since);
+
+        // Pull recent leads that reached outreach stage
+        const { data: leads } = await supa
+          .from("leads")
+          .select("company_name, company_domain, stage, updated_at")
+          .eq("tenant_id", ctx.tenant.tenantId)
+          .in("stage", ["outreach_drafted", "outreach_sent", "in_conversation"])
+          .gte("updated_at", since);
+
+        const norm = (s: unknown) =>
+          String(s ?? "")
+            .toLowerCase()
+            .trim()
+            .replace(/\b(ab|asa|as|oy|inc|ltd|llc|gmbh|bv)\b\.?/g, "")
+            .replace(/[^a-z0-9]+/g, "");
+
+        const companies = new Set<string>();
+        const domains = new Set<string>();
+        const raw: Array<{ company_name?: string; company_domain?: string; source: string }> = [];
+
+        for (const a of approvals ?? []) {
+          const p = (a.payload ?? {}) as Record<string, unknown>;
+          // lead info is nested: draft_outreach_approval payload has to_email + lead_id but
+          // company_name lives in upsert_lead → leads table. We also stash it in payload.
+          const subject = String(p["subject"] ?? "");
+          const toEmail = String(p["to_email"] ?? "");
+          const domain = toEmail.includes("@") ? toEmail.split("@")[1].toLowerCase() : undefined;
+          if (domain) {
+            domains.add(domain);
+            raw.push({ company_domain: domain, source: "approval_queue" });
+          }
+          // Try to extract company from subject "Outreach [..]: name@domain"
+          const match = subject.match(/:\s*([^@\s]+)@/);
+          if (match) {
+            const guess = match[1];
+            companies.add(norm(guess));
+          }
+        }
+
+        for (const l of leads ?? []) {
+          const name = l.company_name as string | null;
+          const domain = l.company_domain as string | null;
+          if (name) companies.add(norm(name));
+          if (domain) domains.add(domain.toLowerCase());
+          raw.push({
+            company_name: name ?? undefined,
+            company_domain: domain ?? undefined,
+            source: "leads",
+          });
+        }
+
+        return {
+          lookback_days: days,
+          blocked_company_names_normalized: Array.from(companies).filter(Boolean),
+          blocked_domains: Array.from(domains).filter(Boolean),
+          count: companies.size + domains.size,
+          raw_sample: raw.slice(0, 20),
+          instruction:
+            "Do not draft outreach to any company whose normalized name or email domain matches this list. Normalize by lowercasing, trimming, stripping AB/AS/Inc/Ltd, removing non-alphanumeric.",
+        };
+      },
+    },
     // ────────────────────────────────────────────────────────
     // SOURCES — all free
     // ────────────────────────────────────────────────────────
@@ -398,6 +500,73 @@ Output JSON matching the schema with a plain-language summary of which sources f
             "draft_outreach_approval: offer_type=agent_platform requires meta_pitch=true. Rewrite the body to reveal that the email was drafted by the Sales Agent.",
           );
         }
+
+        // ────── DEDUP GUARD ──────
+        // Look up the lead we're drafting for, then block if the same company
+        // (by normalized name OR domain) has an outreach-stage lead or a sales
+        // approval within the last 30 days. This prevents the LLM from re-drafting
+        // to the same company across runs or twice in the same run.
+        const leadId = String(args["lead_id"]);
+        const { data: thisLead } = await supa
+          .from("leads")
+          .select("id, company_name, company_domain")
+          .eq("tenant_id", ctx.tenant.tenantId)
+          .eq("id", leadId)
+          .maybeSingle();
+
+        const thisName = (thisLead?.company_name as string | null) ?? "";
+        const thisDomain = (thisLead?.company_domain as string | null) ?? "";
+        const norm = (s: string) =>
+          s
+            .toLowerCase()
+            .trim()
+            .replace(/\b(ab|asa|as|oy|inc|ltd|llc|gmbh|bv)\b\.?/g, "")
+            .replace(/[^a-z0-9]+/g, "");
+        const thisNameNorm = norm(thisName);
+        const thisDomainLc = thisDomain.toLowerCase();
+
+        if (thisNameNorm || thisDomainLc) {
+          const since = new Date(Date.now() - 30 * 86400_000).toISOString();
+          const { data: otherLeads } = await supa
+            .from("leads")
+            .select("id, company_name, company_domain, stage, updated_at")
+            .eq("tenant_id", ctx.tenant.tenantId)
+            .in("stage", ["outreach_drafted", "outreach_sent", "in_conversation"])
+            .gte("updated_at", since)
+            .neq("id", leadId);
+
+          for (const other of otherLeads ?? []) {
+            const nn = norm((other.company_name as string | null) ?? "");
+            const dd = ((other.company_domain as string | null) ?? "").toLowerCase();
+            if ((thisNameNorm && nn && nn === thisNameNorm) || (thisDomainLc && dd && dd === thisDomainLc)) {
+              throw new Error(
+                `dedup: ${thisName || thisDomain} already has an active outreach lead in the last 30 days (${other.stage}). Skip this company and continue with other prospects.`,
+              );
+            }
+          }
+
+          // Also check pending/approved/sent sales approvals in the queue.
+          const { data: recentApprovals } = await supa
+            .from("approval_queue")
+            .select("id, payload, created_at, status")
+            .eq("tenant_id", ctx.tenant.tenantId)
+            .eq("agent_kind", "sales")
+            .gte("created_at", since);
+
+          for (const ap of recentApprovals ?? []) {
+            const p = (ap.payload ?? {}) as Record<string, unknown>;
+            const apTo = String(p["to_email"] ?? "").toLowerCase();
+            const apDomain = apTo.includes("@") ? apTo.split("@")[1] : "";
+            const apLeadId = String(p["lead_id"] ?? "");
+            if (apLeadId && apLeadId === leadId) continue; // same lead = re-draft ok (shouldn't happen but fine)
+            if (thisDomainLc && apDomain && apDomain === thisDomainLc) {
+              throw new Error(
+                `dedup: domain ${thisDomainLc} already has a sales approval (${ap.status}) from the last 30 days. Skip this company.`,
+              );
+            }
+          }
+        }
+        // ────── END DEDUP GUARD ──────
 
         const { approvalId } = await enqueueApproval(supa, {
           tenant: ctx.tenant,
