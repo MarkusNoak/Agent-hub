@@ -51,13 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <main className="p-8 max-w-6xl">{children}</main>
           </div>
         ) : (
-          <div className="min-h-screen flex items-center justify-center">
-            <div className="card p-8 max-w-md">
-              <h1 className="text-2xl font-semibold mb-2">Sign in to Agent Hub</h1>
-              <p className="text-ink-500 mb-4">You need an account on a tenant to continue.</p>
-              <Link href="/login" className="btn btn-primary">Sign in</Link>
-            </div>
-          </div>
+          <>{children}</>
         )}
       </body>
     </html>
