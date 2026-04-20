@@ -4,6 +4,10 @@ import { toggleAgent, triggerAgentManual } from "./actions";
 import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
+// Manual agent triggers run synchronously in a server action. Extend the
+// Vercel lambda lifetime so executeAgent has time to complete (Hobby max 60s,
+// Pro up to 300s). Long-running agents should go via pg_cron instead.
+export const maxDuration = 60;
 
 export default async function AgentsPage() {
   const tenant = await getActiveTenant();
