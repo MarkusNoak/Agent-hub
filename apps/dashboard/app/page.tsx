@@ -29,25 +29,15 @@ export default async function Overview() {
   const supa = createSupabaseServerClient();
 
   const [agentsRes, approvalsRes, runsRes, leadsRes] = await Promise.all([
-    supa
-      .from("agents")
-      .select("kind, name, status, last_run_at")
-      .eq("tenant_id", tenant.id),
-    supa
-      .from("approval_queue")
-      .select("id")
-      .eq("tenant_id", tenant.id)
-      .eq("status", "pending"),
+    supa.from("agents").select("kind, name, status, last_run_at").eq("tenant_id", tenant.id),
+    supa.from("approval_queue").select("id").eq("tenant_id", tenant.id).eq("status", "pending"),
     supa
       .from("agent_runs")
       .select("id, status, cost_usd, iterations, started_at, finished_at, output, agents(kind, name)")
       .eq("tenant_id", tenant.id)
       .order("created_at", { ascending: false })
       .limit(500),
-    supa
-      .from("leads")
-      .select("offer_type, stage")
-      .eq("tenant_id", tenant.id),
+    supa.from("leads").select("offer_type, stage").eq("tenant_id", tenant.id),
   ]);
 
   const agents = agentsRes.data ?? [];
@@ -62,10 +52,7 @@ export default async function Overview() {
   const runsThisMonth = runs.filter(
     (r) => r.finished_at && new Date(r.finished_at) >= monthStart,
   );
-  const monthCostUsd = runsThisMonth.reduce(
-    (s, r) => s + Number(r.cost_usd ?? 0),
-    0,
-  );
+  const monthCostUsd = runsThisMonth.reduce((s, r) => s + Number(r.cost_usd ?? 0), 0);
 
   const hoursSaved = runsThisMonth
     .filter((r) => r.status === "succeeded")
@@ -161,16 +148,13 @@ export default async function Overview() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
           <p className="text-ink-500">
-            Agent Hub for <span className="font-medium">{tenant.name}</span> ·
-            Plan: <span className="font-medium">{tenant.plan}</span>
+            Agent Hub for <span className="font-medium">{tenant.name}</span> - Plan:{" "}
+            <span className="font-medium">{tenant.plan}</span>
           </p>
         </div>
         {pendingApprovals > 0 && (
-          <Link
-            href="/approvals"
-            className="btn btn-primary whitespace-nowrap animate-pulse"
-          >
-            {pendingApprovals} pending approval{pendingApprovals === 1 ? "" : "s"} →
+          <Link href="/approvals" className="btn btn-primary whitespace-nowrap animate-pulse">
+            {pendingApprovals} pending approval{pendingApprovals === 1 ? "" : "s"}
           </Link>
         )}
       </header>
@@ -179,7 +163,7 @@ export default async function Overview() {
         <ImpactKpi
           label="Hours saved this month"
           value={`${Math.round(hoursSaved)}h`}
-          subtitle={`≈ ${Math.round(sekSaved).toLocaleString("sv-SE")} SEK at ${HOURLY_COST_SEK}/h`}
+          subtitle={`~${Math.round(sekSaved).toLocaleString("sv-SE")} SEK at ${HOURLY_COST_SEK}/h`}
           tone="green"
         />
         <ImpactKpi
