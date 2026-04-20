@@ -4,73 +4,70 @@ import { AGENT_REGISTRY } from "@agent-hub/agents";
 import { loadTenantConnectors } from "@agent-hub/connectors";
 import { executeAgent, loadTenant, type AgentKind } from "@agent-hub/core";
 
-// ------------------------------------------------------------
-// Minimal cron matcher — supports the 5-field format used in our
-// agent schedules (minute hour day-of-month month day-of-week).
-// Handles *, N, N-M, */N and comma lists.
-// Returns true if `date` matches the expression.
-// ------------------------------------------------------------
+// Minimal cron matcher. Supports the 5-field format:
+// minute hour day-of-month month day-of-week.
+// Handles *, N, N-M, and comma lists.
 function cronMatches(expr: string, date: Date): boolean {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) return false;
-  const [mi, ho, dm, mo, dw] = parts;
   const values = [
-    date.getMinutes(),        // 0-59
-    date.getHours(),          // 0-23
-    date.getDate(),           // 1-31
-    date.getMonth() + 1,      // 1-12
-    date.getDay(),            // 0-6 (0=Sun)
+    date.getMinutes(),
+    date.getHours(),
+    date.getDate(),
+    date.getMonth() + 1,
+    date.getDay(),
   ];
-  const fields = [mi, ho, dm, mo, dw];
-  const ranges: [number, number][] = [
-    [0, 59], [0, 23], [1, 31], [1, 12], [0, 6],
-  ];
-  return fields.every((field, i) => matchField(field!, values[i]!, ranges[i]!));
+  for (let i = 0; i < 5; i++) {
+    if (!matchField(parts[i] as string, values[i] as number)) return false;
+  }
+  return true;
 }
 
-function matchField(field: string, value: number, [lo, hi]: [number, number]): boolean {
-  return field.split(",").some((piece) => {
-    let step = 1;
-    let range = piece;
-    if (piece.includes("/")) {
-      const [r, s] = piece.split("/");
-      range = r!;
-      step = parseInt(s!, 10) || 1;
+function matchField(field: string, value: number): boolean {
+  const pieces = field.split(",");
+  for (const piece of pieces) {
+    if (piece === "*") return true;
+    if (piece.includes("-")) {
+      const bits = piece.split("-");
+      const from = parseInt(bits[0] as string, 10);
+      const to = parseInt(bits[1] as string, 10);
+      if (value >= from && value <= to) return true;
+    } else {
+      if (parseInt(piece, 10) === value) return true;
     }
-    let from = lo;
-    let to = hi;
-    if (range !== "*") {
-      if (range.includes("-")) {
-        const [a, b] = range.split("-");
-        from = parseInt(a!, 10);
-        to = parseInt(b!, 10);
-      } else {
-        from = to = parseInt(range, 10);
-      }
-    }
-    if (value < from || value > to) return false;
-    return (value - from) % step === 0;
-  });
+  }
+  return false;
 }
 
-// Vercel serverless timeout. Pro tier gives us 300s per invocation,
-// enough for typical agent runs (4-45s). Long-running agents are
-// fire-and-forget via the background execution pattern below.
+async function dispatchAgent(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  row: { id: string; kind: AgentKind; tenantSlug: string }
+): Promise<void> {
+  try {
+    const tenant = await loadTenant(admin as never, row.tenantSlug);
+    const connectors = await loadTenantConnectors(admin as never, tenant);
+    const agentDef = AGENT_REGISTRY[row.kind];
+    if (!agentDef) return;
+    await executeAgent({
+      tenant,
+      agent: agentDef,
+      input: {},
+      trigger: "cron",
+      connectors,
+      supabase: admin as never,
+    });
+    await admin
+      .from("agents")
+      .update({ last_run_at: new Date().toISOString() })
+      .eq("id", row.id);
+  } catch (e) {
+    console.error("tick dispatch failed", row.tenantSlug, row.kind, e);
+  }
+}
+
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-/**
- * pg_cron tick endpoint.
- *
- * Called every minute by the Supabase pg_cron job configured in
- * supabase/migrations/0004_pg_cron_tick.sql. Loops enabled agents,
- * finds the ones whose schedule says "run now", and kicks off their
- * executions asynchronously. Replaces the long-running scheduler
- * worker — Vercel serverless does the job.
- *
- * Authed with CRON_SECRET so random internet requests can't trigger
- * paid Claude API calls on your behalf.
- */
 export async function POST(req: NextRequest) {
   const secret =
     req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
@@ -82,11 +79,10 @@ export async function POST(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const now = new Date();
 
-  // Pull every enabled agent with a cron expression, across tenants.
   const { data: rows, error } = await admin
     .from("agents")
     .select(
-      "id, tenant_id, kind, name, cron, last_run_at, next_run_at, tenants!inner(slug, name, settings, plan)",
+      "id, tenant_id, kind, name, cron, last_run_at, next_run_at, tenants!inner(slug, name, settings, plan)"
     )
     .eq("status", "enabled")
     .not("cron", "is", null);
@@ -95,7 +91,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const dispatched: Array<{ tenant: string; kind: string; runId?: string }> = [];
+  const dispatched: Array<{ tenant: string; kind: string }> = [];
   const skipped: Array<{ tenant: string; kind: string; reason: string }> = [];
 
   for (const row of rows ?? []) {
@@ -106,33 +102,43 @@ export async function POST(req: NextRequest) {
       plan: string;
     };
     const kind = row.kind as AgentKind;
-
-    // Is this agent due? Match the cron expression against the current
-    // minute, and guard against double-firing within the same minute by
-    // checking last_run_at.
     const cronExpr = row.cron as string;
     const matches = cronMatches(cronExpr, now);
     const last = row.last_run_at ? new Date(row.last_run_at) : null;
     const alreadyRan =
-      last !== null && now.getTime() - last.getTime() < 55_000; // <55s = same minute
+      last !== null && now.getTime() - last.getTime() < 55000;
     const due = matches && !alreadyRan;
 
     if (!due) {
       skipped.push({
         tenant: tenantRel.slug,
         kind,
-        reason: matches
-          ? `already ran at ${last?.toISOString()}`
-          : `cron ${cronExpr} doesn't match ${now.toISOString()}`,
+        reason: matches ? "already ran this minute" : "not due",
       });
       continue;
     }
 
-    const agentDef = AGENT_REGISTRY[kind];
-    if (!agentDef) {
+    if (!AGENT_REGISTRY[kind]) {
       skipped.push({ tenant: tenantRel.slug, kind, reason: "unknown kind" });
       continue;
     }
 
-    // Load connectors + dispatch async. We don't await — serverless
-    // lets each agent execution run up
+    void dispatchAgent(admin, {
+      id: row.id as string,
+      kind,
+      tenantSlug: tenantRel.slug,
+    });
+    dispatched.push({ tenant: tenantRel.slug, kind });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    ticked_at: now.toISOString(),
+    dispatched,
+    skipped,
+  });
+}
+
+export async function GET() {
+  return NextResponse.json({ ok: true, service: "agent-hub-tick" });
+}
