@@ -3,7 +3,7 @@ import { createSupabaseServerClient } from "./supabase-server";
 
 /**
  * Resolve the active tenant for this request.
- * Priority: cookie `active_tenant` → first tenant the user belongs to.
+ * Priority: cookie `active_tenant` then first tenant the user belongs to.
  * Returns null if user isn't authed or has no tenants.
  */
 export async function getActiveTenant() {
@@ -19,17 +19,26 @@ export async function getActiveTenant() {
 
   if (!memberships?.length) return null;
 
-  const preferred =
-    memberships.find((m) => (m.tenants as { slug: string }).slug === cookieTenant) ??
-    memberships[0];
-
-  const t = preferred.tenants as {
+  type TenantRow = {
     id: string;
     slug: string;
     name: string;
     settings: Record<string, unknown>;
     plan: string;
   };
+
+  // Supabase returns joined relations as T or T[] depending on cardinality.
+  const pickTenant = (raw: unknown): TenantRow => {
+    const obj = Array.isArray(raw) ? raw[0] : raw;
+    return obj as TenantRow;
+  };
+
+  const preferred =
+    memberships.find((m) => pickTenant(m.tenants).slug === cookieTenant) ??
+    memberships[0];
+  if (!preferred) return null;
+
+  const t = pickTenant(preferred.tenants);
 
   return {
     id: t.id,
@@ -39,6 +48,9 @@ export async function getActiveTenant() {
     plan: t.plan,
     settings: t.settings,
     user: auth.user,
-    memberships: memberships.map((m) => m.tenants as { id: string; slug: string; name: string }),
+    memberships: memberships.map((m) => {
+      const tt = pickTenant(m.tenants);
+      return { id: tt.id, slug: tt.slug, name: tt.name };
+    }),
   };
 }
