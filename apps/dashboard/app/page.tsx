@@ -1,7 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { getActiveTenant } from "@/lib/tenant";
-import { LiveActivityFeed } from "./components/LiveActivityFeed";
 import {
   DailyRunVolumeChart,
   OfferMixChart,
@@ -27,7 +26,7 @@ const HOURLY_COST_SEK = 950;
 
 export default async function Overview() {
   const tenant = await getActiveTenant();
-  if (!tenant) redirect("/login");
+ if (!tenant) redirect("/login");
   const supa = createSupabaseServerClient();
 
   const [agentsRes, approvalsRes, runsRes, leadsRes] = await Promise.all([
