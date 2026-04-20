@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
+import { LiveActivityFeed } from "./components/LiveActivityFeed";
+import {
   DailyRunVolumeChart,
   OfferMixChart,
   AgentActivityPie,
@@ -10,8 +12,6 @@ import { getActiveTenant } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
-// Conservative time-saved estimates per agent-run (hours).
-// Tunable — these power the KPI, not the cost accounting.
 const TIME_SAVED_PER_RUN: Record<string, number> = {
   invoice: 0.5,
   finance_report: 1.5,
@@ -21,12 +21,11 @@ const TIME_SAVED_PER_RUN: Record<string, number> = {
   project: 0.25,
   marketing: 1.0,
 };
-// WKI internal loaded cost of 1h of manual work (SEK).
 const HOURLY_COST_SEK = 950;
 
 export default async function Overview() {
   const tenant = await getActiveTenant();
- if (!tenant) redirect("/login");
+  if (!tenant) redirect("/login");
   const supa = createSupabaseServerClient();
 
   const [agentsRes, approvalsRes, runsRes, leadsRes] = await Promise.all([
@@ -68,7 +67,6 @@ export default async function Overview() {
     0,
   );
 
-  // Time saved = sum over succeeded runs × TIME_SAVED_PER_RUN[kind]
   const hoursSaved = runsThisMonth
     .filter((r) => r.status === "succeeded")
     .reduce((s, r) => {
@@ -79,12 +77,11 @@ export default async function Overview() {
     }, 0);
   const sekSaved = hoursSaved * HOURLY_COST_SEK;
 
-  // 14-day area chart
   const dailyBuckets: Record<string, { runs: number; cost: number }> = {};
   for (let i = 13; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(5, 10); // MM-DD
+    const key = d.toISOString().slice(5, 10);
     dailyBuckets[key] = { runs: 0, cost: 0 };
   }
   runs.forEach((r) => {
@@ -101,11 +98,7 @@ export default async function Overview() {
     cost: Number(v.cost.toFixed(4)),
   }));
 
-  // Offer mix (sales pipeline)
-  const offerBuckets: Record<
-    string,
-    { drafted: number; sent: number; replied: number }
-  > = {
+  const offerBuckets: Record<string, { drafted: number; sent: number; replied: number }> = {
     webb_design: { drafted: 0, sent: 0, replied: 0 },
     app_development: { drafted: 0, sent: 0, replied: 0 },
     ai_automation: { drafted: 0, sent: 0, replied: 0 },
@@ -124,7 +117,6 @@ export default async function Overview() {
     ...v,
   }));
 
-  // Agent activity pie (last 30 days)
   const thirtyAgo = new Date();
   thirtyAgo.setDate(thirtyAgo.getDate() - 30);
   const activityBuckets: Record<string, number> = {};
@@ -140,9 +132,8 @@ export default async function Overview() {
     .map(([kind, runs]) => ({ kind, runs }))
     .filter((d) => d.runs > 0);
 
-  // Live feed initial payload
   const feedInitial = runs.slice(0, 20).map((r) => {
-const agRaw = r.agents as unknown;
+    const agRaw = r.agents as unknown;
     const ag = (Array.isArray(agRaw) ? agRaw[0] : agRaw) as { kind: string; name: string } | null;
     const out = r.output as Record<string, unknown> | null;
     let summary: string | null = null;
