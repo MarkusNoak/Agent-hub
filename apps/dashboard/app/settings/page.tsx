@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
+import { InviteUserForm } from "./InviteUserForm";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,13 @@ const INTEGRATION_LABELS: Record<string, string> = {
   github: "GitHub",
 };
 
+const ROLE_BADGE: Record<string, string> = {
+  owner: "badge-blue",
+  admin: "badge-blue",
+  approver: "badge-yellow",
+  viewer: "badge-gray",
+};
+
 export default async function SettingsPage() {
   const tenant = await getActiveTenant();
   if (!tenant) return null;
@@ -25,6 +33,22 @@ export default async function SettingsPage() {
     .eq("tenant_id", tenant.id);
 
   const configured = new Set((integrations ?? []).map((i) => i.kind));
+
+  const { data: members } = await supa
+    .from("users_tenants")
+    .select("user_id, role, created_at")
+    .eq("tenant_id", tenant.id);
+
+  // Emails live in auth.users and are not exposed via PostgREST by default.
+  // We show role + user id; email for current user from session.
+  const memberRows = (members ?? []).map((m) => ({
+    user_id: m.user_id as string,
+    role: m.role as string,
+    created_at: m.created_at as string,
+    is_you: m.user_id === tenant.user.id,
+  }));
+
+  const canInvite = tenant.role === "owner" || tenant.role === "admin";
 
   return (
     <div className="space-y-6">
@@ -54,9 +78,43 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section className="card p-6">
-        <h2 className="font-semibold mb-4">Members</h2>
-        <p className="text-ink-500 text-sm">Invite management UI — TODO.</p>
+      <section className="card p-6 space-y-5">
+        <div>
+          <h2 className="font-semibold">Members</h2>
+          <p className="text-ink-500 text-sm">
+            {memberRows.length} member{memberRows.length === 1 ? "" : "s"} on this tenant.
+          </p>
+        </div>
+
+        <div className="divide-y divide-ink-100 border border-ink-100 rounded-lg">
+          {memberRows.map((m) => (
+            <div
+              key={m.user_id}
+              className="flex items-center justify-between p-3 text-sm"
+            >
+              <div className="font-mono text-xs text-ink-700">
+                {m.user_id}
+                {m.is_you && (
+                  <span className="ml-2 text-ink-500">(you)</span>
+                )}
+              </div>
+              <span className={`badge ${ROLE_BADGE[m.role] ?? "badge-gray"}`}>
+                {m.role}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {canInvite ? (
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium">Invite new member</h3>
+            <InviteUserForm tenantSlug={tenant.slug} callerRole={tenant.role} />
+          </div>
+        ) : (
+          <p className="text-xs text-ink-500">
+            Only owners and admins can invite new members.
+          </p>
+        )}
       </section>
     </div>
   );
