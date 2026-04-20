@@ -241,16 +241,16 @@ Output JSON matching the schema with a plain-language summary of which sources f
           // company_name lives in upsert_lead → leads table. We also stash it in payload.
           const subject = String(p["subject"] ?? "");
           const toEmail = String(p["to_email"] ?? "");
-          const domain = toEmail.includes("@") ? toEmail.split("@")[1].toLowerCase() : undefined;
+          const atIdx = toEmail.indexOf("@");
+          const domain = atIdx >= 0 ? toEmail.slice(atIdx + 1).toLowerCase() : undefined;
           if (domain) {
             domains.add(domain);
             raw.push({ company_domain: domain, source: "approval_queue" });
           }
           // Try to extract company from subject "Outreach [..]: name@domain"
           const match = subject.match(/:\s*([^@\s]+)@/);
-          if (match) {
-            const guess = match[1];
-            companies.add(norm(guess));
+          if (match && match[1]) {
+            companies.add(norm(match[1]));
           }
         }
 
@@ -556,7 +556,8 @@ Output JSON matching the schema with a plain-language summary of which sources f
           for (const ap of recentApprovals ?? []) {
             const p = (ap.payload ?? {}) as Record<string, unknown>;
             const apTo = String(p["to_email"] ?? "").toLowerCase();
-            const apDomain = apTo.includes("@") ? apTo.split("@")[1] : "";
+            const apAtIdx = apTo.indexOf("@");
+            const apDomain = apAtIdx >= 0 ? apTo.slice(apAtIdx + 1) : "";
             const apLeadId = String(p["lead_id"] ?? "");
             if (apLeadId && apLeadId === leadId) continue; // same lead = re-draft ok (shouldn't happen but fine)
             if (thisDomainLc && apDomain && apDomain === thisDomainLc) {
