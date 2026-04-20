@@ -4,6 +4,9 @@ import { AGENT_REGISTRY } from "@agent-hub/agents";
 import { loadTenantConnectors } from "@agent-hub/connectors";
 import { executeAgent, loadTenant, type AgentKind } from "@agent-hub/core";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 /**
  * Webhook endpoint — external triggers (Visma, Trello, Stripe, etc.)
  * POST /api/agents/<kind>/run
