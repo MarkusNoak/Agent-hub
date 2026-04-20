@@ -26,7 +26,8 @@ export async function GET() {
     .limit(20);
 
   const items = (runs ?? []).map((r) => {
-    const ag = r.agents as { kind: string; name: string } | null;
+  const agRaw = r.agents as unknown;
+    const ag = (Array.isArray(agRaw) ? agRaw[0] : agRaw) as { kind: string; name: string } | null;
     const out = r.output as Record<string, unknown> | null;
     let summary: string | null = null;
     if (out) {
