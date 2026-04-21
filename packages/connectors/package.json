@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@agent-hub/core": "workspace:*",
+    "nodemailer": "^6.9.14",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@types/nodemailer": "^6.4.15",
     "typescript": "^5.4.0"
   }
 }
