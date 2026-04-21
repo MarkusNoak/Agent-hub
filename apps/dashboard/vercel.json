@@ -1,8 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "{
-  "installCommand": "npm install -g pnpm@9.15.0 && pnpm install --no-frozen-lockfile"
-}",
+  "installCommand": "npm install -g pnpm@9.15.0 && pnpm install --no-frozen-lockfile",
   "buildCommand": "cd ../.. && pnpm --filter @agent-hub/core build && pnpm --filter @agent-hub/connectors build && pnpm --filter @agent-hub/agents build && pnpm --filter @agent-hub/dashboard build",
   "framework": "nextjs",
   "regions": ["arn1"]
