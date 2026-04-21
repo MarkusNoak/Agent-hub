@@ -1,7 +1,7 @@
 /**
  * Free prospecting sources — zero paid APIs.
  *
- * 1. RSS (Breakit / DI / ComputerSweden) — funding + growth news
+ * 1. RSS (Breakit / ComputerSweden) — funding + growth news
  * 2. Allabolag.se scrape           — SNI + size ICP filter
  * 3. Arbetsförmedlingen Jobs API   — open gov data, AI-replaceable roles
  * 4. Google Custom Search          — 100 free queries/day (optional)
@@ -11,13 +11,10 @@
  * a reusable connector so Agent Hub's Sales Agent can call each source
  * as a tool without leaking paid-API assumptions.
  */
-
 import type { SupabaseClient } from "@supabase/supabase-js";
-
 // ------------------------------------------------------------
 // Shared types
 // ------------------------------------------------------------
-
 export type ProspectSignal = {
   source: "funding_news" | "allabolag_icp" | "job_signal" | "digital_presence" | "visma_upsell";
   company_name: string;
@@ -30,7 +27,6 @@ export type ProspectSignal = {
     | "upsell";
   extra?: Record<string, unknown>;
 };
-
 export const AI_REPLACEABLE_ROLES = [
   "ekonomiassistent",
   "redovisningsassistent",
@@ -46,15 +42,12 @@ export const AI_REPLACEABLE_ROLES = [
   "fakturahantering",
   "data entry",
 ] as const;
-
 // ------------------------------------------------------------
 // Utilities
 // ------------------------------------------------------------
-
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
-
 async function fetchWithRetry(
   url: string,
   opts: RequestInit = {},
@@ -79,9 +72,10 @@ async function fetchWithRetry(
   throw new Error("unreachable");
 }
 // ------------------------------------------------------------
-// SOURCE 1 — Breakit / DI / ComputerSweden RSS
+// SOURCE 1 — Breakit / ComputerSweden RSS
+// NOTE: DI.se removed — its RSS returns large-cap stock news that
+// matches funding keywords (miljoner) but is not SMB-relevant.
 // ------------------------------------------------------------
-
 const FUNDING_KEYWORDS = [
   "finansiering",
   "miljoner",
@@ -97,15 +91,34 @@ const FUNDING_KEYWORDS = [
   "anställer",
 ];
 
+// Large-cap / listed company signals to exclude
+const LARGE_CAP_SIGNALS = [
+  "börsen",
+  "stockholmsbörsen",
+  "nasdaq",
+  "first north",
+  "rapportsäsongen",
+  "ebitda",
+  "ebita",
+  "kvartal",
+  "q1",
+  "q2",
+  "q3",
+  "q4",
+  "aktie",
+  "aktier",
+  "analytiker",
+  "resultatvarning",
+  "vinstvarning",
+];
+
 export async function fetchFundingNews(opts: { limit?: number } = {}): Promise<
   ProspectSignal[]
 > {
   const feeds = [
     "https://breakit.se/feed/rss",
-    "https://www.di.se/rss",
     "https://computersweden.idg.se/2.2683/rss.xml",
   ];
-
   const items: { title: string; desc: string; link: string; source: string }[] = [];
   for (const feed of feeds) {
     try {
@@ -134,9 +147,12 @@ export async function fetchFundingNews(opts: { limit?: number } = {}): Promise<
     }
   }
 
-  const relevant = items.filter((i) =>
-    FUNDING_KEYWORDS.some((k) => (i.title + i.desc).toLowerCase().includes(k)),
-  );
+  const relevant = items.filter((i) => {
+    const text = (i.title + " " + i.desc).toLowerCase();
+    const hasFundingKeyword = FUNDING_KEYWORDS.some((k) => text.includes(k));
+    const isLargeCap = LARGE_CAP_SIGNALS.some((k) => text.includes(k));
+    return hasFundingKeyword && !isLargeCap;
+  });
 
   const limit = opts.limit ?? 8;
   return relevant.slice(0, limit).map((item) => ({
@@ -151,11 +167,9 @@ export async function fetchFundingNews(opts: { limit?: number } = {}): Promise<
     extra: { link: item.link },
   }));
 }
-
 // ------------------------------------------------------------
 // SOURCE 2 — Allabolag.se SNI + size filter
 // ------------------------------------------------------------
-
 export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
   ProspectSignal[]
 > {
@@ -166,7 +180,6 @@ export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
     "https://www.allabolag.se/bransch/68100?anstallda=10-99",
     "https://www.allabolag.se/bransch/70220?anstallda=10-99",
   ];
-
   const companies: { name: string; sourceUrl: string }[] = [];
   for (const url of sniSearches) {
     try {
@@ -186,7 +199,6 @@ export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
       console.warn("Allabolag scrape failed:", (e as Error).message);
     }
   }
-
   const unique = [...new Map(companies.map((c) => [c.name, c])).values()];
   const limit = opts.limit ?? 6;
   return unique.slice(0, limit).map((c) => ({
@@ -200,10 +212,23 @@ export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
     extra: { sourceUrl: c.sourceUrl },
   }));
 }
-
 // ------------------------------------------------------------
 // SOURCE 3 — Arbetsförmedlingen Jobs API (100% free, government data)
+// FIX: API returns { hits: [...] } directly — not { hits: { hits: [...] } }.
+// Fields are on each hit directly, not nested under _source.
 // ------------------------------------------------------------
+type JobtechHit = {
+  id?: string;
+  headline?: string;
+  employer?: { name?: string };
+  workplace_address?: { municipality?: string };
+  description?: { text?: string };
+};
+
+type JobtechResponse = {
+  total?: { value?: number };
+  hits?: JobtechHit[];
+};
 
 export async function fetchAiReplaceableJobs(
   opts: { limit?: number } = {},
@@ -222,26 +247,22 @@ export async function fetchAiReplaceableJobs(
     location: string;
     role: string;
   };
-  const ads: JobAd[] = [];
 
+  const ads: JobAd[] = [];
   for (const role of roles) {
     try {
       const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=5`;
       const res = await fetchWithRetry(url, { headers: { accept: "application/json" } });
-      const data = (await res.json()) as {
-        hits?: { hits?: Array<{ _source?: Record<string, unknown> }> };
-      };
-      (data?.hits?.hits ?? []).forEach((hit) => {
-        const src = (hit._source ?? {}) as Record<string, unknown>;
-        const employer = src["employer"] as { name?: string } | undefined;
-        const workplace = src["workplace_address"] as { municipality?: string } | undefined;
-        const description = src["description"] as { text?: string } | undefined;
-        if (!employer?.name) return;
+      const data = (await res.json()) as JobtechResponse;
+
+      // API returns hits as a flat array directly on data.hits
+      (data?.hits ?? []).forEach((hit) => {
+        if (!hit.employer?.name) return;
         ads.push({
-          company: employer.name,
-          title: (src["headline"] as string) ?? role,
-          desc: description?.text?.substring(0, 300) ?? "",
-          location: workplace?.municipality ?? "Sverige",
+          company: hit.employer.name,
+          title: hit.headline ?? role,
+          desc: hit.description?.text?.substring(0, 300) ?? "",
+          location: hit.workplace_address?.municipality ?? "Sverige",
           role,
         });
       });
@@ -250,7 +271,6 @@ export async function fetchAiReplaceableJobs(
       console.warn(`Jobs API failed (${role}):`, (e as Error).message);
     }
   }
-
   const relevant = ads.filter((ad) =>
     AI_REPLACEABLE_ROLES.some((r) =>
       (ad.title + ad.desc).toLowerCase().includes(r),
@@ -269,24 +289,20 @@ export async function fetchAiReplaceableJobs(
     extra: { role: ad.role },
   }));
 }
-
 // ------------------------------------------------------------
 // SOURCE 4 — Google Custom Search (100 free queries/day)
 // ------------------------------------------------------------
-
 export async function searchWeakDigitalPresence(opts: {
   googleApiKey?: string;
   googleCseId?: string;
   limit?: number;
 }): Promise<ProspectSignal[]> {
   if (!opts.googleApiKey || !opts.googleCseId) return [];
-
   const queries = [
     'konsultbolag Sverige "kontakta oss" -hemsida 10-50 anställda',
     "fastighetsbolag Sverige site:hitta.se",
     "byggföretag Sverige 20-80 anställda hemsida",
   ];
-
   type Candidate = { title: string; snippet: string; link: string };
   const candidates: Candidate[] = [];
   for (const q of queries) {
@@ -308,33 +324,30 @@ export async function searchWeakDigitalPresence(opts: {
       console.warn("Google CSE failed:", (e as Error).message);
     }
   }
-
   const limit = opts.limit ?? 6;
   return candidates
     .slice(0, limit)
- .map((c): ProspectSignal | null => {
-         const nameMatch = c.title.match(/^([\wåäöÅÄÖ\s&]+(?:AB|HB|KB)?)/i);
-         const company = nameMatch?.[1]?.trim() ?? c.title.split("|")[0]?.trim() ?? "";
-         if (!company || company.length < 4) return null;
-         return {
-           source: "digital_presence",
-           company_name: company,
-           signals: [
-             "Funnen via Google med låg digital närvaro",
-             `Snippet: ${c.snippet}`,
-             `URL: ${c.link}`,
-           ],
-           suggested_offer_hint: "webb_design",
-           extra: { link: c.link },
-         };
-       })
+    .map((c): ProspectSignal | null => {
+      const nameMatch = c.title.match(/^([\wåäöÅÄÖ\s&]+(?:AB|HB|KB)?)/i);
+      const company = nameMatch?.[1]?.trim() ?? c.title.split("|")[0]?.trim() ?? "";
+      if (!company || company.length < 4) return null;
+      return {
+        source: "digital_presence",
+        company_name: company,
+        signals: [
+          "Funnen via Google med låg digital närvaro",
+          `Snippet: ${c.snippet}`,
+          `URL: ${c.link}`,
+        ],
+        suggested_offer_hint: "webb_design",
+        extra: { link: c.link },
+      };
+    })
     .filter((x): x is ProspectSignal => x !== null);
 }
-
 // ------------------------------------------------------------
 // SOURCE 5 — Visma upsell (interim table)
 // ------------------------------------------------------------
-
 export async function fetchVismaUpsellCandidates(
   supabase: SupabaseClient,
   tenantId: string,
@@ -344,7 +357,6 @@ export async function fetchVismaUpsellCandidates(
   from.setDate(from.getDate() - 60);
   const to = new Date();
   to.setDate(to.getDate() - 14);
-
   const { data: projects } = await supabase
     .from("visma_completed_projects")
     .select("*")
@@ -353,9 +365,7 @@ export async function fetchVismaUpsellCandidates(
     .lte("completed_date", to.toISOString().split("T")[0])
     .eq("upsell_contacted", false)
     .limit(opts.limit ?? 10);
-
   if (!projects?.length) return [];
-
   return (projects as Array<Record<string, unknown>>).map((p) => {
     const completedDate = new Date(p["completed_date"] as string);
     const days = Math.round((Date.now() - completedDate.getTime()) / 86_400_000);
@@ -379,7 +389,6 @@ export async function fetchVismaUpsellCandidates(
     };
   });
 }
-
 /** Mark a Visma project as "upsell contacted" so it isn't resurfaced. */
 export async function markVismaUpsellContacted(
   supabase: SupabaseClient,
