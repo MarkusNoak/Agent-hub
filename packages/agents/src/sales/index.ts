@@ -6,6 +6,7 @@ import {
   fetchFundingNews,
   scrapeAllabolag,
   fetchAiReplaceableJobs,
+  fetchAppDevSignals,
   searchWeakDigitalPresence,
   fetchVismaUpsellCandidates,
   markVismaUpsellContacted,
@@ -48,6 +49,7 @@ const OutputSchema = z.object({
   leads_skipped: z.array(z.object({ company: z.string(), reason: z.string() })),
   summary: z.string(),
 });
+
 type TenantSettings = {
   icp?: {
     industries?: string[];
@@ -65,11 +67,12 @@ type TenantSettings = {
   google_api_key?: string;
   google_cse_id?: string;
 };
+
 export const salesAgent: AgentDefinition = {
   kind: "sales",
   displayName: "Sales Agent",
   description:
-    "Pulls prospects from 5 free sources (Breakit/ComputerSweden RSS, Allabolag, Arbetsförmedlingen Jobs API, Google CSE, Visma upsell), matches each to the right revenue line (webb / app / ai-auto / agent_platform / upsell), and drafts personalized outreach. Uses a meta-pitch when selling Agent Hub itself.",
+    "Pulls prospects from 6 free sources (Breakit/ComputerSweden RSS, Allabolag, Arbetsförmedlingen AI-roles, Arbetsförmedlingen growth-roles, Google CSE, Visma upsell), matches each to the right revenue line (webb / app / ai-auto / agent_platform / upsell), and drafts personalized outreach.",
   requiresApproval: true,
   defaultCron: "0 8 * * 1-5",
   inputSchema: InputSchema,
@@ -85,22 +88,37 @@ export const salesAgent: AgentDefinition = {
       "agent_platform",
     ];
     const metaOn = s.meta_pitch_enabled !== false;
-    return `You are the **Sales Agent** for ${tenant.tenantName}.
-You drive five revenue lines using five free data sources. No paid APIs.
+    return `You are the **Sales Agent** for ${tenant.tenantName} (We Know IT AB — Swedish tech agency).
+You drive five revenue lines using six free data sources. No paid APIs.
 ────────────────────────────────────────
-REVENUE LINES
-• webb_design — modernize/rebuild sites. CTA: "free 20-min UX audit".
-• app_development — custom apps/MVPs. CTA: "free MVP scoping".
-• ai_automation — bounded AI integrations. CTA: "free 30-min AI audit".
-• agent_platform — Agent Hub sold as SaaS. CTA: "20-min demo of the platform I'm running on".
-• upsell — existing customer → next engagement. CTA: "natural next step" (warm).
-Core ICP:  ${coreIcp.industries?.join(", ") ?? "any B2B"} · ${coreIcp.company_size ?? "20–500"} · ${coreIcp.geography?.join(", ") ?? "SE/NO/DK/FI"}
-Platform ICP:  ${platformIcp.industries?.join(", ") ?? "agencies, consulting, pro services"} · ${platformIcp.company_size ?? "10–200"}
-Platform pain signals (gold): ${(platformIcp.pains ?? ["manual invoice chasing", "weekly status reports by hand", "founder-led outreach"]).join("; ")}
+REVENUE LINES & WKIT OFFERINGS
+• webb_design      — Modernize/rebuild websites. Target: companies with outdated or no website. CTA: "gratis 20-min UX-genomgång".
+• app_development  — Custom apps, MVPs, integrations. Target: scaling companies, funded startups, companies hiring digital PMs. CTA: "gratis MVP-scoping".
+• ai_automation    — Bounded AI integrations (invoice handling, customer service bots, admin automation). Target: companies hiring manual admin roles. CTA: "gratis 30-min AI-audit".
+• agent_platform   — Agent Hub sold as SaaS to other agencies/consultancies. Target: professional services firms with manual internal processes. CTA: "20-min demo av plattformen jag körs på".
+• upsell           — Existing WKIT customers 14-60 days post-delivery. CTA: "naturligt nästa steg" (warm relationship).
+
+Core ICP: ${coreIcp.industries?.join(", ") ?? "B2B, professional services, tech, real estate, construction"} · ${coreIcp.company_size ?? "10–200 anställda"} · ${coreIcp.geography?.join(", ") ?? "SE/NO/DK/FI"}
+Platform ICP: ${platformIcp.industries?.join(", ") ?? "agencies, consulting, recruitment, professional services"} · ${platformIcp.company_size ?? "5–100 anställda"}
+Platform pain signals (gold): ${(platformIcp.pains ?? ["manual invoice chasing", "weekly status reports by hand", "founder-led outreach", "manual timereporting"]).join("; ")}
+
 ${metaOn ? `META-PITCH RULE (for offer_type=agent_platform):
 The outreach MUST include a short PS revealing this email was written by the Sales Agent itself. Vary wording. Example:
   "PS — detta mejl skrevs av vår Sales Agent. Jag godkände det innan det gick ut. Det är produkten jag vill visa dig."
 ` : ""}
+────────────────────────────────────────
+EMAIL INFERENCE RULE:
+When no contact email is known, infer the domain from the company name:
+- "Branäsgruppen AB" → branasgruppen.se → info@branasgruppen.se
+- "Crona Software AB" → cronasoftware.se → info@cronasoftware.se
+- Strip "AB", "HB", spaces, åäö→aao, special chars → lowercase → .se
+Use info@[domain] as to_email placeholder.
+Add "[VERIFIERA ADRESS]" at the start of the subject line.
+The human reviewer corrects the address before approving.
+────────────────────────────────────────
+STAFFING COMPANY RULE:
+SKIP companies that are staffing/recruitment firms hiring on behalf of clients (Adecco, Randstad, Manpower, Poolia, Academic Work, etc.) — they are not the end employer.
+EXCEPTION: staffing companies ARE valid prospects for agent_platform (they have heavy internal admin processes).
 ────────────────────────────────────────
 DEDUP RULE (MANDATORY — do this FIRST):
 1. Call \`list_recent_outreach\` ONCE at the start of every run.
@@ -110,24 +128,27 @@ DEDUP RULE (MANDATORY — do this FIRST):
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
 DATA SOURCES (call as tools — all free):
-1. fetch_funding_news          RSS (Breakit, ComputerSweden). Funding/growth signals → app_development or ai_automation.
-2. scrape_allabolag            ICP grund-filter (SNI + 10-99 anställda) → ai_automation or agent_platform.
-3. fetch_ai_replaceable_jobs   Arbetsförmedlingen Jobs API. Bolag som rekryterar ekonomiassistent/löneadmin/kundtjänst → ai_automation.
-4. search_weak_digital_presence  Google CSE (only if google_api_key configured) → webb_design.
-5. fetch_visma_upsell_candidates  Befintliga kunder 14-60 dagar post-leverans → upsell.
+1. fetch_funding_news           RSS (Breakit, ComputerSweden). Growth/funding signals → app_development.
+2. scrape_allabolag             ICP-filter (SNI + 10-99 anställda) → ai_automation or agent_platform.
+3. fetch_ai_replaceable_jobs    Arbetsförmedlingen. Admin roles → ai_automation.
+4. fetch_app_dev_signals        Arbetsförmedlingen. Digital PMs, developers → app_development.
+5. search_weak_digital_presence Google CSE — queries tuned per service line (webb/app/agent/ai).
+6. fetch_visma_upsell_candidates Befintliga WKIT-kunder 14-60 dagar post-leverans → upsell.
 ────────────────────────────────────────
 DECISION FLOW:
-1. Call sources in parallel where possible.
-2. For each returned prospect:
-   a. If source=funding_news → extract the actual company name from the headline signals.
+1. Call \`list_recent_outreach\` first.
+2. Call all data sources.
+3. For each returned prospect:
+   a. If source=funding_news → extract the actual company name from the headline.
    b. Score ICP fit 0–100. Skip if score < 55.
-   c. Pick ONE offer_type matching the source hint + detected pain.
-   d. upsert_lead with all signals. Take the UUID returned and pass it as lead_id in step e.
-      DO NOT invent lead_id values — draft_outreach_approval will reject non-UUID values.
-   e. draft_outreach_approval with a ≤130-word Swedish email.
-   f. If source=visma_upsell, call mark_visma_upsell_contacted with the project_id.
-3. Respect input.max_drafts across all sources combined.
-4. NEVER send — everything queues via draft_outreach_approval.
+   c. Pick ONE offer_type: use suggested_offer_hint as starting point, refine based on signals.
+   d. \`upsert_lead\` with all signals. Use the UUID returned as lead_id.
+      DO NOT invent lead_id — draft_outreach_approval rejects non-UUIDs.
+   e. \`draft_outreach_approval\` with ≤130-word Swedish email.
+      Use EMAIL INFERENCE RULE if no email is known.
+   f. If source=visma_upsell, call \`mark_visma_upsell_contacted\`.
+4. Respect input.max_drafts across all sources.
+5. NEVER send — everything queues via draft_outreach_approval.
 Offers available: ${offers.join(", ")}.`;
   },
   tools: [
@@ -201,7 +222,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "fetch_funding_news",
       description:
-        "Fetch recent Swedish funding/growth news from Breakit and ComputerSweden RSS. Returns ProspectSignals where company_name='extract_from_headline' — use the signal text to identify the actual company name.",
+        "Fetch recent Swedish funding/growth news from Breakit and ComputerSweden RSS. Returns ProspectSignals where company_name='extract_from_headline' — use the signal text to identify the actual company name. Signals → app_development.",
       input_schema: {
         type: "object",
         properties: {
@@ -216,7 +237,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "scrape_allabolag",
       description:
-        "Scrape Allabolag.se for companies in ICP-relevant SNI codes with 10–99 employees.",
+        "Scrape Allabolag.se for companies in ICP-relevant SNI codes with 10–99 employees. Signals → ai_automation or agent_platform.",
       input_schema: {
         type: "object",
         properties: {
@@ -231,7 +252,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "fetch_ai_replaceable_jobs",
       description:
-        "Fetch job ads from Arbetsförmedlingen's open Jobs API. Filters on roles that AI agents can substantially replace (ekonomiassistent, löneadmin, kundtjänst, orderadmin).",
+        "Fetch job ads from Arbetsförmedlingen for roles AI can replace (ekonomiassistent, löneadmin, kundtjänst, orderadmin, hr-admin, fakturahantering). These companies need ai_automation.",
       input_schema: {
         type: "object",
         properties: {
@@ -239,14 +260,29 @@ Offers available: ${offers.join(", ")}.`;
         },
       },
       execute: async (args) => {
-        const items = await fetchAiReplaceableJobs({ limit: (args["limit"] as number) ?? 8 });
+        const items = await fetchAiReplaceableJobs({ limit: (args["limit"] as number) ?? 10 });
+        return { items, count: items.length };
+      },
+    },
+    {
+      name: "fetch_app_dev_signals",
+      description:
+        "Fetch job ads for growth/scaling roles (produktägare, digital projektledare, systemutvecklare, webbutvecklare). Companies hiring these roles are scaling and need app_development help. Staffing firms are excluded.",
+      input_schema: {
+        type: "object",
+        properties: {
+          limit: { type: "number" },
+        },
+      },
+      execute: async (args) => {
+        const items = await fetchAppDevSignals({ limit: (args["limit"] as number) ?? 8 });
         return { items, count: items.length };
       },
     },
     {
       name: "search_weak_digital_presence",
       description:
-        "Run Google Custom Search queries to find SMBs with weak digital presence. Requires google_api_key + google_cse_id in tenant settings.",
+        "Run Google Custom Search with queries tuned per service line: webb_design (advokatbyråer, redovisningsbyråer, byggföretag), app_development (startups, scaleups), agent_platform (konsultbolag, rekryteringsbolag), ai_automation (fastighetsbolag med tung admin). Requires google_api_key + google_cse_id in tenant settings.",
       input_schema: {
         type: "object",
         properties: {
@@ -258,7 +294,7 @@ Offers available: ${offers.join(", ")}.`;
         const items = await searchWeakDigitalPresence({
           googleApiKey: s.google_api_key,
           googleCseId: s.google_cse_id,
-          limit: (args["limit"] as number) ?? 6,
+          limit: (args["limit"] as number) ?? 8,
         });
         return { items, count: items.length, configured: Boolean(s.google_api_key) };
       },
@@ -266,7 +302,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "fetch_visma_upsell_candidates",
       description:
-        "Fetch existing WKI customers whose projects were completed 14–60 days ago and haven't been contacted for upsell yet.",
+        "Fetch existing WKIT customers whose projects were completed 14–60 days ago and haven't been contacted for upsell yet. Warm leads — high priority.",
       input_schema: {
         type: "object",
         properties: {
@@ -283,8 +319,7 @@ Offers available: ${offers.join(", ")}.`;
     },
     {
       name: "mark_visma_upsell_contacted",
-      description:
-        "Mark a Visma project as 'upsell contacted' so it isn't resurfaced.",
+      description: "Mark a Visma project as 'upsell contacted' so it isn't resurfaced.",
       input_schema: {
         type: "object",
         properties: {
@@ -352,7 +387,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "draft_outreach_approval",
       description:
-        "Enqueue a drafted outreach email for human approval. Never sent until approved.",
+        "Enqueue a drafted outreach email for human approval. Never sent until approved. Use EMAIL INFERENCE RULE for to_email if unknown.",
       input_schema: {
         type: "object",
         properties: {
@@ -454,7 +489,9 @@ Offers available: ${offers.join(", ")}.`;
           runId: ctx.runId,
           action: "send_email",
           title: `Outreach [${offerType}]: ${args["to_email"]}`,
-          summary: metaPitch ? `Meta-pitch outreach — ${offerType}` : `Outreach — ${offerType} (${args["source"] ?? "manual"})`,
+          summary: metaPitch
+            ? `Meta-pitch outreach — ${offerType}`
+            : `Outreach — ${offerType} (${args["source"] ?? "manual"})`,
           payload: args,
           expiresInHours: 48,
         });
