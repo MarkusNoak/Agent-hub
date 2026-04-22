@@ -1,17 +1,17 @@
 /**
  * Free prospecting sources — zero paid APIs.
  *
- * 1. RSS (Breakit / ComputerSweden) — funding + growth news
- * 2. Allabolag.se scrape           — SNI + size ICP filter
- * 3. Arbetsförmedlingen Jobs API   — open gov data, AI-replaceable roles
- * 4. Google Custom Search          — 100 free queries/day (optional)
- * 5. Visma upsell interim table    — existing customers 14-60 days post-delivery
+ * 1. RSS (Breakit / ComputerSweden) — funding + growth news → app_development
+ * 2. Allabolag.se scrape           — SNI + size ICP filter → ai_automation
+ * 3. Arbetsförmedlingen Jobs API   — AI-replaceable roles → ai_automation
+ * 4. Arbetsförmedlingen Jobs API   — Growth/scaling roles → app_development
+ * 5. Google Custom Search          — Per-service-line queries (webb/app/agent/ai)
+ * 6. Visma upsell interim table    — existing customers 14-60 days post-delivery
  *
- * Based on the WKIT Sales Agent v2 by Markus Noaksson. Converted to
- * a reusable connector so Agent Hub's Sales Agent can call each source
- * as a tool without leaking paid-API assumptions.
+ * Based on the WKIT Sales Agent v2 by Markus Noaksson.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+
 // ------------------------------------------------------------
 // Shared types
 // ------------------------------------------------------------
@@ -27,6 +27,7 @@ export type ProspectSignal = {
     | "upsell";
   extra?: Record<string, unknown>;
 };
+
 export const AI_REPLACEABLE_ROLES = [
   "ekonomiassistent",
   "redovisningsassistent",
@@ -41,13 +42,31 @@ export const AI_REPLACEABLE_ROLES = [
   "inköpsassistent",
   "fakturahantering",
   "data entry",
+  "hr-administratör",
+  "personaladministratör",
+  "controller",
+  "ekonomicontroller",
 ] as const;
+
+export const APP_DEV_ROLES = [
+  "produktägare",
+  "product owner",
+  "projektledare digital",
+  "systemutvecklare",
+  "webbutvecklare",
+  "mjukvaruutvecklare",
+  "digital projektledare",
+  "it-projektledare",
+  "teknisk projektledare",
+] as const;
+
 // ------------------------------------------------------------
 // Utilities
 // ------------------------------------------------------------
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
+
 async function fetchWithRetry(
   url: string,
   opts: RequestInit = {},
@@ -71,10 +90,9 @@ async function fetchWithRetry(
   }
   throw new Error("unreachable");
 }
+
 // ------------------------------------------------------------
-// SOURCE 1 — Breakit / ComputerSweden RSS
-// NOTE: DI.se removed — its RSS returns large-cap stock news that
-// matches funding keywords (miljoner) but is not SMB-relevant.
+// SOURCE 1 — Breakit / ComputerSweden RSS → app_development
 // ------------------------------------------------------------
 const FUNDING_KEYWORDS = [
   "finansiering",
@@ -91,7 +109,6 @@ const FUNDING_KEYWORDS = [
   "anställer",
 ];
 
-// Large-cap / listed company signals to exclude
 const LARGE_CAP_SIGNALS = [
   "börsen",
   "stockholmsbörsen",
@@ -134,12 +151,7 @@ export async function fetchFundingNews(opts: { limit?: number } = {}): Promise<
           .substring(0, 400) ?? "";
         const link = raw.match(/<link>(.*?)<\/link>/)?.[1] ?? "";
         if (title) {
-          items.push({
-            title,
-            desc,
-            link,
-            source: new URL(feed).hostname,
-          });
+          items.push({ title, desc, link, source: new URL(feed).hostname });
         }
       }
     } catch (e) {
@@ -167,13 +179,13 @@ export async function fetchFundingNews(opts: { limit?: number } = {}): Promise<
     extra: { link: item.link },
   }));
 }
+
 // ------------------------------------------------------------
-// SOURCE 2 — Allabolag.se SNI + size filter
+// SOURCE 2 — Allabolag.se SNI + size filter → ai_automation
 // ------------------------------------------------------------
 export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
   ProspectSignal[]
 > {
-  // SNI codes: IT consulting, e-commerce, real estate, R&D consulting
   const sniSearches = [
     "https://www.allabolag.se/bransch/62020?anstallda=10-99",
     "https://www.allabolag.se/bransch/47910?anstallda=10-99",
@@ -212,10 +224,9 @@ export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
     extra: { sourceUrl: c.sourceUrl },
   }));
 }
+
 // ------------------------------------------------------------
-// SOURCE 3 — Arbetsförmedlingen Jobs API (100% free, government data)
-// FIX: API returns { hits: [...] } directly — not { hits: { hits: [...] } }.
-// Fields are on each hit directly, not nested under _source.
+// SOURCE 3 — Arbetsförmedlingen Jobs API — AI-replaceable roles
 // ------------------------------------------------------------
 type JobtechHit = {
   id?: string;
@@ -235,9 +246,15 @@ export async function fetchAiReplaceableJobs(
 ): Promise<ProspectSignal[]> {
   const roles = [
     "ekonomiassistent",
+    "redovisningsassistent",
     "löneadministratör",
     "orderadministratör",
-    "kundtjänst administratör",
+    "kundtjänstmedarbetare",
+    "fakturahantering",
+    "hr-administratör",
+    "personaladministratör",
+    "inköpsassistent",
+    "backoffice administratör",
   ];
 
   type JobAd = {
@@ -254,8 +271,6 @@ export async function fetchAiReplaceableJobs(
       const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=5`;
       const res = await fetchWithRetry(url, { headers: { accept: "application/json" } });
       const data = (await res.json()) as JobtechResponse;
-
-      // API returns hits as a flat array directly on data.hits
       (data?.hits ?? []).forEach((hit) => {
         if (!hit.employer?.name) return;
         ads.push({
@@ -271,12 +286,13 @@ export async function fetchAiReplaceableJobs(
       console.warn(`Jobs API failed (${role}):`, (e as Error).message);
     }
   }
+
   const relevant = ads.filter((ad) =>
-    AI_REPLACEABLE_ROLES.some((r) =>
+    [...AI_REPLACEABLE_ROLES].some((r) =>
       (ad.title + ad.desc).toLowerCase().includes(r),
     ),
   );
-  const limit = opts.limit ?? 8;
+  const limit = opts.limit ?? 10;
   return relevant.slice(0, limit).map((ad) => ({
     source: "job_signal",
     company_name: ad.company,
@@ -286,11 +302,73 @@ export async function fetchAiReplaceableJobs(
       `Rollbeskrivning: ${ad.desc}`,
     ],
     suggested_offer_hint: "ai_automation",
-    extra: { role: ad.role },
+    extra: { role: ad.role, signal_type: "ai_replaceable" },
   }));
 }
+
 // ------------------------------------------------------------
-// SOURCE 4 — Google Custom Search (100 free queries/day)
+// SOURCE 4 — Arbetsförmedlingen Jobs API — Growth/scaling roles → app_development
+// ------------------------------------------------------------
+export async function fetchAppDevSignals(
+  opts: { limit?: number } = {},
+): Promise<ProspectSignal[]> {
+  const roles = [
+    "produktägare",
+    "product owner",
+    "digital projektledare",
+    "it-projektledare",
+    "systemutvecklare",
+    "webbutvecklare",
+  ];
+
+  type JobAd = {
+    company: string;
+    title: string;
+    desc: string;
+    location: string;
+  };
+
+  const ads: JobAd[] = [];
+  for (const role of roles) {
+    try {
+      const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=5`;
+      const res = await fetchWithRetry(url, { headers: { accept: "application/json" } });
+      const data = (await res.json()) as JobtechResponse;
+      (data?.hits ?? []).forEach((hit) => {
+        if (!hit.employer?.name) return;
+        // Skip staffing companies (they recruit for others, not themselves)
+        const name = (hit.employer.name ?? "").toLowerCase();
+        if (["adecco", "randstad", "manpower", "poolia", "academicwork", "academic work"].some(s => name.includes(s))) return;
+        ads.push({
+          company: hit.employer.name,
+          title: hit.headline ?? role,
+          desc: hit.description?.text?.substring(0, 300) ?? "",
+          location: hit.workplace_address?.municipality ?? "Sverige",
+        });
+      });
+      await sleep(600);
+    } catch (e) {
+      console.warn(`App dev jobs API failed (${role}):`, (e as Error).message);
+    }
+  }
+
+  const limit = opts.limit ?? 8;
+  return ads.slice(0, limit).map((ad) => ({
+    source: "job_signal",
+    company_name: ad.company,
+    signals: [
+      `Rekryterar: "${ad.title}"`,
+      `Ort: ${ad.location}`,
+      `Signal: Bolaget skalar sin digitala kapacitet`,
+      `Beskrivning: ${ad.desc}`,
+    ],
+    suggested_offer_hint: "app_development",
+    extra: { signal_type: "growth_hiring" },
+  }));
+}
+
+// ------------------------------------------------------------
+// SOURCE 5 — Google Custom Search — per service line
 // ------------------------------------------------------------
 export async function searchWeakDigitalPresence(opts: {
   googleApiKey?: string;
@@ -298,33 +376,84 @@ export async function searchWeakDigitalPresence(opts: {
   limit?: number;
 }): Promise<ProspectSignal[]> {
   if (!opts.googleApiKey || !opts.googleCseId) return [];
-  const queries = [
-    'konsultbolag Sverige "kontakta oss" -hemsida 10-50 anställda',
-    "fastighetsbolag Sverige site:hitta.se",
-    "byggföretag Sverige 20-80 anställda hemsida",
+
+  const queries: Array<{
+    q: string;
+    hint: ProspectSignal["suggested_offer_hint"];
+    label: string;
+  }> = [
+    // Webb design — companies with poor digital presence
+    {
+      q: 'advokatbyrå Sverige hemsida kontakt "om oss"',
+      hint: "webb_design",
+      label: "Advokatbyrå med enkel hemsida",
+    },
+    {
+      q: 'redovisningsbyrå Sverige hemsida 10-30 anställda',
+      hint: "webb_design",
+      label: "Redovisningsbyrå utan modern hemsida",
+    },
+    {
+      q: 'byggföretag Sverige "kontakta oss" hemsida',
+      hint: "webb_design",
+      label: "Byggföretag med enkel hemsida",
+    },
+    // App development — scaling companies that need custom solutions
+    {
+      q: 'startup Sverige "vi söker" "product owner" OR "produktägare" 2024 OR 2025',
+      hint: "app_development",
+      label: "Startup som skalar produktteam",
+    },
+    {
+      q: 'scaleup Stockholm digital transformation "system" OR "plattform"',
+      hint: "app_development",
+      label: "Scaleup med digital transformationsplan",
+    },
+    // Agent platform — agencies and consulting firms
+    {
+      q: 'rekryteringsbolag Sverige 10-50 anställda processer administration',
+      hint: "agent_platform",
+      label: "Rekryteringsbolag med manuella processer",
+    },
+    {
+      q: 'konsultbolag Stockholm "projektledning" OR "bemanning" 20-100 anställda',
+      hint: "agent_platform",
+      label: "Konsultbolag med manuell administration",
+    },
+    // AI automation — companies with manual admin processes
+    {
+      q: 'fastighetsbolag Sverige administration "ekonomiavdelning" OR "backoffice"',
+      hint: "ai_automation",
+      label: "Fastighetsbolag med tung administration",
+    },
   ];
-  type Candidate = { title: string; snippet: string; link: string };
+
+  type Candidate = {
+    title: string;
+    snippet: string;
+    link: string;
+    hint: ProspectSignal["suggested_offer_hint"];
+    label: string;
+  };
+
   const candidates: Candidate[] = [];
-  for (const q of queries) {
+  for (const { q, hint, label } of queries) {
     try {
-      const url = `https://www.googleapis.com/customsearch/v1?key=${opts.googleApiKey}&cx=${opts.googleCseId}&q=${encodeURIComponent(q)}&num=5&lr=lang_sv`;
+      const url = `https://www.googleapis.com/customsearch/v1?key=${opts.googleApiKey}&cx=${opts.googleCseId}&q=${encodeURIComponent(q)}&num=3&lr=lang_sv`;
       const res = await fetchWithRetry(url);
       const data = (await res.json()) as {
         items?: Array<{ title: string; snippet: string; link: string }>;
       };
       (data.items ?? []).forEach((item) =>
-        candidates.push({
-          title: item.title,
-          snippet: item.snippet,
-          link: item.link,
-        }),
+        candidates.push({ title: item.title, snippet: item.snippet, link: item.link, hint, label }),
       );
       await sleep(500);
     } catch (e) {
       console.warn("Google CSE failed:", (e as Error).message);
     }
   }
-  const limit = opts.limit ?? 6;
+
+  const limit = opts.limit ?? 8;
   return candidates
     .slice(0, limit)
     .map((c): ProspectSignal | null => {
@@ -335,18 +464,19 @@ export async function searchWeakDigitalPresence(opts: {
         source: "digital_presence",
         company_name: company,
         signals: [
-          "Funnen via Google med låg digital närvaro",
+          c.label,
           `Snippet: ${c.snippet}`,
           `URL: ${c.link}`,
         ],
-        suggested_offer_hint: "webb_design",
+        suggested_offer_hint: c.hint,
         extra: { link: c.link },
       };
     })
     .filter((x): x is ProspectSignal => x !== null);
 }
+
 // ------------------------------------------------------------
-// SOURCE 5 — Visma upsell (interim table)
+// SOURCE 6 — Visma upsell (interim table)
 // ------------------------------------------------------------
 export async function fetchVismaUpsellCandidates(
   supabase: SupabaseClient,
@@ -378,7 +508,7 @@ export async function fetchVismaUpsellCandidates(
         `Projekt "${p["project_type"]}" avslutades för ${days} dagar sedan`,
         `Projektvärde: ${value.toLocaleString("sv-SE")} SEK`,
       ],
-      suggested_offer_hint: "ai_automation" as const,
+      suggested_offer_hint: "upsell" as const,
       extra: {
         project_id: p["id"],
         contact_name: p["contact_name"] ?? null,
@@ -389,6 +519,7 @@ export async function fetchVismaUpsellCandidates(
     };
   });
 }
+
 /** Mark a Visma project as "upsell contacted" so it isn't resurfaced. */
 export async function markVismaUpsellContacted(
   supabase: SupabaseClient,
