@@ -426,6 +426,32 @@ export async function searchWeakDigitalPresence(opts: {
       hint: "ai_automation",
       label: "Fastighetsbolag med tung administration",
     },
+    // Hitta.se — companies listed in directory, likely without own website
+    {
+      q: "site:hitta.se advokatbyrå stockholm OR göteborg OR malmö",
+      hint: "webb_design",
+      label: "Advokatbyrå listad på hitta.se — troligen utan hemsida",
+    },
+    {
+      q: "site:hitta.se redovisningsbyrå",
+      hint: "webb_design",
+      label: "Redovisningsbyrå listad på hitta.se",
+    },
+    {
+      q: "site:hitta.se byggföretag stockholm OR göteborg",
+      hint: "webb_design",
+      label: "Byggföretag listad på hitta.se",
+    },
+    {
+      q: "site:hitta.se konsultbolag 10-50 anställda",
+      hint: "agent_platform",
+      label: "Konsultbolag listad på hitta.se",
+    },
+    {
+      q: "site:hitta.se städbolag OR städfirma",
+      hint: "webb_design",
+      label: "Städbolag utan hemsida",
+    },
   ];
 
   type Candidate = {
