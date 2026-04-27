@@ -11,21 +11,13 @@ export function RunNowButton({ agentKind }: { agentKind: string }) {
   async function handleClick() {
     setState("starting");
     setErrorMsg("");
-    try {
-      const res = await fetch(`/api/agents/${agentKind}/trigger`, { method: "POST" });
-      const json = (await res.json()) as { started?: boolean; error?: string };
-      if (!res.ok || !json.started) {
-        setState("error");
-        setErrorMsg(json.error ?? "Kunde inte starta agenten");
-        return;
-      }
-      // Navigate to /runs immediately — the run continues in the background
-      router.push("/runs");
-    } catch (e) {
-      setState("error");
-      setErrorMsg((e as Error).message);
-    }
-    setTimeout(() => setState("idle"), 5000);
+    // Fire the request — do NOT await it. The browser keeps the HTTP connection
+    // alive even after navigating away (fetch is not tied to component lifecycle).
+    // The Vercel lambda on the other end awaits executeAgent (up to 300 s) which
+    // keeps IT alive too. This is the only pattern that works on Vercel serverless.
+    fetch(`/api/agents/${agentKind}/trigger`, { method: "POST" }).catch(() => {});
+    // Navigate immediately so the user can watch live status on /runs.
+    router.push("/runs");
   }
 
   return (

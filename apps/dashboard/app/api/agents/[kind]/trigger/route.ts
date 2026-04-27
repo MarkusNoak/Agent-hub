@@ -50,18 +50,23 @@ export async function POST(
   const tenant = await loadTenant(admin as never, tenantSlug);
   const connectors = await loadTenantConnectors(admin as never, tenant);
 
-  // Fire and forget — the run continues after this response is sent.
-  // On Railway/Node.js this runs to completion; on Vercel it lives up to maxDuration.
-  void executeAgent({
-    tenant,
-    agent: agentDef,
-    input: {},
-    trigger: "manual",
-    connectors,
-    supabase: admin as never,
-  }).catch((e: unknown) => {
+  // AWAIT executeAgent — this keeps the Vercel lambda alive for up to maxDuration.
+  // Fire-and-forget is NOT reliable on Vercel: the lambda is recycled the moment
+  // the response is sent, killing any background promises. By awaiting here, the
+  // lambda stays alive until the run completes or the 120 s Anthropic timeout fires.
+  // The RunNowButton navigates to /runs immediately without waiting for this response.
+  try {
+    await executeAgent({
+      tenant,
+      agent: agentDef,
+      input: {},
+      trigger: "manual",
+      connectors,
+      supabase: admin as never,
+    });
+  } catch (e) {
     console.error(`[trigger] ${kind} run failed:`, (e as Error).message);
-  });
+  }
 
   return NextResponse.json({ started: true, agent: kind, tenant: tenantSlug });
 }
