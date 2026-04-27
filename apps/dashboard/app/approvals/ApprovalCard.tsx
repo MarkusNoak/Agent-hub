@@ -90,7 +90,7 @@ export function ApprovalCard({
   }
 
   return (
-    <div className="card p-5 space-y-3">
+    <div className="card p-6 space-y-4">
       <div className="flex items-start justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <span className="badge badge-blue">{approval.agent_kind}</span>
@@ -106,11 +106,13 @@ export function ApprovalCard({
         </span>
       </div>
 
-      <h3 className="font-semibold">{approval.title}</h3>
-      {approval.summary && <p className="text-sm text-ink-500">{approval.summary}</p>}
+      <div>
+        <h3 className="font-semibold text-ink-900">{approval.title}</h3>
+        {approval.summary && <p className="text-sm text-ink-500 mt-0.5">{approval.summary}</p>}
+      </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -118,47 +120,43 @@ export function ApprovalCard({
       <div className="space-y-3">
         {isEmail ? (
           <>
-            <div className="grid grid-cols-[4rem_1fr] items-center gap-2">
-              <label className="text-xs font-medium text-ink-500 text-right">Till</label>
+            <div className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
+              <label className="text-xs font-semibold text-ink-500 text-right">Till</label>
               <input
                 type="email"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                className={`border rounded-lg p-2 text-sm w-full ${
-                  needsVerify
-                    ? "border-yellow-400 bg-yellow-50 focus:border-yellow-500 focus:outline-none"
-                    : "border-ink-200 focus:border-ink-400 focus:outline-none"
-                }`}
+                className={`input ${needsVerify ? "border-yellow-400 bg-yellow-50 focus:border-yellow-500" : ""}`}
               />
             </div>
 
-            <div className="grid grid-cols-[4rem_1fr] items-center gap-2">
-              <label className="text-xs font-medium text-ink-500 text-right">Ämne</label>
+            <div className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
+              <label className="text-xs font-semibold text-ink-500 text-right">Ämne</label>
               <input
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                className="border border-ink-200 rounded-lg p-2 text-sm w-full focus:border-ink-400 focus:outline-none"
+                className="input"
               />
             </div>
 
-            <div className="grid grid-cols-[4rem_1fr] items-start gap-2">
-              <label className="text-xs font-medium text-ink-500 text-right pt-2">Meddelande</label>
+            <div className="grid grid-cols-[4.5rem_1fr] items-start gap-3">
+              <label className="text-xs font-semibold text-ink-500 text-right pt-2.5">Meddelande</label>
               <textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={12}
-                className="border border-ink-200 rounded-lg p-2 text-sm w-full resize-y font-sans leading-relaxed focus:border-ink-400 focus:outline-none"
+                className="input resize-y font-sans leading-relaxed"
               />
             </div>
           </>
         ) : (
-          <pre className="p-3 bg-ink-50 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap max-h-64">
+          <pre className="p-4 bg-ink-50 rounded-2xl text-xs overflow-x-auto whitespace-pre-wrap max-h-64 text-ink-700">
             {JSON.stringify(payload, null, 2)}
           </pre>
         )}
 
-        <div className="flex flex-wrap gap-2 items-center pt-1">
+        <div className="flex flex-wrap gap-2 items-center pt-2 border-t border-ink-100">
           <button
             type="button"
             disabled={isPending}
@@ -173,7 +171,7 @@ export function ApprovalCard({
               type="button"
               disabled={isPending}
               onClick={() => run(saveDraftEdits, false)}
-              className="btn btn-secondary"
+              className="btn btn-outline"
             >
               {isPending ? "…" : "Spara utkast"}
             </button>
@@ -183,7 +181,7 @@ export function ApprovalCard({
             type="button"
             disabled={isPending}
             onClick={() => run(rejectAction, true)}
-            className="btn btn-secondary"
+            className="btn btn-outline"
           >
             Avvisa
           </button>
@@ -192,8 +190,8 @@ export function ApprovalCard({
             type="text"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Anledning vid avvisning"
-            className="flex-1 min-w-[8rem] px-3 py-1.5 border border-ink-200 rounded-lg text-sm focus:outline-none"
+            placeholder="Anledning vid avvisning…"
+            className="input flex-1 min-w-[8rem]"
           />
         </div>
       </div>

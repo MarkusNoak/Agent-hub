@@ -5,17 +5,20 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Warm neutrals — weknowit.se background palette
         ink: {
-          50: "#f7f7f8",
-          100: "#ebecee",
-          200: "#d6d8dc",
-          500: "#6b6f78",
-          700: "#3a3d45",
-          900: "#111318",
+          50:  "#f7f3ee",
+          100: "#ede7dc",
+          200: "#d9cfc2",
+          500: "#7a6f62",
+          700: "#3d3529",
+          900: "#1a1410",
         },
+        // Amber/gold — the CTA colour on weknowit.se
         brand: {
-          DEFAULT: "#0b5cff",
-          soft: "#dbe8ff",
+          DEFAULT: "#e8a020",
+          hover:   "#d08e10",
+          soft:    "#fdf3de",
         },
       },
       fontFamily: {

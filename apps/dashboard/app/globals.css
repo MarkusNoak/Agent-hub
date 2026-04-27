@@ -10,23 +10,34 @@ body {
   @apply bg-ink-50 text-ink-900 font-sans antialiased;
 }
 
+/* ── Cards ── */
 .card {
-  @apply bg-white rounded-xl border border-ink-100 shadow-sm;
+  @apply bg-white rounded-2xl border border-ink-100 shadow-sm;
 }
 
+/* ── Buttons — pill-shaped like weknowit.se ── */
 .btn {
-  @apply inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors;
+  @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors cursor-pointer;
 }
-.btn-primary { @apply bg-brand text-white hover:bg-blue-700; }
+.btn-primary   { @apply bg-brand text-white hover:bg-brand-hover; }
 .btn-secondary { @apply bg-ink-100 text-ink-900 hover:bg-ink-200; }
-.btn-danger { @apply bg-red-600 text-white hover:bg-red-700; }
-.btn-ghost { @apply text-ink-700 hover:bg-ink-100; }
+.btn-danger    { @apply bg-red-600 text-white hover:bg-red-700; }
+.btn-ghost     { @apply text-ink-700 hover:bg-ink-100; }
+.btn-outline   { @apply border border-ink-200 bg-white text-ink-900 hover:bg-ink-50; }
 
+/* ── Badges ── */
 .badge {
-  @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full;
+  @apply inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full;
 }
-.badge-green { @apply bg-green-100 text-green-800; }
+.badge-green  { @apply bg-green-100  text-green-800; }
 .badge-yellow { @apply bg-yellow-100 text-yellow-800; }
-.badge-red { @apply bg-red-100 text-red-800; }
-.badge-gray { @apply bg-ink-100 text-ink-700; }
-.badge-blue { @apply bg-brand-soft text-brand; }
+.badge-red    { @apply bg-red-100    text-red-800; }
+.badge-gray   { @apply bg-ink-100    text-ink-700; }
+.badge-blue   { @apply bg-brand-soft text-amber-800; }
+
+/* ── Form inputs ── */
+.input {
+  @apply w-full border border-ink-200 rounded-xl px-3 py-2 text-sm
+         bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand
+         placeholder:text-ink-500 transition;
+}
