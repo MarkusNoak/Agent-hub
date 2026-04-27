@@ -532,21 +532,27 @@ export async function searchWeakDigitalPresence(opts: {
     label: string;
   };
 
-  const candidates: Candidate[] = [];
-  for (const { q, hint, label } of queries) {
-    try {
-      const url = `https://www.googleapis.com/customsearch/v1?key=${opts.googleApiKey}&cx=${opts.googleCseId}&q=${encodeURIComponent(q)}&num=3&lr=lang_sv`;
+  // Run a random subset of 8 queries in parallel to stay well within the 45 s tool timeout.
+  // Shuffling ensures variety across runs so all service lines get coverage over time.
+  const shuffled = [...queries].sort(() => Math.random() - 0.5).slice(0, 8);
+
+  const results = await Promise.allSettled(
+    shuffled.map(async ({ q, hint, label }) => {
+      const url = `https://www.googleapis.com/customsearch/v1?key=${opts.googleApiKey}&cx=${opts.googleCseId}&q=${encodeURIComponent(q)}&num=3&lr=lang_sv&gl=se`;
       const res = await fetchWithRetry(url);
       const data = (await res.json()) as {
         items?: Array<{ title: string; snippet: string; link: string }>;
       };
-      (data.items ?? []).forEach((item) =>
-        candidates.push({ title: item.title, snippet: item.snippet, link: item.link, hint, label }),
-      );
-      await sleep(500);
-    } catch (e) {
-      console.warn("Google CSE failed:", (e as Error).message);
-    }
+      return (data.items ?? []).map((item) => ({
+        title: item.title, snippet: item.snippet, link: item.link, hint, label,
+      }));
+    }),
+  );
+
+  const candidates: Candidate[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") candidates.push(...r.value);
+    else console.warn("Google CSE query failed:", r.reason);
   }
 
   const limit = opts.limit ?? 8;

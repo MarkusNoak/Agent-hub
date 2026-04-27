@@ -62,6 +62,8 @@ export interface AgentDefinition<Input = any, Output = any> {
   defaultCron?: string;
   /** Whether actions taken by this agent require human approval before execution. */
   requiresApproval: boolean;
+  /** Optional model override. Falls back to ANTHROPIC_MODEL env var then claude-haiku-4-5-20251001. */
+  model?: string;
 }
 
 export interface AgentTool {

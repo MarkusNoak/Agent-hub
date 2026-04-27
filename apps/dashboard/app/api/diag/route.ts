@@ -95,7 +95,7 @@ export async function GET() {
     }
   }
 
-  // ── 4. Agent + tenant rows ──────────────────────────────────────────────────
+  // ── 4. Agent + tenant rows + Google CSE live test ──────────────────────────
   try {
     const admin = createSupabaseAdminClient();
     const { data: agents } = await admin
@@ -106,8 +106,44 @@ export async function GET() {
       .from("tenants")
       .select("id, slug, name, settings")
       .limit(3);
+
+    // Live CSE test — one simple query to verify the key + CSE ID work
+    let cseTest: Record<string, unknown> = { skipped: "no credentials in first tenant" };
+    const firstTenant = tenants?.[0];
+    if (firstTenant) {
+      const ts = (firstTenant.settings ?? {}) as Record<string, unknown>;
+      const googleApiKey = ts["google_api_key"] as string | undefined;
+      const googleCseId = ts["google_cse_id"] as string | undefined;
+      if (googleApiKey && googleCseId) {
+        try {
+          const testQ = "advokatbyrå Stockholm hemsida";
+          const cseUrl = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleCseId}&q=${encodeURIComponent(testQ)}&num=3`;
+          const cseRes = await Promise.race([
+            fetch(cseUrl),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 10_000)),
+          ]);
+          const cseJson = await cseRes.json() as Record<string, unknown>;
+          if (!cseRes.ok) {
+            cseTest = { ok: false, http_status: cseRes.status, error: cseJson["error"] ?? cseJson };
+          } else {
+            const items = (cseJson["items"] as unknown[]) ?? [];
+            cseTest = {
+              ok: true,
+              query: testQ,
+              results_returned: items.length,
+              sample_title: (items[0] as Record<string, unknown>)?.["title"] ?? "(none)",
+              total_results: (cseJson["searchInformation"] as Record<string, unknown>)?.["totalResults"] ?? "?",
+            };
+          }
+        } catch (e) {
+          cseTest = { ok: false, error: (e as Error).message };
+        }
+      }
+    }
+
     results["db_rows"] = {
       sales_agents: agents ?? [],
+      google_cse_live_test: cseTest,
       tenants: (tenants ?? []).map((t) => ({
         id: (t.id as string).slice(0, 8) + "…",
         slug: t.slug,
@@ -115,7 +151,6 @@ export async function GET() {
         settings_keys: Object.keys((t.settings as Record<string, unknown>) ?? {}),
         has_google_api_key: !!(t.settings as Record<string, unknown>)?.["google_api_key"],
         has_google_cse_id: !!(t.settings as Record<string, unknown>)?.["google_cse_id"],
-        has_anthropic_key: !!(t.settings as Record<string, unknown>)?.["anthropic_api_key"],
       })),
     };
   } catch (e) {
