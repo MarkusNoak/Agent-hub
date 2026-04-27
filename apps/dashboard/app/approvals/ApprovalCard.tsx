@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { approveAction, rejectAction, saveDraftEdits } from "./actions";
 
@@ -17,7 +17,6 @@ type Approval = {
 
 const EMAIL_ACTIONS = new Set(["send_email", "send_invoice_reminder"]);
 
-/** Strip HTML tags so the textarea shows plain text, not markup. */
 function htmlToPlain(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
@@ -38,7 +37,6 @@ export function ApprovalCard({
   approval: Approval;
   tenantId: string;
 }) {
-  const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -54,26 +52,29 @@ export function ApprovalCard({
     rawSubject.toUpperCase().includes("[VERIFIERA ADRESS]") ||
     rawTo.toUpperCase().includes("[VERIFIERA ADRESS]");
 
-  // Controlled state — preserves edits across any server re-renders
-  const [toVal, setToVal] = useState(
-    rawTo.replace(/^\[VERIFIERA ADRESS\]\s*/i, ""),
-  );
-  const [subjectVal, setSubjectVal] = useState(
-    rawSubject.replace(/^\[VERIFIERA ADRESS\]\s*/i, ""),
-  );
-  const [bodyVal, setBodyVal] = useState(htmlToPlain(rawBodyHtml));
+  const [to, setTo] = useState(rawTo.replace(/^\[VERIFIERA ADRESS\]\s*/i, ""));
+  const [subject, setSubject] = useState(rawSubject.replace(/^\[VERIFIERA ADRESS\]\s*/i, ""));
+  const [body, setBody] = useState(htmlToPlain(rawBodyHtml));
+  const [reason, setReason] = useState("");
 
-  function runAction(action: (fd: FormData) => Promise<void>, onSuccess: "done" | "none") {
+  function buildFormData() {
+    const fd = new FormData();
+    fd.set("id", approval.id);
+    fd.set("tenantId", tenantId);
+    fd.set("edit_to_email", to);
+    fd.set("edit_subject", subject);
+    fd.set("edit_body", body);
+    fd.set("reason", reason);
+    return fd;
+  }
+
+  function run(action: (fd: FormData) => Promise<void>, endCard: boolean) {
     setError(null);
-    // Build FormData manually from controlled state + hidden fields
-    const fd = new FormData(formRef.current!);
-    fd.set("edit_to_email", toVal);
-    fd.set("edit_subject", subjectVal);
-    fd.set("edit_body", bodyVal);
+    const fd = buildFormData();
     startTransition(async () => {
       try {
         await action(fd);
-        if (onSuccess === "done") setDone(true);
+        if (endCard) setDone(true);
       } catch (e) {
         setError((e as Error).message);
       }
@@ -95,10 +96,7 @@ export function ApprovalCard({
           <span className="badge badge-blue">{approval.agent_kind}</span>
           <span className="badge badge-gray">{approval.action}</span>
           {needsVerify && (
-            <span
-              className="badge badge-yellow"
-              title="Agenten kunde inte hitta en verifierad adress — korrigera fältet 'Till'."
-            >
+            <span className="badge badge-yellow" title="Kontrollera fältet 'Till' — adressen kan behöva korrigeras.">
               ⚠ Verifiera adress
             </span>
           )}
@@ -109,9 +107,7 @@ export function ApprovalCard({
       </div>
 
       <h3 className="font-semibold">{approval.title}</h3>
-      {approval.summary && (
-        <p className="text-sm text-ink-500">{approval.summary}</p>
-      )}
+      {approval.summary && <p className="text-sm text-ink-500">{approval.summary}</p>}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -119,24 +115,19 @@ export function ApprovalCard({
         </div>
       )}
 
-      {/* Hidden fields only — the three editable fields are controlled above */}
-      <form ref={formRef} className="space-y-3">
-        <input type="hidden" name="id" value={approval.id} />
-        <input type="hidden" name="tenantId" value={tenantId} />
-
+      <div className="space-y-3">
         {isEmail ? (
           <>
             <div className="grid grid-cols-[4rem_1fr] items-center gap-2">
               <label className="text-xs font-medium text-ink-500 text-right">Till</label>
               <input
                 type="email"
-                value={toVal}
-                onChange={(e) => setToVal(e.target.value)}
-                required
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
                 className={`border rounded-lg p-2 text-sm w-full ${
                   needsVerify
-                    ? "border-yellow-400 bg-yellow-50 focus:border-yellow-500"
-                    : "border-ink-200"
+                    ? "border-yellow-400 bg-yellow-50 focus:border-yellow-500 focus:outline-none"
+                    : "border-ink-200 focus:border-ink-400 focus:outline-none"
                 }`}
               />
             </div>
@@ -145,23 +136,19 @@ export function ApprovalCard({
               <label className="text-xs font-medium text-ink-500 text-right">Ämne</label>
               <input
                 type="text"
-                value={subjectVal}
-                onChange={(e) => setSubjectVal(e.target.value)}
-                required
-                className="border border-ink-200 rounded-lg p-2 text-sm w-full"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                className="border border-ink-200 rounded-lg p-2 text-sm w-full focus:border-ink-400 focus:outline-none"
               />
             </div>
 
             <div className="grid grid-cols-[4rem_1fr] items-start gap-2">
-              <label className="text-xs font-medium text-ink-500 text-right pt-2">
-                Meddelande
-              </label>
+              <label className="text-xs font-medium text-ink-500 text-right pt-2">Meddelande</label>
               <textarea
-                value={bodyVal}
-                onChange={(e) => setBodyVal(e.target.value)}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
                 rows={12}
-                required
-                className="border border-ink-200 rounded-lg p-2 text-sm w-full resize-y font-sans leading-relaxed"
+                className="border border-ink-200 rounded-lg p-2 text-sm w-full resize-y font-sans leading-relaxed focus:border-ink-400 focus:outline-none"
               />
             </div>
           </>
@@ -175,40 +162,41 @@ export function ApprovalCard({
           <button
             type="button"
             disabled={isPending}
-            onClick={() => runAction(approveAction, "done")}
+            onClick={() => run(approveAction, true)}
             className="btn btn-primary"
           >
-            {isPending ? "Skickar…" : isEmail ? "Godkänn & skicka" : "Godkänn & kör"}
+            {isPending ? "…" : isEmail ? "Godkänn & skicka" : "Godkänn & kör"}
           </button>
 
           {isEmail && (
             <button
               type="button"
               disabled={isPending}
-              onClick={() => runAction(saveDraftEdits, "none")}
+              onClick={() => run(saveDraftEdits, false)}
               className="btn btn-secondary"
-              title="Spara redigeringar utan att skicka"
             >
-              {isPending ? "Sparar…" : "Spara utkast"}
+              {isPending ? "…" : "Spara utkast"}
             </button>
           )}
 
           <button
             type="button"
             disabled={isPending}
-            onClick={() => runAction(rejectAction, "done")}
+            onClick={() => run(rejectAction, true)}
             className="btn btn-secondary"
           >
             Avvisa
           </button>
 
           <input
-            name="reason"
+            type="text"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
             placeholder="Anledning vid avvisning"
-            className="flex-1 min-w-[8rem] px-3 py-1.5 border border-ink-200 rounded-lg text-sm"
+            className="flex-1 min-w-[8rem] px-3 py-1.5 border border-ink-200 rounded-lg text-sm focus:outline-none"
           />
         </div>
-      </form>
+      </div>
     </div>
   );
 }
