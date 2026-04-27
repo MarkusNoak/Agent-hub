@@ -135,6 +135,10 @@ export async function fetchFundingNews(opts: { limit?: number } = {}): Promise<
   const feeds = [
     "https://breakit.se/feed/rss",
     "https://computersweden.idg.se/2.2683/rss.xml",
+    "https://www.di.se/rss",
+    "https://www.nyteknik.se/nyheter/rss.xml",
+    "https://www.va.se/rss/",
+    "https://www.idg.se/rss.xml",
   ];
   const items: { title: string; desc: string; link: string; source: string }[] = [];
   for (const feed of feeds) {
@@ -557,4 +561,231 @@ export async function markVismaUpsellContacted(
     .update({ upsell_contacted: true })
     .eq("tenant_id", tenantId)
     .eq("id", projectId);
+}
+
+// ------------------------------------------------------------
+// EMAIL DOMAIN VALIDATION — DNS MX lookup (no external API)
+// ------------------------------------------------------------
+
+export type EmailDomainResult = {
+  domain: string;
+  has_mx: boolean;
+  domain_resolves: boolean;
+  confidence: "high" | "low" | "unknown";
+  suggested_emails: string[];
+};
+
+export async function validateEmailDomain(domain: string): Promise<EmailDomainResult> {
+  const d = domain.toLowerCase().trim().replace(/^@/, "");
+  try {
+    // Dynamic import keeps Edge-runtime compat (scheduler + Server Actions both run Node.js)
+    const { promises: dns } = await import("node:dns");
+    let hasMx = false;
+    let domainResolves = false;
+    try {
+      const mx = await dns.resolveMx(d);
+      hasMx = mx.length > 0;
+      domainResolves = true;
+    } catch {
+      // No MX — try A record as fallback
+      try {
+        await dns.resolve4(d);
+        domainResolves = true;
+      } catch {
+        domainResolves = false;
+      }
+    }
+    return {
+      domain: d,
+      has_mx: hasMx,
+      domain_resolves: domainResolves,
+      confidence: hasMx ? "high" : domainResolves ? "low" : "unknown",
+      suggested_emails: domainResolves
+        ? [`info@${d}`, `hej@${d}`, `kontakt@${d}`, `hello@${d}`]
+        : [],
+    };
+  } catch {
+    return {
+      domain: d,
+      has_mx: false,
+      domain_resolves: false,
+      confidence: "unknown",
+      suggested_emails: [],
+    };
+  }
+}
+
+// ------------------------------------------------------------
+// COMPANY RESEARCH — website scrape + Allabolag lookup
+// ------------------------------------------------------------
+
+export type CompanyResearch = {
+  company_name: string;
+  company_domain: string;
+  org_number?: string;
+  employees?: string;
+  revenue?: string;
+  address?: string;
+  website_description?: string;
+  contact_emails: string[];
+  contact_names: string[];
+  key_facts: string[];
+};
+
+const EMAIL_RE = /\b([a-zA-Z0-9._%+\-]{1,64}@[a-zA-Z0-9.\-]{1,253}\.[a-zA-Z]{2,10})\b/g;
+
+/** Fetch a URL silently — never throws, returns null on any failure. */
+async function fetchPageSilent(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "AgentHub-SalesAgent/1.0 (+https://weknowit.se)",
+        Accept: "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.includes("text/html") && !ct.includes("text/plain")) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+function inferDomain(companyName: string): string {
+  return (
+    companyName
+      .toLowerCase()
+      .replace(/\s+(ab|hb|kb|ek\.?för\.?|ideell|stiftelse)\.?\s*$/i, "")
+      .replace(/[åä]/g, "a")
+      .replace(/ö/g, "o")
+      .replace(/[^a-z0-9]+/g, "") + ".se"
+  );
+}
+
+function extractEmails(html: string, preferredDomain: string): string[] {
+  const NOISE = ["example.", "sentry.", "w3.org", "schema.org", "apple.com", "microsoft.com"];
+  const all = [...html.matchAll(EMAIL_RE)]
+    .map((m) => m[1].toLowerCase())
+    .filter((e) => {
+      const parts = e.split("@");
+      const d = parts[1] ?? "";
+      if (NOISE.some((n) => d.includes(n))) return false;
+      // Skip image/asset false positives
+      if (/\.(png|jpg|gif|svg|webp|ico|css|js)$/.test(e)) return false;
+      return true;
+    });
+  // Prefer emails on the company's own domain
+  const onDomain = all.filter((e) => e.includes(preferredDomain));
+  const others = all.filter((e) => !e.includes(preferredDomain));
+  return [...new Set([...onDomain, ...others])].slice(0, 5);
+}
+
+function extractContactNames(text: string): string[] {
+  const names: string[] = [];
+  const SWEDISH_NAME = "[A-ZÅÄÖ][a-zåäö]+(?:\\s+[A-ZÅÄÖ][a-zåäö]+)+";
+  const rolePattern = new RegExp(
+    `(?:vd|ceo|grundare|partner|ansvarig|ägare|direktör|chef)\\s*[:\\-–]\\s*(${SWEDISH_NAME})`,
+    "gi",
+  );
+  for (const m of text.matchAll(rolePattern)) {
+    if (m[1]) names.push(m[1].trim());
+  }
+  // Name immediately before an @ email
+  const beforeEmail = new RegExp(`(${SWEDISH_NAME})\\s*[<(]?\\s*[a-zA-Z0-9._%+\\-]+@`, "g");
+  for (const m of text.matchAll(beforeEmail)) {
+    if (m[1]) names.push(m[1].trim());
+  }
+  return [...new Set(names)].slice(0, 3);
+}
+
+export async function researchCompany(opts: {
+  companyName: string;
+  companyDomain?: string;
+}): Promise<CompanyResearch> {
+  const domain = opts.companyDomain ?? inferDomain(opts.companyName);
+  const result: CompanyResearch = {
+    company_name: opts.companyName,
+    company_domain: domain,
+    contact_emails: [],
+    contact_names: [],
+    key_facts: [],
+  };
+
+  // --- Step 1: Fetch company website ---
+  const urlsToTry = [
+    `https://${domain}`,
+    `https://www.${domain}`,
+    `https://${domain}/kontakt`,
+    `https://${domain}/om-oss`,
+    `https://${domain}/contact`,
+    `https://${domain}/about`,
+  ];
+
+  let foundEmails = false;
+  for (const url of urlsToTry) {
+    const html = await fetchPageSilent(url);
+    if (!html) continue;
+
+    const emails = extractEmails(html, domain);
+    if (emails.length) {
+      result.contact_emails.push(...emails);
+      foundEmails = true;
+    }
+
+    // Meta description (first page only)
+    if (!result.website_description) {
+      const desc =
+        html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{10,250})["']/i)?.[1] ??
+        html.match(/<meta[^>]+content=["']([^"']{10,250})["'][^>]+name=["']description["']/i)?.[1];
+      if (desc) {
+        result.website_description = desc.trim();
+        result.key_facts.push(`Hemsidebeskrivning: ${desc.trim().substring(0, 150)}`);
+      }
+    }
+
+    // Extract contact names from stripped text
+    const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const names = extractContactNames(text);
+    result.contact_names.push(...names);
+
+    if (foundEmails && result.contact_names.length > 0) break;
+    await sleep(800);
+  }
+
+  // --- Step 2: Allabolag search for company facts ---
+  try {
+    const searchUrl = `https://www.allabolag.se/what/${encodeURIComponent(opts.companyName)}`;
+    const html = await fetchPageSilent(searchUrl);
+    if (html) {
+      const orgMatch = html.match(/(\d{6}-\d{4})/);
+      if (orgMatch) {
+        result.org_number = orgMatch[1];
+        result.key_facts.push(`Org.nr: ${orgMatch[1]}`);
+      }
+      const empMatch =
+        html.match(/(\d+[\s–\-]+\d+)\s+anst/i) ?? html.match(/anst[^<>]{0,20}(\d+)/i);
+      if (empMatch) {
+        result.employees = empMatch[1];
+        result.key_facts.push(`Anställda: ${empMatch[1]}`);
+      }
+      const revMatch = html.match(
+        /omsättning[^<>]{0,60}([\d\s.,]+(?:tkr|mnkr|mkr|msek|ksek|kr))/i,
+      );
+      if (revMatch) {
+        result.revenue = revMatch[1].trim();
+        result.key_facts.push(`Omsättning: ${revMatch[1].trim()}`);
+      }
+    }
+    await sleep(1500);
+  } catch {
+    // Allabolag is optional enrichment
+  }
+
+  // Deduplicate
+  result.contact_emails = [...new Set(result.contact_emails)];
+  result.contact_names = [...new Set(result.contact_names)];
+
+  return result;
 }

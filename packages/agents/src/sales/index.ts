@@ -10,6 +10,8 @@ import {
   searchWeakDigitalPresence,
   fetchVismaUpsellCandidates,
   markVismaUpsellContacted,
+  researchCompany,
+  validateEmailDomain,
 } from "@agent-hub/connectors";
 
 const OfferTypeEnum = z.enum([
@@ -128,25 +130,39 @@ DEDUP RULE (MANDATORY — do this FIRST):
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
 DATA SOURCES (call as tools — all free):
-1. fetch_funding_news           RSS (Breakit, ComputerSweden). Growth/funding signals → app_development.
+1. fetch_funding_news           RSS (Breakit, ComputerSweden, DI, NyTeknik, VA). Growth/funding signals → app_development.
 2. scrape_allabolag             ICP-filter (SNI + 10-99 anställda) → ai_automation or agent_platform.
 3. fetch_ai_replaceable_jobs    Arbetsförmedlingen. Admin roles → ai_automation.
 4. fetch_app_dev_signals        Arbetsförmedlingen. Digital PMs, developers → app_development.
 5. search_weak_digital_presence Google CSE — queries tuned per service line (webb/app/agent/ai).
 6. fetch_visma_upsell_candidates Befintliga WKIT-kunder 14-60 dagar post-leverans → upsell.
 ────────────────────────────────────────
+ENRICHMENT TOOLS (use after scoring, before upsert_lead):
+• research_company      Fetches company website + Allabolag. Returns real contact emails and names.
+                        If a real email is found (e.g. anna@bolaget.se) — use it, no [VERIFIERA ADRESS].
+                        If contact name found — address the email "Hej [Name]," not "Hej,".
+• validate_email_domain DNS MX check. Returns confidence=high/low/unknown.
+                        high   → send without [VERIFIERA ADRESS] flag.
+                        low    → keep [VERIFIERA ADRESS] in subject.
+                        unknown → skip the company (domain doesn't resolve — not a real business).
+────────────────────────────────────────
 DECISION FLOW:
 1. Call \`list_recent_outreach\` first.
-2. Call all data sources.
+2. Call all data sources in parallel.
 3. For each returned prospect:
    a. If source=funding_news → extract the actual company name from the headline.
    b. Score ICP fit 0–100. Skip if score < 55.
    c. Pick ONE offer_type: use suggested_offer_hint as starting point, refine based on signals.
-   d. \`upsert_lead\` with all signals. Use the UUID returned as lead_id.
+   d. Call \`research_company\` — use returned contact_emails[0] and contact_names[0] if present.
+   e. Call \`validate_email_domain\` on the domain you plan to use.
+      Skip companies where confidence=unknown (domain doesn't exist).
+      Remove [VERIFIERA ADRESS] from subject if confidence=high.
+   f. \`upsert_lead\` with all signals + enriched contact data. Use the UUID returned as lead_id.
       DO NOT invent lead_id — draft_outreach_approval rejects non-UUIDs.
-   e. \`draft_outreach_approval\` with ≤130-word Swedish email.
-      Use EMAIL INFERENCE RULE if no email is known.
-   f. If source=visma_upsell, call \`mark_visma_upsell_contacted\`.
+   g. \`draft_outreach_approval\` with ≤130-word Swedish email.
+      Personalize with contact name and company facts from research_company.
+      Use EMAIL INFERENCE RULE if no email was found.
+   h. If source=visma_upsell, call \`mark_visma_upsell_contacted\`.
 4. Respect input.max_drafts across all sources.
 5. NEVER send — everything queues via draft_outreach_approval.
 Offers available: ${offers.join(", ")}.`;
@@ -331,6 +347,41 @@ Offers available: ${offers.join(", ")}.`;
         const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
         await markVismaUpsellContacted(supa, ctx.tenant.tenantId, String(args["project_id"]));
         return { marked: true };
+      },
+    },
+    {
+      name: "research_company",
+      description:
+        "Enrich a prospect using free Swedish sources: fetches the company website to extract real contact emails and names, then looks up Allabolag for org number, employee count and revenue. Call this after scoring a prospect ≥55 and before upsert_lead to improve email personalization. If a real contact email is found, use it instead of the inferred info@ address.",
+      input_schema: {
+        type: "object",
+        properties: {
+          company_name: { type: "string", description: "Company name (Swedish, with or without AB/HB)" },
+          company_domain: { type: "string", description: "Known domain, e.g. bolaget.se (optional — inferred from name if omitted)" },
+        },
+        required: ["company_name"],
+      },
+      execute: async (args) => {
+        const result = await researchCompany({
+          companyName: String(args["company_name"]),
+          companyDomain: args["company_domain"] ? String(args["company_domain"]) : undefined,
+        });
+        return result;
+      },
+    },
+    {
+      name: "validate_email_domain",
+      description:
+        "Check if an email domain has MX records (can actually receive mail). Returns confidence=high if MX found, low if only A record, unknown if domain doesn't resolve. Use this to decide whether to flag the email with [VERIFIERA ADRESS] or send with confidence.",
+      input_schema: {
+        type: "object",
+        properties: {
+          domain: { type: "string", description: "Domain to check, e.g. bolaget.se (no @ prefix)" },
+        },
+        required: ["domain"],
+      },
+      execute: async (args) => {
+        return validateEmailDomain(String(args["domain"]));
       },
     },
     {
