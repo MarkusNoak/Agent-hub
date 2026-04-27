@@ -6,6 +6,10 @@ import { AGENT_REGISTRY } from "@agent-hub/agents";
 import { loadTenantConnectors } from "@agent-hub/connectors";
 import { executeAgent, loadTenant, type AgentKind } from "@agent-hub/core";
 
+// Keep the Vercel lambda alive for up to 300 s while the agent runs in background.
+// This applies to all server actions exported from this file.
+export const maxDuration = 300;
+
 export async function toggleAgent(formData: FormData) {
   const id = String(formData.get("id"));
   const tenantId = String(formData.get("tenantId"));
@@ -21,7 +25,14 @@ export async function toggleAgent(formData: FormData) {
   revalidatePath("/agents");
 }
 
-/** Kick off a one-off run from the UI. Uses the admin client to bypass RLS for the write. */
+/**
+ * Kick off a one-off run from the UI.
+ *
+ * Pattern: resolve the action immediately so the browser gets its response,
+ * then let executeAgent run in the background. The `maxDuration = 300` export
+ * above keeps the Vercel lambda alive for up to 5 minutes after the response
+ * is sent, long enough for the 120 s Anthropic timeout + DB update to complete.
+ */
 export async function triggerAgentManual(formData: FormData) {
   const id = String(formData.get("id"));
   const tenantId = String(formData.get("tenantId"));
@@ -44,25 +55,18 @@ export async function triggerAgentManual(formData: FormData) {
   const def = AGENT_REGISTRY[agentRow.kind as AgentKind];
   if (!def) throw new Error(`Unknown agent kind ${agentRow.kind}`);
 
-  // On Vercel serverless, fire-and-forget promises are killed the moment the
-  // HTTP response is sent. Await the run so it actually completes. The UI
-  // waits up to `maxDuration` (set on app/agents/page.tsx); for runs that
-  // need longer, use the pg_cron scheduler instead.
-  try {
-    await executeAgent({
-      tenant,
-      agent: def,
-      input: {},
-      trigger: "manual",
-      connectors,
-      supabase: admin as never,
-    });
-  } catch (e) {
-    console.error("manual run failed", e);
-    // Run row is already marked failed inside executeAgent's error handler,
-    // so we just swallow here to let the UI revalidate and show the failure.
-  }
+  // Fire-and-forget: the promise keeps running after this action returns.
+  // Vercel honours pending async work up to maxDuration before killing the lambda.
+  void executeAgent({
+    tenant,
+    agent: def,
+    input: {},
+    trigger: "manual",
+    connectors,
+    supabase: admin as never,
+  }).catch((e) => console.error("[triggerAgentManual] run failed:", e));
 
+  // Return to browser immediately — /runs auto-refreshes every 5 s.
   revalidatePath("/agents");
   revalidatePath("/runs");
 }
