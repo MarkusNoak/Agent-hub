@@ -627,7 +627,9 @@ export type CompanyResearch = {
   revenue?: string;
   address?: string;
   website_description?: string;
+  vd_name?: string;
   contact_emails: string[];
+  email_candidates: string[];  // Generated from VD name — not verified, but personalized
   contact_names: string[];
   key_facts: string[];
 };
@@ -701,6 +703,43 @@ function extractContactNames(text: string): string[] {
   return [...new Set(names)].slice(0, 3);
 }
 
+/** Generate probable work email patterns from a full name + domain. */
+function generateEmailCandidates(fullName: string, domain: string): string[] {
+  const normalized = fullName
+    .trim()
+    .replace(/[åä]/gi, "a")
+    .replace(/ö/gi, "o")
+    .toLowerCase();
+  const parts = normalized.split(/\s+/).filter((p) => /^[a-z]/.test(p));
+  if (parts.length < 2) return [];
+  const first = (parts[0] ?? "").replace(/[^a-z0-9]/g, "");
+  const last = (parts[parts.length - 1] ?? "").replace(/[^a-z0-9]/g, "");
+  const fi = first[0] ?? "";
+  if (!first || !last || !fi) return [];
+  return [
+    `${first}.${last}@${domain}`,
+    `${first}@${domain}`,
+    `${fi}.${last}@${domain}`,
+    `${first}${last}@${domain}`,
+  ];
+}
+
+/** Extract VD/CEO name from a Swedish company HTML page. */
+function extractVdName(html: string): string | undefined {
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const SWEDISH_NAME = "[A-ZÅÄÖ][a-zåäö]+(?:\\s+[A-ZÅÄÖ][a-zåäö]+)+";
+  const patterns = [
+    new RegExp(`(?:Verkst\\.?\\s+dir\\.?|Verkst\\.direktör|Verkst\\.?\\s*dir\\.?\\s*\\(VD\\)|\\bVD\\b)\\s*[:\\-–]?\\s*(${SWEDISH_NAME})`, "i"),
+    new RegExp(`(${SWEDISH_NAME})\\s*[,–\\-]\\s*(?:VD|Vd|verkst\\.?\\s*dir\\.?)`, "i"),
+  ];
+  for (const p of patterns) {
+    const m = text.match(p);
+    const name = m?.[1]?.trim();
+    if (name && name.split(" ").length >= 2) return name;
+  }
+  return undefined;
+}
+
 export async function researchCompany(opts: {
   companyName: string;
   companyDomain?: string;
@@ -710,6 +749,7 @@ export async function researchCompany(opts: {
     company_name: opts.companyName,
     company_domain: domain,
     contact_emails: [],
+    email_candidates: [],
     contact_names: [],
     key_facts: [],
   };
@@ -755,34 +795,79 @@ export async function researchCompany(opts: {
     await sleep(800);
   }
 
-  // --- Step 2: Allabolag search for company facts ---
+  // --- Step 2: Allabolag search for company facts + VD name ---
   try {
     const searchUrl = `https://www.allabolag.se/what/${encodeURIComponent(opts.companyName)}`;
-    const html = await fetchPageSilent(searchUrl);
-    if (html) {
-      const orgText = html.match(/(\d{6}-\d{4})/)?.[1];
+    const searchHtml = await fetchPageSilent(searchUrl);
+    if (searchHtml) {
+      const orgText = searchHtml.match(/(\d{6}-\d{4})/)?.[1];
       if (orgText) {
         result.org_number = orgText;
         result.key_facts.push(`Org.nr: ${orgText}`);
       }
       const empText =
-        (html.match(/(\d+[\s–\-]+\d+)\s+anst/i) ?? html.match(/anst[^<>]{0,20}(\d+)/i))?.[1];
+        (searchHtml.match(/(\d+[\s–\-]+\d+)\s+anst/i) ??
+          searchHtml.match(/anst[^<>]{0,20}(\d+)/i))?.[1];
       if (empText) {
         result.employees = empText;
         result.key_facts.push(`Anställda: ${empText}`);
       }
-      const revMatch = html.match(
+      const revText = searchHtml.match(
         /omsättning[^<>]{0,60}([\d\s.,]+(?:tkr|mnkr|mkr|msek|ksek|kr))/i,
-      );
-      const revText = revMatch?.[1];
+      )?.[1];
       if (revText) {
         result.revenue = revText.trim();
         result.key_facts.push(`Omsättning: ${revText.trim()}`);
       }
+
+      // Fetch full company page for VD name if we have the org number
+      if (result.org_number) {
+        await sleep(1000);
+        const companyPageUrl = `https://www.allabolag.se/${result.org_number.replace("-", "")}`;
+        const companyHtml = await fetchPageSilent(companyPageUrl);
+        if (companyHtml) {
+          const vd = extractVdName(companyHtml);
+          if (vd) {
+            result.vd_name = vd;
+            result.contact_names.unshift(vd);
+            result.key_facts.push(`VD: ${vd}`);
+          }
+        }
+      }
     }
-    await sleep(1500);
+    await sleep(1000);
   } catch {
     // Allabolag is optional enrichment
+  }
+
+  // --- Step 3: PRoff.se fallback for VD name if not found yet ---
+  if (!result.vd_name) {
+    try {
+      const proffUrl = `https://www.proff.se/s%C3%B6k?q=${encodeURIComponent(opts.companyName)}`;
+      const proffHtml = await fetchPageSilent(proffUrl);
+      if (proffHtml) {
+        const vd = extractVdName(proffHtml);
+        if (vd) {
+          result.vd_name = vd;
+          result.contact_names.unshift(vd);
+          result.key_facts.push(`VD (PRoff): ${vd}`);
+        }
+      }
+      await sleep(800);
+    } catch {
+      // PRoff is optional
+    }
+  }
+
+  // --- Generate personalised email candidates from VD name ---
+  const nameForCandidates = result.vd_name ?? result.contact_names[0];
+  if (nameForCandidates) {
+    result.email_candidates = generateEmailCandidates(nameForCandidates, domain);
+    if (result.email_candidates.length > 0) {
+      result.key_facts.push(
+        `E-postkandidater (ej verifierade): ${result.email_candidates.slice(0, 2).join(", ")}`,
+      );
+    }
   }
 
   // Deduplicate
@@ -790,4 +875,95 @@ export async function researchCompany(opts: {
   result.contact_names = [...new Set(result.contact_names)];
 
   return result;
+}
+
+// ------------------------------------------------------------
+// SOURCE 7 — Companies without websites (DNS A-record check)
+// ------------------------------------------------------------
+
+const NO_WEBSITE_SNI = [
+  { sni: "69100", industry: "Advokatbyrå" },
+  { sni: "69200", industry: "Redovisningsbyrå" },
+  { sni: "41200", industry: "Byggföretag" },
+  { sni: "81210", industry: "Städbolag" },
+  { sni: "86230", industry: "Tandläkare" },
+  { sni: "56101", industry: "Restaurang" },
+  { sni: "68310", industry: "Fastighetsmäklare" },
+  { sni: "96020", industry: "Frisör/Skönhetssalong" },
+];
+
+async function domainHasWebsite(domain: string): Promise<boolean> {
+  try {
+    const { promises: dns } = await import("node:dns");
+    await dns.resolve4(domain);
+    return true;
+  } catch {
+    try {
+      const { promises: dns } = await import("node:dns");
+      await dns.resolve4(`www.${domain}`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export async function fetchNoWebsiteCompanies(
+  opts: { limit?: number } = {},
+): Promise<ProspectSignal[]> {
+  const results: ProspectSignal[] = [];
+  const limit = opts.limit ?? 8;
+
+  for (const { sni, industry } of NO_WEBSITE_SNI) {
+    if (results.length >= limit) break;
+    try {
+      // Small companies (1-9 employees) most likely to lack websites
+      const url = `https://www.allabolag.se/bransch/${sni}?anstallda=1-9`;
+      const res = await fetchWithRetry(url);
+      const html = await res.text();
+      const matches = [
+        ...html.matchAll(
+          /class="[^"]*(?:company|foretag)[^"]*name[^"]*"[^>]*>\s*([^<]{3,80})\s*</gi,
+        ),
+      ];
+      const names = matches
+        .slice(0, 10)
+        .map((m) => (m[1] ?? "").trim().replace(/&amp;/g, "&"))
+        .filter((n) => n.length > 3);
+
+      // DNS check in parallel (max 5 at once)
+      const batch = names.slice(0, 5);
+      const checks = await Promise.allSettled(
+        batch.map(async (name) => {
+          const domain = inferDomain(name);
+          const hasWebsite = await domainHasWebsite(domain);
+          return { name, domain, hasWebsite };
+        }),
+      );
+
+      for (const check of checks) {
+        if (results.length >= limit) break;
+        if (check.status !== "fulfilled") continue;
+        const { name, domain, hasWebsite } = check.value;
+        if (!hasWebsite) {
+          results.push({
+            source: "digital_presence",
+            company_name: name,
+            signals: [
+              `${industry} utan registrerad webbplats`,
+              `Domänen ${domain} har inget A-record — troligen ingen hemsida`,
+              `SNI-kod ${sni}: ${industry}`,
+            ],
+            suggested_offer_hint: "webb_design",
+            extra: { sni, industry, inferred_domain: domain, dns_check: "no_a_record" },
+          });
+        }
+      }
+      await sleep(1500);
+    } catch (e) {
+      console.warn(`fetchNoWebsiteCompanies SNI ${sni} failed:`, (e as Error).message);
+    }
+  }
+
+  return results;
 }

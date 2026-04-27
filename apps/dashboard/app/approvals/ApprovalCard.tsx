@@ -1,7 +1,7 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
-import { approveAction, rejectAction } from "./actions";
+import { approveAction, rejectAction, saveDraftEdits } from "./actions";
 
 type Approval = {
   id: string;
@@ -110,17 +110,26 @@ export function ApprovalCard({
           </pre>
         )}
 
-        <div className="flex gap-2 items-center pt-1">
+        <div className="flex flex-wrap gap-2 items-center pt-1">
           <button formAction={approveAction} className="btn btn-primary">
             {isEmail ? "Godkänn & skicka" : "Godkänn & kör"}
           </button>
+          {isEmail && (
+            <button
+              formAction={saveDraftEdits}
+              className="btn btn-secondary"
+              title="Spara redigeringar utan att skicka"
+            >
+              Spara utkast
+            </button>
+          )}
           <button formAction={rejectAction} className="btn btn-secondary">
             Avvisa
           </button>
           <input
             name="reason"
             placeholder="Anledning vid avvisning"
-            className="flex-1 px-3 py-1.5 border border-ink-200 rounded-lg text-sm"
+            className="flex-1 min-w-[8rem] px-3 py-1.5 border border-ink-200 rounded-lg text-sm"
           />
         </div>
       </form>

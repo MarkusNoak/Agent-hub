@@ -12,6 +12,7 @@ import {
   markVismaUpsellContacted,
   researchCompany,
   validateEmailDomain,
+  fetchNoWebsiteCompanies,
 } from "@agent-hub/connectors";
 
 const OfferTypeEnum = z.enum([
@@ -130,38 +131,47 @@ DEDUP RULE (MANDATORY — do this FIRST):
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
 DATA SOURCES (call as tools — all free):
-1. fetch_funding_news           RSS (Breakit, ComputerSweden, DI, NyTeknik, VA). Growth/funding signals → app_development.
-2. scrape_allabolag             ICP-filter (SNI + 10-99 anställda) → ai_automation or agent_platform.
-3. fetch_ai_replaceable_jobs    Arbetsförmedlingen. Admin roles → ai_automation.
-4. fetch_app_dev_signals        Arbetsförmedlingen. Digital PMs, developers → app_development.
-5. search_weak_digital_presence Google CSE — queries tuned per service line (webb/app/agent/ai).
+1. fetch_funding_news            RSS (Breakit, ComputerSweden, DI, NyTeknik, VA). Funding/growth → app_development.
+2. scrape_allabolag              ICP-filter (SNI + 10-99 anställda) → ai_automation or agent_platform.
+3. fetch_ai_replaceable_jobs     Arbetsförmedlingen. Admin roles → ai_automation.
+4. fetch_app_dev_signals         Arbetsförmedlingen. Digital PMs, developers → app_development.
+5. search_weak_digital_presence  Google CSE — queries tuned per service line.
 6. fetch_visma_upsell_candidates Befintliga WKIT-kunder 14-60 dagar post-leverans → upsell.
+7. fetch_no_website_companies    Allabolag SNI + DNS-check. SMBs without websites → webb_design.
 ────────────────────────────────────────
 ENRICHMENT TOOLS (use after scoring, before upsert_lead):
-• research_company      Fetches company website + Allabolag. Returns real contact emails and names.
-                        If a real email is found (e.g. anna@bolaget.se) — use it, no [VERIFIERA ADRESS].
-                        If contact name found — address the email "Hej [Name]," not "Hej,".
+• research_company      Fetches company website, Allabolag company page, PRoff.se.
+                        Returns: contact_emails (found on site), email_candidates (generated
+                        from VD name — personalized but unverified), vd_name, key_facts.
+                        EMAIL PRIORITY:
+                          1. contact_emails[0]   → use directly, high confidence, no flag needed
+                          2. email_candidates[0]  → use with [VERIFIERA ADRESS] in subject
+                          3. EMAIL INFERENCE RULE → info@ fallback, always [VERIFIERA ADRESS]
+                        NAME PRIORITY:
+                          1. vd_name             → "Hej [Firstname],"
+                          2. contact_names[0]    → "Hej [Firstname],"
+                          3. nothing found       → "Hej,"
 • validate_email_domain DNS MX check. Returns confidence=high/low/unknown.
-                        high   → send without [VERIFIERA ADRESS] flag.
-                        low    → keep [VERIFIERA ADRESS] in subject.
-                        unknown → skip the company (domain doesn't resolve — not a real business).
+                        high    → remove [VERIFIERA ADRESS] from subject.
+                        low     → keep [VERIFIERA ADRESS].
+                        unknown → skip company (domain doesn't resolve).
 ────────────────────────────────────────
 DECISION FLOW:
 1. Call \`list_recent_outreach\` first.
 2. Call all data sources in parallel.
 3. For each returned prospect:
-   a. If source=funding_news → extract the actual company name from the headline.
+   a. If source=funding_news → extract actual company name from headline.
    b. Score ICP fit 0–100. Skip if score < 55.
-   c. Pick ONE offer_type: use suggested_offer_hint as starting point, refine based on signals.
-   d. Call \`research_company\` — use returned contact_emails[0] and contact_names[0] if present.
-   e. Call \`validate_email_domain\` on the domain you plan to use.
-      Skip companies where confidence=unknown (domain doesn't exist).
-      Remove [VERIFIERA ADRESS] from subject if confidence=high.
-   f. \`upsert_lead\` with all signals + enriched contact data. Use the UUID returned as lead_id.
-      DO NOT invent lead_id — draft_outreach_approval rejects non-UUIDs.
+   c. Pick ONE offer_type (use suggested_offer_hint, refine based on signals).
+   d. Call \`research_company\` → get VD name, contact emails, email candidates, key facts.
+   e. Call \`validate_email_domain\` on the domain.
+      Skip companies where confidence=unknown.
+      Remove [VERIFIERA ADRESS] if confidence=high AND contact_emails[0] used.
+   f. \`upsert_lead\` with all signals + enriched contact data.
+      DO NOT invent lead_id.
    g. \`draft_outreach_approval\` with ≤130-word Swedish email.
-      Personalize with contact name and company facts from research_company.
-      Use EMAIL INFERENCE RULE if no email was found.
+      Use EMAIL PRIORITY and NAME PRIORITY above.
+      Personalise body using key_facts (employees, revenue, what the company does).
    h. If source=visma_upsell, call \`mark_visma_upsell_contacted\`.
 4. Respect input.max_drafts across all sources.
 5. NEVER send — everything queues via draft_outreach_approval.
@@ -352,7 +362,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "research_company",
       description:
-        "Enrich a prospect using free Swedish sources: fetches the company website to extract real contact emails and names, then looks up Allabolag for org number, employee count and revenue. Call this after scoring a prospect ≥55 and before upsert_lead to improve email personalization. If a real contact email is found, use it instead of the inferred info@ address.",
+        "Enrich a prospect using free Swedish sources: fetches the company website for real contact emails, looks up Allabolag for VD name + company facts, and tries PRoff.se as fallback. Returns vd_name, email_candidates (generated from VD name — not verified but personalized), contact_emails (found on website), and key_facts. PRIORITY: use contact_emails[0] if present; otherwise use email_candidates[0] and address the email to vd_name.",
       input_schema: {
         type: "object",
         properties: {
@@ -367,6 +377,21 @@ Offers available: ${offers.join(", ")}.`;
           companyDomain: args["company_domain"] ? String(args["company_domain"]) : undefined,
         });
         return result;
+      },
+    },
+    {
+      name: "fetch_no_website_companies",
+      description:
+        "Find Swedish SMBs that likely have no website: scrapes Allabolag for 8 industries (advokatbyråer, redovisningsbyråer, byggföretag, städbolag, tandläkare, restauranger, fastighetsmäklare, frisörer) with 1–9 employees, then DNS-checks each inferred domain. Companies with no A-record → no website → strong webb_design prospect.",
+      input_schema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max prospects to return (default 8)" },
+        },
+      },
+      execute: async (args) => {
+        const items = await fetchNoWebsiteCompanies({ limit: (args["limit"] as number) ?? 8 });
+        return { items, count: items.length };
       },
     },
     {
