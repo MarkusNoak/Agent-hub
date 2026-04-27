@@ -379,6 +379,8 @@ export async function searchWeakDigitalPresence(opts: {
   googleApiKey?: string;
   googleCseId?: string;
   limit?: number;
+  /** Max CSE queries to fire per call. Default 4 (saves free quota: 100/day ÷ 4 = 25 runs). */
+  queriesPerRun?: number;
 }): Promise<ProspectSignal[]> {
   if (!opts.googleApiKey || !opts.googleCseId) return [];
 
@@ -532,9 +534,10 @@ export async function searchWeakDigitalPresence(opts: {
     label: string;
   };
 
-  // Run a random subset of 8 queries in parallel to stay well within the 45 s tool timeout.
-  // Shuffling ensures variety across runs so all service lines get coverage over time.
-  const shuffled = [...queries].sort(() => Math.random() - 0.5).slice(0, 8);
+  // Run a random subset of 4 queries in parallel (free tier = 100/day; 4 queries/run
+  // = 25 runs before quota). Shuffled so all service lines get coverage over time.
+  const perRun = opts.queriesPerRun ?? 4;
+  const shuffled = [...queries].sort(() => Math.random() - 0.5).slice(0, perRun);
 
   const results = await Promise.allSettled(
     shuffled.map(async ({ q, hint, label }) => {
