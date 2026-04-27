@@ -2,42 +2,118 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-900 font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Smooth scrolling */
+  * {
+    scroll-behavior: smooth;
+  }
 }
 
-body {
-  @apply bg-ink-50 text-ink-900 font-sans antialiased;
+@layer components {
+  /* ── Cards ── */
+  .card {
+    @apply bg-white rounded-2xl border border-ink-100 shadow-card;
+  }
+
+  .card-hover {
+    @apply card transition-all duration-200 hover:shadow-card-hover hover:-translate-y-0.5 cursor-pointer;
+  }
+
+  /* Gradient KPI cards */
+  .card-green {
+    @apply rounded-2xl border shadow-card;
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    border-color: #bbf7d0;
+  }
+  .card-amber {
+    @apply rounded-2xl border shadow-card;
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    border-color: #fde68a;
+  }
+  .card-blue {
+    @apply rounded-2xl border shadow-card;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border-color: #bfdbfe;
+  }
+  .card-purple {
+    @apply rounded-2xl border shadow-card;
+    background: linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%);
+    border-color: #c4b5fd;
+  }
+  .card-dark {
+    @apply rounded-2xl border shadow-card text-white;
+    background: linear-gradient(135deg, #1a1410 0%, #2a251c 100%);
+    border-color: rgba(255,255,255,0.08);
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-150 cursor-pointer select-none;
+  }
+  .btn-primary {
+    @apply bg-brand text-white hover:bg-brand-hover shadow-sm hover:shadow-md active:scale-[0.98];
+  }
+  .btn-secondary {
+    @apply bg-ink-100 text-ink-900 hover:bg-ink-200 active:scale-[0.98];
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 shadow-sm active:scale-[0.98];
+  }
+  .btn-ghost {
+    @apply text-ink-700 hover:bg-ink-100 active:scale-[0.98];
+  }
+  .btn-outline {
+    @apply border border-ink-200 bg-white text-ink-900 hover:bg-ink-50 hover:border-ink-300 shadow-sm active:scale-[0.98];
+  }
+
+  /* ── Badges ── */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full tracking-wide;
+  }
+  .badge-green  { @apply bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200; }
+  .badge-yellow { @apply bg-amber-50   text-amber-700   ring-1 ring-amber-200; }
+  .badge-red    { @apply bg-red-50     text-red-700     ring-1 ring-red-200; }
+  .badge-gray   { @apply bg-ink-100    text-ink-600     ring-1 ring-ink-200; }
+  .badge-blue   { @apply bg-blue-50    text-blue-700    ring-1 ring-blue-200; }
+
+  /* ── Form inputs ── */
+  .input {
+    @apply w-full border border-ink-200 rounded-xl px-3 py-2 text-sm
+           bg-white focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
+           placeholder:text-ink-400 transition duration-150 shadow-sm;
+  }
+
+  /* ── Section headers ── */
+  .section-label {
+    @apply text-xs font-semibold text-ink-400 uppercase tracking-widest;
+  }
+
+  /* ── Stat display ── */
+  .stat-value {
+    @apply text-3xl font-bold tracking-tight text-ink-900 tabular-nums;
+  }
+  .stat-label {
+    @apply text-xs font-medium text-ink-500 mt-0.5;
+  }
+  .stat-sub {
+    @apply text-xs text-ink-400 mt-1;
+  }
 }
 
-/* ── Cards ── */
-.card {
-  @apply bg-white rounded-2xl border border-ink-100 shadow-sm;
-}
-
-/* ── Buttons — pill-shaped like weknowit.se ── */
-.btn {
-  @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors cursor-pointer;
-}
-.btn-primary   { @apply bg-brand text-white hover:bg-brand-hover; }
-.btn-secondary { @apply bg-ink-100 text-ink-900 hover:bg-ink-200; }
-.btn-danger    { @apply bg-red-600 text-white hover:bg-red-700; }
-.btn-ghost     { @apply text-ink-700 hover:bg-ink-100; }
-.btn-outline   { @apply border border-ink-200 bg-white text-ink-900 hover:bg-ink-50; }
-
-/* ── Badges ── */
-.badge {
-  @apply inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full;
-}
-.badge-green  { @apply bg-green-100  text-green-800; }
-.badge-yellow { @apply bg-yellow-100 text-yellow-800; }
-.badge-red    { @apply bg-red-100    text-red-800; }
-.badge-gray   { @apply bg-ink-100    text-ink-700; }
-.badge-blue   { @apply bg-brand-soft text-amber-800; }
-
-/* ── Form inputs ── */
-.input {
-  @apply w-full border border-ink-200 rounded-xl px-3 py-2 text-sm
-         bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand
-         placeholder:text-ink-500 transition;
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
 }
