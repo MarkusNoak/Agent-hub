@@ -1,33 +1,26 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import nodemailer from "nodemailer";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
 
-export type GmailFormState = { error: string } | { success: true } | null;
-
-export async function saveGmailSmtp(
-  _prev: GmailFormState,
-  formData: FormData,
-): Promise<GmailFormState> {
+export async function saveGmailSmtp(formData: FormData): Promise<void> {
   const tenantId = String(formData.get("tenantId"));
   const from = String(formData.get("from") ?? "").trim();
   const password = String(formData.get("password") ?? "").trim().replace(/\s+/g, "");
 
-  if (!tenantId) return { error: "Missing tenantId." };
+  if (!tenantId) throw new Error("Missing tenantId.");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) {
-    return { error: "Ogiltig avsändaradress." };
+    throw new Error("Ogiltig avsändaradress.");
   }
   if (password.length < 12 || password.length > 32) {
-    return {
-      error:
-        "App Password verkar ogiltigt (förväntas ~16 tecken utan mellanslag). Generera ett nytt på myaccount.google.com/apppasswords.",
-    };
+    throw new Error(
+      "App Password verkar ogiltigt (förväntas ~16 tecken utan mellanslag). Generera ett nytt på myaccount.google.com/apppasswords.",
+    );
   }
 
   const supa = createSupabaseServerClient();
   const { data: auth } = await supa.auth.getUser();
-  if (!auth.user) return { error: "Du är inte inloggad." };
+  if (!auth.user) throw new Error("Du är inte inloggad.");
 
   const { data: membership } = await supa
     .from("users_tenants")
@@ -36,12 +29,12 @@ export async function saveGmailSmtp(
     .eq("user_id", auth.user.id)
     .maybeSingle();
 
-  if (!membership) return { error: "Du är inte medlem i denna tenant." };
+  if (!membership) throw new Error("Du är inte medlem i denna tenant.");
   if (membership.role !== "owner" && membership.role !== "admin") {
-    return { error: "Bara owner eller admin kan koppla integrations." };
+    throw new Error("Bara owner eller admin kan koppla integrations.");
   }
 
-  // Verify the SMTP credentials before saving.
+  // Verify SMTP credentials before saving.
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 587,
@@ -52,15 +45,13 @@ export async function saveGmailSmtp(
     await transporter.verify();
   } catch (e) {
     const raw = (e as Error).message ?? "Okänt SMTP-fel";
-    // Surface a clear hint for the most common failure modes
-    const hint = raw.includes("535") || raw.includes("Username and Password not accepted")
-      ? " Trolig orsak: fel App Password, eller App Passwords är inte aktiverade för ditt konto (Google Workspace-admin kan ha blockerat det)."
-      : raw.includes("534")
-      ? " Aktivera 2FA och skapa App Password på myaccount.google.com/apppasswords."
-      : "";
-    return {
-      error: `SMTP-verifiering misslyckades: ${raw}.${hint}`,
-    };
+    const hint =
+      raw.includes("535") || raw.includes("Username and Password not accepted")
+        ? " Trolig orsak: fel App Password, eller App Passwords är inte aktiverade för ditt konto (Google Workspace-admin kan ha blockerat det)."
+        : raw.includes("534")
+        ? " Aktivera 2FA och skapa ett App Password på myaccount.google.com/apppasswords."
+        : "";
+    throw new Error(`SMTP-verifiering misslyckades: ${raw}.${hint}`);
   }
 
   const admin = createSupabaseAdminClient();
@@ -80,7 +71,7 @@ export async function saveGmailSmtp(
     );
 
   if (upsertErr) {
-    return { error: `Kunde inte spara integration: ${upsertErr.message}` };
+    throw new Error(`Kunde inte spara integration: ${upsertErr.message}`);
   }
 
   await admin.from("audit_log").insert({
@@ -91,6 +82,4 @@ export async function saveGmailSmtp(
     subject_id: null,
     metadata: { kind: "gmail", transport: "smtp", from },
   });
-
-  redirect("/settings?gmail=connected");
 }

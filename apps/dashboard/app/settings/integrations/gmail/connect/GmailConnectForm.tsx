@@ -1,21 +1,36 @@
 "use client";
 
-import { useActionState } from "react";
-import { saveGmailSmtp, type GmailFormState } from "./actions";
+import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { saveGmailSmtp } from "./actions";
 
 export default function GmailConnectForm({ tenantId }: { tenantId: string }) {
-  const [state, formAction, pending] = useActionState<GmailFormState, FormData>(
-    saveGmailSmtp,
-    null,
-  );
+  const formRef = useRef<HTMLFormElement>(null);
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const fd = new FormData(formRef.current!);
+    startTransition(async () => {
+      try {
+        await saveGmailSmtp(fd);
+        router.push("/settings?gmail=connected");
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
+  }
 
   return (
-    <form action={formAction} className="card p-5 space-y-4">
+    <form ref={formRef} onSubmit={handleSubmit} className="card p-5 space-y-4">
       <input type="hidden" name="tenantId" value={tenantId} />
 
-      {state && "error" in state && (
+      {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {state.error}
+          {error}
         </div>
       )}
 
@@ -49,8 +64,8 @@ export default function GmailConnectForm({ tenantId }: { tenantId: string }) {
       </label>
 
       <div className="flex gap-2 pt-2">
-        <button type="submit" disabled={pending} className="btn btn-primary">
-          {pending ? "Testar…" : "Test & save"}
+        <button type="submit" disabled={isPending} className="btn btn-primary">
+          {isPending ? "Testar…" : "Test & save"}
         </button>
         <a href="/settings" className="btn btn-secondary">
           Cancel
