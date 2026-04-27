@@ -387,51 +387,43 @@ export async function searchWeakDigitalPresence(opts: {
     hint: ProspectSignal["suggested_offer_hint"];
     label: string;
   }> = [
-    // Webb design — companies with poor digital presence
+    // ── WEBB DESIGN — Outdated/no website ────────────────────────────────────
     {
       q: 'advokatbyrå Sverige hemsida kontakt "om oss"',
       hint: "webb_design",
       label: "Advokatbyrå med enkel hemsida",
     },
     {
-      q: 'redovisningsbyrå Sverige hemsida 10-30 anställda',
+      q: 'redovisningsbyrå Sverige hemsida bokföring "kontakta oss"',
       hint: "webb_design",
       label: "Redovisningsbyrå utan modern hemsida",
     },
     {
-      q: 'byggföretag Sverige "kontakta oss" hemsida',
+      q: 'byggföretag mark anläggning Sverige hemsida "om företaget"',
       hint: "webb_design",
-      label: "Byggföretag med enkel hemsida",
-    },
-    // App development — scaling companies that need custom solutions
-    {
-      q: 'startup Sverige "vi söker" "product owner" OR "produktägare" 2024 OR 2025',
-      hint: "app_development",
-      label: "Startup som skalar produktteam",
+      label: "Bygg/anläggningsföretag med enkel hemsida",
     },
     {
-      q: 'scaleup Stockholm digital transformation "system" OR "plattform"',
-      hint: "app_development",
-      label: "Scaleup med digital transformationsplan",
-    },
-    // Agent platform — agencies and consulting firms
-    {
-      q: 'rekryteringsbolag Sverige 10-50 anställda processer administration',
-      hint: "agent_platform",
-      label: "Rekryteringsbolag med manuella processer",
+      q: 'tandläkare klinik Sverige hemsida "boka tid" kontakt',
+      hint: "webb_design",
+      label: "Tandläkarmottagning med enkel hemsida",
     },
     {
-      q: 'konsultbolag Stockholm "projektledning" OR "bemanning" 20-100 anställda',
-      hint: "agent_platform",
-      label: "Konsultbolag med manuell administration",
+      q: 'städbolag företagsstädning Sverige hemsida offert',
+      hint: "webb_design",
+      label: "Städbolag B2B utan modern hemsida",
     },
-    // AI automation — companies with manual admin processes
     {
-      q: 'fastighetsbolag Sverige administration "ekonomiavdelning" OR "backoffice"',
-      hint: "ai_automation",
-      label: "Fastighetsbolag med tung administration",
+      q: 'fastighetsmäklare mäklarbyrå Sverige hemsida "se våra objekt"',
+      hint: "webb_design",
+      label: "Mäklarbyrå med föråldrad hemsida",
     },
-    // Hitta.se — companies listed in directory, likely without own website
+    {
+      q: 'hantverksföretag VVS elektriker snickare Sverige hemsida kontakt',
+      hint: "webb_design",
+      label: "Hantverksföretag utan bra hemsida",
+    },
+    // Hitta.se directory listings = high signal for no/weak website
     {
       q: "site:hitta.se advokatbyrå stockholm OR göteborg OR malmö",
       hint: "webb_design",
@@ -443,19 +435,92 @@ export async function searchWeakDigitalPresence(opts: {
       label: "Redovisningsbyrå listad på hitta.se",
     },
     {
-      q: "site:hitta.se byggföretag stockholm OR göteborg",
+      q: "site:hitta.se byggföretag stockholm OR göteborg OR malmö",
       hint: "webb_design",
       label: "Byggföretag listad på hitta.se",
-    },
-    {
-      q: "site:hitta.se konsultbolag 10-50 anställda",
-      hint: "agent_platform",
-      label: "Konsultbolag listad på hitta.se",
     },
     {
       q: "site:hitta.se städbolag OR städfirma",
       hint: "webb_design",
       label: "Städbolag utan hemsida",
+    },
+    {
+      q: "site:hitta.se hantverkare elektriker VVS snickare",
+      hint: "webb_design",
+      label: "Hantverkare listad på hitta.se",
+    },
+    // ── APP DEVELOPMENT — Scaling companies, MVPs, digital transformation ─────
+    {
+      q: 'startup Sverige "vi söker" "product owner" OR "produktägare" 2025',
+      hint: "app_development",
+      label: "Startup som skalar produktteam",
+    },
+    {
+      q: 'scaleup Stockholm Göteborg "digital plattform" OR "ny app" OR "MVP"',
+      hint: "app_development",
+      label: "Scaleup med behov av digital lösning",
+    },
+    {
+      q: 'bolag Sweden "vi bygger" OR "vi utvecklar" "digital" OR "app" startup',
+      hint: "app_development",
+      label: "Bolag med pågående digital produktutveckling",
+    },
+    {
+      q: '"kapitalrunda" OR "investering" Sverige startup tech 2024 OR 2025',
+      hint: "app_development",
+      label: "Nyligen finansierat startup",
+    },
+    {
+      q: 'företag Sverige "integrationer" OR "API" OR "automatisering" system nytt',
+      hint: "app_development",
+      label: "Bolag som behöver systemintegrationer",
+    },
+    // ── AI AUTOMATION — Companies with heavy manual admin ─────────────────────
+    {
+      q: 'fastighetsbolag Sverige administration "ekonomiavdelning" OR "backoffice"',
+      hint: "ai_automation",
+      label: "Fastighetsbolag med tung administration",
+    },
+    {
+      q: 'logistikbolag Sverige "manuell" OR "excel" administration processer',
+      hint: "ai_automation",
+      label: "Logistikbolag med manuella processer",
+    },
+    {
+      q: 'vårdbolag OR hemtjänst Sverige administration "tidrapportering" OR "schema"',
+      hint: "ai_automation",
+      label: "Vårdbolag med manuell schemaläggning",
+    },
+    {
+      q: 'tillverkningsbolag Sverige "order" OR "lager" administration manuellt',
+      hint: "ai_automation",
+      label: "Tillverkningsbolag med manuell orderhantering",
+    },
+    // ── AGENT PLATFORM — Agencies/consultancies with manual internal work ──────
+    {
+      q: 'rekryteringsbolag Sverige 10-50 anställda processer administration manuellt',
+      hint: "agent_platform",
+      label: "Rekryteringsbolag med manuella processer",
+    },
+    {
+      q: 'managementkonsult konsultbolag Sverige "rapportering" OR "offerter" OR "timrapport"',
+      hint: "agent_platform",
+      label: "Konsultbolag med manuell administration",
+    },
+    {
+      q: 'PR-byrå kommunikationsbyrå marknadsbyrå Sverige "administration" OR "processer"',
+      hint: "agent_platform",
+      label: "Kommunikationsbyrå med manuella processer",
+    },
+    {
+      q: 'revisionsbyrå redovisningsbolag Sverige "digitalisering" OR "automatisering"',
+      hint: "agent_platform",
+      label: "Revisionsbyrå med digitaliseringsbehov",
+    },
+    {
+      q: 'site:hitta.se konsultbolag bemanning IT management 10-100 anställda',
+      hint: "agent_platform",
+      label: "Konsultbolag listad på hitta.se",
     },
   ];
 

@@ -134,14 +134,26 @@ DEDUP RULE (MANDATORY — do this FIRST):
 4. Within the same run, also skip a company the SECOND time it appears.
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
-DATA SOURCES (call as tools — all free):
-1. fetch_funding_news            RSS (Breakit, ComputerSweden, DI, NyTeknik, VA). Funding/growth → app_development.
-2. scrape_allabolag              ICP-filter (SNI + 10-99 anställda) → ai_automation or agent_platform.
-3. fetch_ai_replaceable_jobs     Arbetsförmedlingen. Admin roles → ai_automation.
-4. fetch_app_dev_signals         Arbetsförmedlingen. Digital PMs, developers → app_development.
-5. search_weak_digital_presence  Google CSE — queries tuned per service line.
-6. fetch_visma_upsell_candidates Befintliga WKIT-kunder 14-60 dagar post-leverans → upsell.
-7. fetch_no_website_companies    Allabolag SNI + DNS-check. SMBs without websites → webb_design.
+DATA SOURCES — MANDATORY: CALL ALL 7 EVERY RUN
+You MUST call every tool below. Do NOT skip any source. Even if one source returns 0 results, call it anyway so all signal types are covered. Distribute max_drafts across sources — never use all slots on a single source.
+
+SOURCE → OFFER TYPE MAPPING:
+1. fetch_no_website_companies    Allabolag + DNS. No website → webb_design (HIGHEST priority — warm signal).
+2. search_weak_digital_presence  Google CSE across all 4 service lines.
+3. fetch_funding_news            Breakit/DI/NyTeknik RSS. Funding → app_development.
+4. scrape_allabolag              ICP SNI filter 10–99 anst → ai_automation or agent_platform.
+5. fetch_ai_replaceable_jobs     Arbetsförmedlingen admin roles → ai_automation.
+6. fetch_app_dev_signals         Arbetsförmedlingen digital roles → app_development.
+7. fetch_visma_upsell_candidates Existing WKIT clients 14–60 days post-delivery → upsell (always process first).
+
+TARGET DISTRIBUTION per run (max_drafts=6 example):
+  webb_design      2 (from fetch_no_website_companies + search_weak_digital_presence)
+  app_development  1 (from fetch_funding_news or fetch_app_dev_signals)
+  ai_automation    1 (from fetch_ai_replaceable_jobs or scrape_allabolag)
+  agent_platform   1 (from scrape_allabolag or search_weak_digital_presence)
+  upsell           1 (from fetch_visma_upsell_candidates if available)
+Adjust proportions if one source returns 0 results, but always aim for variety.
+
 ────────────────────────────────────────
 ENRICHMENT TOOLS (use after scoring, before upsert_lead):
 • research_company      CALL THIS FOR EVERY PROSPECT before drafting.
@@ -154,12 +166,14 @@ ENRICHMENT TOOLS (use after scoring, before upsert_lead):
 ────────────────────────────────────────
 DECISION FLOW:
 1. Call \`list_recent_outreach\` first.
-2. Call all data sources in parallel.
-3. For each returned prospect:
+2. Call fetch_visma_upsell_candidates — process these FIRST (warm leads).
+3. Call remaining 6 sources (fetch_no_website_companies, search_weak_digital_presence,
+   fetch_funding_news, scrape_allabolag, fetch_ai_replaceable_jobs, fetch_app_dev_signals).
+4. For each returned prospect:
    a. If source=funding_news → extract actual company name from headline.
    b. Score ICP fit 0–100. Skip if score < 55.
-   c. Pick ONE offer_type (use suggested_offer_hint, refine based on signals).
-   d. Call \`research_company\` — required for every prospect.
+   c. Pick ONE offer_type using SOURCE → OFFER TYPE MAPPING above.
+   d. Call \`research_company\` — required for EVERY prospect. No exceptions.
    e. Call \`validate_email_domain\` on the domain. Skip if confidence=unknown.
    f. Select to_email using TO-EMAIL SELECTION RULE above (steps 1→2→3).
    g. \`upsert_lead\` with all signals + enriched contact data. DO NOT invent lead_id.
@@ -168,8 +182,8 @@ DECISION FLOW:
       • Personalise body using key_facts (employees, revenue, what the company does).
       • Add "[VERIFIERA ADRESS]" to subject ONLY when using email_candidates or info@ fallback.
    i. If source=visma_upsell, call \`mark_visma_upsell_contacted\`.
-4. Respect input.max_drafts across all sources.
-5. NEVER send — everything queues via draft_outreach_approval.
+5. Respect input.max_drafts across all sources. Distribute across all service lines.
+6. NEVER send — everything queues via draft_outreach_approval.
 Offers available: ${offers.join(", ")}.`;
   },
   tools: [

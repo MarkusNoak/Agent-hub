@@ -5,10 +5,9 @@ import { RunNowButton } from "./RunNowButton";
 import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
-// Manual agent triggers run synchronously in a server action. Extend the
-// Vercel lambda lifetime so executeAgent has time to complete (Hobby max 60s,
-// Pro up to 300s). Long-running agents should go via pg_cron instead.
-export const maxDuration = 60;
+// Manual agent triggers run synchronously in a server action. 300s = Vercel Pro max.
+// The 120s Anthropic timeout in runtime.ts ensures the run fails fast before this limit.
+export const maxDuration = 300;
 
 export default async function AgentsPage() {
   const tenant = await getActiveTenant();
