@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
-import { loadTenantConnectors } from "@agent-hub/connectors";
-import type { ApprovalAction } from "@agent-hub/core";
+import { loadTenantConnectors, gmailFactory } from "@agent-hub/connectors";
+import type { ApprovalAction, TenantContext } from "@agent-hub/core";
 
 /**
  * Approve an approval-queue item and execute its action.
@@ -12,6 +12,7 @@ import type { ApprovalAction } from "@agent-hub/core";
 export async function approveAction(formData: FormData) {
   const id = String(formData.get("id"));
   const tenantId = String(formData.get("tenantId"));
+  const fromIntegrationId = formData.get("from_integration_id")?.toString().trim() || null;
 
   // Collect any user edits from the approval form
   const editedTo = formData.get("edit_to_email")?.toString().trim();
@@ -41,13 +42,33 @@ export async function approveAction(formData: FormData) {
     .single();
   if (!tenant) throw new Error("Tenant not found.");
 
-  const ctx = {
+  const ctx: TenantContext = {
     tenantId: tenant.id,
     tenantSlug: tenant.slug,
     tenantName: tenant.name,
     settings: tenant.settings ?? {},
   };
-  const connectors = await loadTenantConnectors(admin as never, ctx);
+
+  // If user picked a specific Gmail account, load that connector directly.
+  // Otherwise fall back to the first active Gmail via loadTenantConnectors.
+  let connectors = await loadTenantConnectors(admin as never, ctx);
+  if (fromIntegrationId) {
+    const { data: integration } = await admin
+      .from("integrations")
+      .select("credentials, config")
+      .eq("id", fromIntegrationId)
+      .eq("tenant_id", tenantId)
+      .eq("kind", "gmail")
+      .single();
+    if (integration) {
+      const specificGmail = await gmailFactory.create({
+        tenant: ctx,
+        credentials: integration.credentials as Record<string, string>,
+        config: (integration.config ?? {}) as Record<string, string>,
+      });
+      connectors = { ...connectors, gmail: specificGmail };
+    }
+  }
 
   // Merge user edits into the payload before execution
   const payload = { ...(approval.payload as Record<string, unknown>) };

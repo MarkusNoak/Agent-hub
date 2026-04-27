@@ -15,6 +15,8 @@ type Approval = {
   status: string;
 };
 
+type GmailAccount = { id: string; label: string; from: string };
+
 const EMAIL_ACTIONS = new Set(["send_email", "send_invoice_reminder"]);
 
 function htmlToPlain(html: string): string {
@@ -33,9 +35,11 @@ function htmlToPlain(html: string): string {
 export function ApprovalCard({
   approval,
   tenantId,
+  gmailAccounts = [],
 }: {
   approval: Approval;
   tenantId: string;
+  gmailAccounts?: GmailAccount[];
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +60,7 @@ export function ApprovalCard({
   const [subject, setSubject] = useState(rawSubject.replace(/^\[VERIFIERA ADRESS\]\s*/i, ""));
   const [body, setBody] = useState(htmlToPlain(rawBodyHtml));
   const [reason, setReason] = useState("");
+  const [fromAccountId, setFromAccountId] = useState(gmailAccounts[0]?.id ?? "");
 
   function buildFormData() {
     const fd = new FormData();
@@ -65,6 +70,7 @@ export function ApprovalCard({
     fd.set("edit_subject", subject);
     fd.set("edit_body", body);
     fd.set("reason", reason);
+    if (fromAccountId) fd.set("from_integration_id", fromAccountId);
     return fd;
   }
 
@@ -120,6 +126,30 @@ export function ApprovalCard({
       <div className="space-y-3">
         {isEmail ? (
           <>
+            {gmailAccounts.length > 1 && (
+              <div className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
+                <label className="text-xs font-semibold text-ink-500 text-right">Från</label>
+                <select
+                  value={fromAccountId}
+                  onChange={(e) => setFromAccountId(e.target.value)}
+                  className="input"
+                >
+                  {gmailAccounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.from || acc.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {gmailAccounts.length === 1 && (
+              <div className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
+                <label className="text-xs font-semibold text-ink-500 text-right">Från</label>
+                <div className="text-sm text-ink-700 py-2">{gmailAccounts[0]?.from || gmailAccounts[0]?.label}</div>
+              </div>
+            )}
+
             <div className="grid grid-cols-[4.5rem_1fr] items-center gap-3">
               <label className="text-xs font-semibold text-ink-500 text-right">Till</label>
               <input

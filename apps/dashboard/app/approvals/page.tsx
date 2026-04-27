@@ -9,12 +9,26 @@ export default async function ApprovalsPage() {
   if (!tenant) return null;
   const supa = createSupabaseServerClient();
 
-  const { data: approvals } = await supa
-    .from("approval_queue")
-    .select("id, agent_kind, title, summary, payload, action, created_at, status")
-    .eq("tenant_id", tenant.id)
-    .eq("status", "pending")
-    .order("created_at", { ascending: false });
+  const [{ data: approvals }, { data: gmailAccounts }] = await Promise.all([
+    supa
+      .from("approval_queue")
+      .select("id, agent_kind, title, summary, payload, action, created_at, status")
+      .eq("tenant_id", tenant.id)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false }),
+    supa
+      .from("integrations")
+      .select("id, label, credentials")
+      .eq("tenant_id", tenant.id)
+      .eq("kind", "gmail")
+      .eq("status", "active"),
+  ]);
+
+  const gmailOptions = (gmailAccounts ?? []).map((g) => ({
+    id: g.id as string,
+    label: g.label as string ?? "",
+    from: (g.credentials as Record<string, string>)["from"] ?? "",
+  }));
 
   return (
     <div className="space-y-6">
@@ -31,6 +45,7 @@ export default async function ApprovalsPage() {
             key={a.id}
             approval={a as Parameters<typeof ApprovalCard>[0]["approval"]}
             tenantId={tenant.id}
+            gmailAccounts={gmailOptions}
           />
         ))}
         {!approvals?.length && (
