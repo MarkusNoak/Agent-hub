@@ -88,19 +88,19 @@ export default async function RunDetailPage({ params }: { params: { id: string }
         </div>
         <div className="card p-4">
           <div className="section-label mb-2">Kostnad</div>
-          <div className="text-[22px] font-extrabold tracking-[-0.02em] text-ink-900 tabular-nums">
+          <div className="stat-sm">
             <span className="text-sm font-bold text-ink-400 mr-0.5">$</span>{Number(run.cost_usd ?? 0).toFixed(4)}
           </div>
         </div>
         <div className="card p-4">
           <div className="section-label mb-2">Iterationer</div>
-          <div className="text-[22px] font-extrabold tracking-[-0.02em] text-ink-900 tabular-nums">
+          <div className="stat-sm">
             {run.iterations ?? 0}
           </div>
         </div>
         <div className="card p-4">
           <div className="section-label mb-2">Tid</div>
-          <div className="text-[22px] font-extrabold tracking-[-0.02em] text-ink-900 tabular-nums">
+          <div className="stat-sm">
             {duration ?? "—"}
           </div>
           {run.started_at && (

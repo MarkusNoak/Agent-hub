@@ -150,7 +150,7 @@ export default async function BillingPage() {
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-5">
           <div className="section-label mb-4">Kostnad denna månad</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             <span className="text-xl font-bold mr-0.5 text-ink-400">$</span>{totalCostThisMonth.toFixed(3)}
           </div>
           {costDelta !== null && (
@@ -161,21 +161,21 @@ export default async function BillingPage() {
         </div>
         <div className="card p-5">
           <div className="section-label mb-4 text-amber-600">Prognos helmånad</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             <span className="text-xl font-bold mr-0.5 text-ink-400">$</span>{projectedCost.toFixed(3)}
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">baserat på {dayOfMonth} dagar</div>
         </div>
         <div className="card p-5">
           <div className="section-label mb-4 text-blue-600">Snitt / körning</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             <span className="text-xl font-bold mr-0.5 text-ink-400">$</span>{avgCostPerRun.toFixed(4)}
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">{runsThisMonth.length} körningar totalt</div>
         </div>
         <div className="card p-5">
           <div className="section-label mb-4">Tokens denna månad</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             {((totalTokensIn + totalTokensOut) / 1000).toFixed(1)}<span className="text-xl font-bold ml-0.5 text-ink-400">k</span>
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">

@@ -105,7 +105,7 @@ export default async function LeadsPage({
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-5">
           <div className="section-label mb-4">I pipeline</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             {pipelineValue}
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">aktiva leads</div>
@@ -113,7 +113,7 @@ export default async function LeadsPage({
 
         <div className="card-green p-5">
           <div className="section-label mb-4 text-emerald-600">Vunna</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-emerald-700 tabular-nums">
+          <div className="text-[36px] font-extrabold tracking-[-0.04em] leading-none text-emerald-700 tabular-nums">
             {wonCount}
           </div>
           <div className="mt-3 text-xs text-emerald-600 font-medium">avslutade affärer</div>
@@ -121,7 +121,7 @@ export default async function LeadsPage({
 
         <div className="card-blue p-5">
           <div className="section-label mb-4 text-blue-600">Konvertering</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-blue-700 tabular-nums">
+          <div className="text-[36px] font-extrabold tracking-[-0.04em] leading-none text-blue-700 tabular-nums">
             {conversionRate}<span className="text-xl font-bold ml-0.5">%</span>
           </div>
           <div className="mt-3 text-xs text-blue-600 font-medium">kvalificerade av aktiva</div>
@@ -129,7 +129,7 @@ export default async function LeadsPage({
 
         <div className="card p-5">
           <div className="section-label mb-4">Totalt</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             {allLeads?.length ?? 0}
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">leads alla tider</div>
@@ -145,7 +145,7 @@ export default async function LeadsPage({
             const maxCount = Math.max(...Object.values(byStage), 1);
             return (
               <div key={s} className="text-center">
-                <div className="text-[22px] font-extrabold tracking-[-0.02em] tabular-nums text-ink-900">
+                <div className="stat-sm">
                   {count}
                 </div>
                 <div className="mt-1 h-1 bg-ink-100 rounded-full overflow-hidden">

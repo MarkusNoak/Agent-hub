@@ -9,7 +9,7 @@
     color-scheme: light;
     --sidebar-w: 228px;
     --radius-card: 18px;
-    --surface: #f8f5f1;
+    --surface: #edeae4;
   }
 
   html {
@@ -21,7 +21,7 @@
   }
 
   body {
-    @apply bg-[#f8f5f1] text-ink-900;
+    @apply bg-[#edeae4] text-ink-900;
   }
 
   /* ── Scrollbar ── */
@@ -49,7 +49,8 @@
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.9),
       0 1px 2px 0 rgb(0 0 0 / 0.04),
-      0 4px 20px -4px rgb(0 0 0 / 0.07);
+      0 4px 20px -4px rgb(0 0 0 / 0.07),
+      0 20px 60px -10px rgb(0 0 0 / 0.10);
     transition: box-shadow 0.2s ease, transform 0.18s ease;
   }
 
@@ -60,7 +61,8 @@
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.9),
       0 4px 12px 0 rgb(0 0 0 / 0.07),
-      0 20px 48px -8px rgb(0 0 0 / 0.13);
+      0 20px 48px -8px rgb(0 0 0 / 0.13),
+      0 40px 80px -16px rgb(0 0 0 / 0.14);
     transform: translateY(-2px);
   }
 
@@ -72,7 +74,8 @@
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.8),
       0 1px 2px 0 rgb(16 185 129 / 0.06),
-      0 6px 20px -4px rgb(16 185 129 / 0.14);
+      0 6px 20px -4px rgb(16 185 129 / 0.14),
+      0 20px 60px -10px rgb(16 185 129 / 0.10);
   }
   .card-amber {
     @apply rounded-[18px] border;
@@ -81,7 +84,8 @@
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.8),
       0 1px 2px 0 rgb(232 160 32 / 0.06),
-      0 6px 20px -4px rgb(232 160 32 / 0.14);
+      0 6px 20px -4px rgb(232 160 32 / 0.14),
+      0 20px 60px -10px rgb(232 160 32 / 0.08);
   }
   .card-blue {
     @apply rounded-[18px] border;
@@ -90,7 +94,8 @@
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.8),
       0 1px 2px 0 rgb(59 130 246 / 0.06),
-      0 6px 20px -4px rgb(59 130 246 / 0.14);
+      0 6px 20px -4px rgb(59 130 246 / 0.14),
+      0 20px 60px -10px rgb(59 130 246 / 0.10);
   }
   .card-purple {
     @apply rounded-[18px] border;
@@ -99,7 +104,8 @@
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.8),
       0 1px 2px 0 rgb(139 92 246 / 0.06),
-      0 6px 20px -4px rgb(139 92 246 / 0.14);
+      0 6px 20px -4px rgb(139 92 246 / 0.14),
+      0 20px 60px -10px rgb(139 92 246 / 0.10);
   }
   .card-dark {
     @apply rounded-[18px] text-white;
@@ -107,7 +113,8 @@
     border: 1px solid rgb(255 255 255 / 0.07);
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.08),
-      0 4px 20px -4px rgb(0 0 0 / 0.35);
+      0 4px 20px -4px rgb(0 0 0 / 0.35),
+      0 20px 60px -10px rgb(0 0 0 / 0.25);
   }
 
   /* ────────────────────────────────────────────
@@ -284,8 +291,24 @@
     @apply flex-1 h-px bg-ink-100;
   }
 
-  /* Stat helpers (legacy) */
-  .stat-value { @apply text-[36px] font-extrabold tracking-[-0.03em] leading-none tabular-nums; }
+  /* Stat helpers */
+  .stat-value {
+    @apply text-[36px] font-extrabold tracking-[-0.04em] leading-none tabular-nums;
+    background: linear-gradient(175deg, #111009 10%, #3d2c14 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  /* Child spans (units, prefixes) keep their own colour */
+  .stat-value span { -webkit-text-fill-color: currentColor; }
+  .stat-sm {
+    @apply text-[22px] font-extrabold tracking-[-0.03em] leading-none tabular-nums;
+    background: linear-gradient(175deg, #111009 10%, #3d2c14 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .stat-sm span { -webkit-text-fill-color: currentColor; }
   .stat-sub   { @apply text-xs text-ink-400 mt-3 font-medium; }
 }
 

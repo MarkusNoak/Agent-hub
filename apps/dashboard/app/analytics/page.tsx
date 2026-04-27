@@ -162,19 +162,19 @@ export default async function AnalyticsPage() {
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-5">
           <div className="section-label mb-4">Totalt leads</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">{totalLeads}</div>
+          <div className="stat-value">{totalLeads}</div>
           <div className="mt-3 text-xs text-ink-400 font-medium">{activeLeads} aktiva i pipeline</div>
         </div>
         <div className="card p-5">
           <div className="section-label mb-4 text-emerald-600">Konverteringsgrad</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-emerald-700 tabular-nums">
+          <div className="text-[36px] font-extrabold tracking-[-0.04em] leading-none text-emerald-700 tabular-nums">
             {totalLeads > 0 ? Math.round((wonLeads / totalLeads) * 100) : 0}<span className="text-xl font-bold ml-0.5">%</span>
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">{wonLeads} vunna av {totalLeads}</div>
         </div>
         <div className="card p-5">
           <div className="section-label mb-4 text-blue-600">Godkännandegrad</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             {approvalRate !== null ? <>{approvalRate}<span className="text-xl font-bold ml-0.5">%</span></> : "—"}
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">
@@ -183,7 +183,7 @@ export default async function AnalyticsPage() {
         </div>
         <div className="card p-5">
           <div className="section-label mb-4 text-amber-600">Agent-framgång</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             {successRate !== null ? <>{successRate}<span className="text-xl font-bold ml-0.5">%</span></> : "—"}
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">

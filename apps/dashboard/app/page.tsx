@@ -138,7 +138,7 @@ export default async function Overview() {
         {/* Tid sparad */}
         <div className="card p-5">
           <div className="section-label mb-4 text-emerald-600">Tid sparad</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-emerald-700 tabular-nums">
+          <div className="text-[36px] font-extrabold tracking-[-0.04em] leading-none text-emerald-700 tabular-nums">
             {Math.round(hoursSaved)}<span className="text-xl font-bold ml-0.5">h</span>
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">
@@ -149,7 +149,7 @@ export default async function Overview() {
         {/* Agenter */}
         <div className="card p-5">
           <div className="section-label mb-4 text-blue-600">Agenter</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             {enabledAgents}<span className="text-xl font-semibold text-ink-300 ml-1">/ {agents.length}</span>
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">
@@ -162,7 +162,7 @@ export default async function Overview() {
         {/* Pipeline */}
         <div className="card p-5">
           <div className="section-label mb-4 text-amber-600">Sales pipeline</div>
-          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+          <div className="stat-value">
             {activeLeads}
           </div>
           <div className="mt-3 text-xs text-ink-400 font-medium">
@@ -175,7 +175,7 @@ export default async function Overview() {
           <Link href="/approvals" className="card p-5 block group relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-brand/5 to-brand/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl" />
             <div className="section-label mb-4 text-brand relative">Godkännanden</div>
-            <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-brand tabular-nums relative">
+            <div className="text-[36px] font-extrabold tracking-[-0.04em] leading-none text-brand tabular-nums relative">
               {pendingApprovals}
             </div>
             <div className="mt-3 text-xs text-ink-400 font-medium relative">
@@ -185,7 +185,7 @@ export default async function Overview() {
         ) : (
           <div className="card p-5">
             <div className="section-label mb-4">AI-kostnad</div>
-            <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            <div className="stat-value">
               ${monthCostUsd.toFixed(2)}
             </div>
             <div className="mt-3 text-xs text-ink-400 font-medium">
