@@ -5,6 +5,7 @@ import { LeadsFilter } from "./LeadsFilter";
 import { LeadRow } from "./LeadRow";
 import Link from "next/link";
 import { Download } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,17 @@ const STAGE_ORDER = [
   "lost",
 ] as const;
 
+const STAGE_LABELS: Record<string, string> = {
+  new:              "Ny",
+  researched:       "Analyserad",
+  outreach_drafted: "Utkast",
+  outreach_sent:    "Skickad",
+  replied:          "Svarade",
+  qualified:        "Kvalificerad",
+  won:              "Vunnen",
+  lost:             "Förlorad",
+};
+
 export default async function LeadsPage({
   searchParams,
 }: {
@@ -28,10 +40,10 @@ export default async function LeadsPage({
   if (!tenant) return null;
   const supa = createSupabaseServerClient();
 
-  const q = searchParams["q"] ?? "";
+  const q           = searchParams["q"] ?? "";
   const stageFilter = searchParams["stage"] ?? "";
   const offerFilter = searchParams["offer"] ?? "";
-  const sortParam = searchParams["sort"] ?? "updated";
+  const sortParam   = searchParams["sort"] ?? "updated";
 
   let query = supa
     .from("leads")
@@ -43,14 +55,12 @@ export default async function LeadsPage({
   if (stageFilter) query = query.eq("stage", stageFilter);
   if (offerFilter) query = query.eq("offer_type", offerFilter);
 
-  if (sortParam === "score_desc") query = query.order("score", { ascending: false });
-  else if (sortParam === "score_asc") query = query.order("score", { ascending: true });
-  else if (sortParam === "created") query = query.order("created_at", { ascending: false });
-  else query = query.order("updated_at", { ascending: false });
+  if (sortParam === "score_desc")     query = query.order("score",      { ascending: false });
+  else if (sortParam === "score_asc") query = query.order("score",      { ascending: true });
+  else if (sortParam === "created")   query = query.order("created_at", { ascending: false });
+  else                                query = query.order("updated_at", { ascending: false });
 
-  query = query.limit(500);
-
-  const { data: allLeads } = await query;
+  const { data: allLeads } = await query.limit(500);
 
   const leads = q
     ? (allLeads ?? []).filter(
@@ -60,118 +70,149 @@ export default async function LeadsPage({
       )
     : (allLeads ?? []);
 
+  // Stage funnel counts
   const byStage: Record<string, number> = {};
-  for (const stage of STAGE_ORDER) byStage[stage] = 0;
-  for (const l of allLeads ?? []) byStage[l.stage] = (byStage[l.stage] ?? 0) + 1;
+  for (const s of STAGE_ORDER) byStage[s] = 0;
+  for (const l of allLeads ?? []) {
+    const s = l.stage as string | null;
+    if (s) byStage[s] = (byStage[s] ?? 0) + 1;
+  }
 
   const pipelineValue = (allLeads ?? []).filter((l) =>
-    ["outreach_drafted", "outreach_sent", "replied", "qualified"].includes(l.stage),
+    ["outreach_drafted", "outreach_sent", "replied", "qualified"].includes(l.stage as string ?? ""),
   ).length;
-
-  const wonCount = byStage["won"] ?? 0;
-  const qualifiedPlusWon = (byStage["qualified"] ?? 0) + wonCount;
-  const totalActive = (allLeads ?? []).filter(
-    (l) => !["new", "lost"].includes(l.stage),
+  const wonCount       = byStage["won"] ?? 0;
+  const qualPlusWon    = (byStage["qualified"] ?? 0) + wonCount;
+  const totalActive    = (allLeads ?? []).filter(
+    (l) => !["new", "lost"].includes(l.stage as string ?? ""),
   ).length;
-  const conversionRate =
-    totalActive > 0 ? Math.round((qualifiedPlusWon / totalActive) * 100) : 0;
+  const conversionRate = totalActive > 0 ? Math.round((qualPlusWon / totalActive) * 100) : 0;
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Leads</h1>
-          <p className="text-ink-500 text-sm mt-0.5">
-            Pipeline från Sales Agent. Uppdatera stage manuellt när prospekt svarar.
-          </p>
-        </div>
-        <Link href="/api/leads/export" className="btn btn-outline gap-1.5 shrink-0">
-          <Download size={14} />
-          Exportera CSV
-        </Link>
-      </header>
+      <PageHeader
+        title="Leads"
+        subtitle="Pipeline från Sales Agent. Uppdatera stage manuellt när prospekt svarar."
+        action={
+          <Link href="/api/leads/export" className="btn btn-outline gap-1.5">
+            <Download size={14} />
+            Exportera CSV
+          </Link>
+        }
+      />
 
-      {/* Pipeline summary */}
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="card p-4">
-          <div className="section-label mb-1">I pipeline</div>
-          <div className="stat-value">{pipelineValue}</div>
-          <div className="stat-sub">aktiva leads</div>
+      {/* KPI row */}
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="card p-5">
+          <div className="section-label mb-4">I pipeline</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            {pipelineValue}
+          </div>
+          <div className="mt-3 text-xs text-ink-400 font-medium">aktiva leads</div>
         </div>
-        <div className="card-green p-4">
-          <div className="section-label mb-1 text-emerald-600">Vunna</div>
-          <div className="text-2xl font-bold text-emerald-900 tabular-nums">{wonCount}</div>
-          <div className="text-xs text-emerald-700 mt-0.5">avslutade affärer</div>
+
+        <div className="card-green p-5">
+          <div className="section-label mb-4 text-emerald-600">Vunna</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-emerald-700 tabular-nums">
+            {wonCount}
+          </div>
+          <div className="mt-3 text-xs text-emerald-600 font-medium">avslutade affärer</div>
         </div>
-        <div className="card-blue p-4">
-          <div className="section-label mb-1 text-blue-600">Konvertering</div>
-          <div className="text-2xl font-bold text-blue-900 tabular-nums">{conversionRate}%</div>
-          <div className="text-xs text-blue-700 mt-0.5">kvalificerade av aktiva</div>
+
+        <div className="card-blue p-5">
+          <div className="section-label mb-4 text-blue-600">Konvertering</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-blue-700 tabular-nums">
+            {conversionRate}<span className="text-xl font-bold ml-0.5">%</span>
+          </div>
+          <div className="mt-3 text-xs text-blue-600 font-medium">kvalificerade av aktiva</div>
         </div>
-        <div className="card p-4">
-          <div className="section-label mb-1">Totalt</div>
-          <div className="stat-value">{allLeads?.length ?? 0}</div>
-          <div className="stat-sub">leads alla tider</div>
+
+        <div className="card p-5">
+          <div className="section-label mb-4">Totalt</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            {allLeads?.length ?? 0}
+          </div>
+          <div className="mt-3 text-xs text-ink-400 font-medium">leads alla tider</div>
         </div>
       </section>
 
       {/* Stage funnel */}
-      <section className="card p-4">
-        <div className="section-label mb-3">Stage-fördelning</div>
-        <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
-          {STAGE_ORDER.map((s) => (
-            <div key={s} className="text-center">
-              <div className="text-xl font-bold tabular-nums">{byStage[s] ?? 0}</div>
-              <div className="text-xs text-ink-400 mt-0.5 leading-tight">
-                {s.replace(/_/g, " ")}
+      <section className="card p-5">
+        <div className="section-label mb-4">Stage-fördelning</div>
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
+          {STAGE_ORDER.map((s) => {
+            const count = byStage[s] ?? 0;
+            const maxCount = Math.max(...Object.values(byStage), 1);
+            return (
+              <div key={s} className="text-center">
+                <div className="text-[22px] font-extrabold tracking-[-0.02em] tabular-nums text-ink-900">
+                  {count}
+                </div>
+                <div className="mt-1 h-1 bg-ink-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-brand rounded-full transition-all"
+                    style={{ width: `${(count / maxCount) * 100}%` }}
+                  />
+                </div>
+                <div className="text-[10px] text-ink-400 mt-1 font-medium leading-tight">
+                  {STAGE_LABELS[s]}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
-      {/* Filter bar — wrapped in Suspense because LeadsFilter uses useSearchParams */}
-      <Suspense fallback={
-        <div className="h-10 bg-ink-100 rounded-xl animate-pulse" />
-      }>
+      {/* Filter bar */}
+      <Suspense fallback={<div className="h-11 bg-ink-100 rounded-2xl animate-pulse" />}>
         <LeadsFilter total={leads.length} />
       </Suspense>
 
       {/* Table */}
-      <section className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-ink-100">
-            <tr>
-              <th className="p-3 section-label">Bolag</th>
-              <th className="p-3 section-label">Kontakt</th>
-              <th className="p-3 section-label">Signal</th>
-              <th className="p-3 section-label">Erbjudande</th>
-              <th className="p-3 section-label">Score</th>
-              <th className="p-3 section-label">Stage</th>
-              <th className="p-3 section-label">Kontaktad</th>
-              <th className="p-3 section-label">Tillagd</th>
-              <th className="p-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {leads.map((l) => (
-              <LeadRow
-                key={l.id}
-                lead={l as Parameters<typeof LeadRow>[0]["lead"]}
-                tenantId={tenant.id}
-              />
-            ))}
-            {!leads.length && (
-              <tr>
-                <td colSpan={9} className="p-12 text-center text-ink-500">
-                  {(q || stageFilter || offerFilter)
-                    ? "Inga leads matchar filtret."
-                    : "Inga leads ännu. Kör Sales Agent för att börja."}
-                </td>
+      <section className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-ink-50/70">
+                <th className="py-3 px-4 text-left section-label border-b border-ink-100">Bolag</th>
+                <th className="py-3 px-4 text-left section-label border-b border-ink-100">Kontakt</th>
+                <th className="py-3 px-4 text-left section-label border-b border-ink-100">Signal</th>
+                <th className="py-3 px-4 text-left section-label border-b border-ink-100">Erbjudande</th>
+                <th className="py-3 px-4 text-center section-label border-b border-ink-100">Score</th>
+                <th className="py-3 px-4 text-left section-label border-b border-ink-100">Stage</th>
+                <th className="py-3 px-4 text-left section-label border-b border-ink-100 whitespace-nowrap">Kontaktad</th>
+                <th className="py-3 px-4 text-left section-label border-b border-ink-100 whitespace-nowrap">Tillagd</th>
+                <th className="py-3 px-4 border-b border-ink-100" />
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {leads.map((l) => (
+                <LeadRow
+                  key={l.id}
+                  lead={l as Parameters<typeof LeadRow>[0]["lead"]}
+                  tenantId={tenant.id}
+                />
+              ))}
+              {!leads.length && (
+                <tr>
+                  <td colSpan={9} className="py-20 text-center">
+                    <div className="text-2xl mb-2">🔍</div>
+                    <div className="text-ink-500 text-sm font-medium">
+                      {q || stageFilter || offerFilter
+                        ? "Inga leads matchar filtret."
+                        : "Inga leads ännu."}
+                    </div>
+                    {!q && !stageFilter && !offerFilter && (
+                      <div className="text-ink-300 text-xs mt-1">
+                        Gå till Agenter och kör Sales Agent för att börja.
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );
