@@ -13,6 +13,11 @@ export async function approveAction(formData: FormData) {
   const id = String(formData.get("id"));
   const tenantId = String(formData.get("tenantId"));
 
+  // Collect any user edits from the approval form
+  const editedTo = formData.get("edit_to_email")?.toString().trim();
+  const editedSubject = formData.get("edit_subject")?.toString().trim();
+  const editedBody = formData.get("edit_body")?.toString().trim();
+
   const supa = createSupabaseServerClient();
   const { data: auth } = await supa.auth.getUser();
   if (!auth.user) throw new Error("Unauthenticated");
@@ -44,7 +49,16 @@ export async function approveAction(formData: FormData) {
   };
   const connectors = await loadTenantConnectors(admin as never, ctx);
 
-  await executeApprovedAction(approval.action as ApprovalAction, approval.payload, connectors);
+  // Merge user edits into the payload before execution
+  const payload = { ...(approval.payload as Record<string, unknown>) };
+  if (editedTo) payload["to_email"] = editedTo;
+  if (editedSubject) payload["subject"] = editedSubject;
+  if (editedBody) {
+    payload["body"] = editedBody;
+    payload["body_html"] = editedBody;
+  }
+
+  await executeApprovedAction(approval.action as ApprovalAction, payload, connectors);
 
   // Mark as approved
   await admin
