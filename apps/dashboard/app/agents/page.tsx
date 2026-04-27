@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
-import { toggleAgent, triggerAgentManual } from "./actions";
+import { toggleAgent } from "./actions";
+import { RunNowButton } from "./RunNowButton";
 import { formatDistanceToNow } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -52,17 +53,17 @@ export default async function AgentsPage() {
                   : "never"}
               </div>
             </div>
-            <form className="flex gap-2">
-              <input type="hidden" name="id" value={a.id} />
-              <input type="hidden" name="tenantId" value={tenant.id} />
-              <input type="hidden" name="newStatus" value={a.status === "enabled" ? "disabled" : "enabled"} />
-              <button formAction={toggleAgent} className="btn btn-secondary">
-                {a.status === "enabled" ? "Disable" : "Enable"}
-              </button>
-              <button formAction={triggerAgentManual} className="btn btn-primary">
-                Run now
-              </button>
-            </form>
+            <div className="flex gap-2 items-start">
+              <form>
+                <input type="hidden" name="id" value={a.id} />
+                <input type="hidden" name="tenantId" value={tenant.id} />
+                <input type="hidden" name="newStatus" value={a.status === "enabled" ? "disabled" : "enabled"} />
+                <button formAction={toggleAgent} className="btn btn-secondary">
+                  {a.status === "enabled" ? "Disable" : "Enable"}
+                </button>
+              </form>
+              <RunNowButton agentKind={a.kind} />
+            </div>
           </div>
         ))}
       </div>

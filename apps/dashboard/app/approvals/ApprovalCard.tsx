@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState, useTransition } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { approveAction, rejectAction, saveDraftEdits } from "./actions";
 
@@ -23,6 +24,11 @@ export function ApprovalCard({
   approval: Approval;
   tenantId: string;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
   const payload = (approval.payload ?? {}) as Record<string, unknown>;
   const isEmail = EMAIL_ACTIONS.has(approval.action);
 
@@ -30,16 +36,36 @@ export function ApprovalCard({
   const rawSubject = String(payload["subject"] ?? "");
   const rawBody = String(payload["body"] ?? payload["body_html"] ?? "");
 
-  // Strip [VERIFIERA ADRESS] prefix — user sees it as a warning badge instead
   const defaultTo = rawTo.replace(/^\[VERIFIERA ADRESS\]\s*/i, "");
   const defaultSubject = rawSubject.replace(/^\[VERIFIERA ADRESS\]\s*/i, "");
   const needsAddressVerification =
     rawSubject.toUpperCase().includes("[VERIFIERA ADRESS]") ||
     rawTo.toUpperCase().includes("[VERIFIERA ADRESS]");
 
+  function runAction(action: (fd: FormData) => Promise<void>, successMsg?: string) {
+    setError(null);
+    const fd = new FormData(formRef.current!);
+    startTransition(async () => {
+      try {
+        await action(fd);
+        if (successMsg) setDone(true);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    });
+  }
+
+  if (done) {
+    return (
+      <div className="card p-5 text-sm text-green-700 bg-green-50 border border-green-200">
+        Åtgärd utförd för: <strong>{approval.title}</strong>
+      </div>
+    );
+  }
+
   return (
     <div className="card p-5 space-y-3">
-      {/* Header row */}
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <span className="badge badge-blue">{approval.agent_kind}</span>
@@ -60,7 +86,13 @@ export function ApprovalCard({
         <p className="text-sm text-ink-500">{approval.summary}</p>
       )}
 
-      <form className="space-y-3">
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <form ref={formRef} className="space-y-3">
         <input type="hidden" name="id" value={approval.id} />
         <input type="hidden" name="tenantId" value={tenantId} />
 
@@ -104,28 +136,42 @@ export function ApprovalCard({
             </div>
           </>
         ) : (
-          /* Non-email actions: show raw payload, no editing needed */
           <pre className="p-3 bg-ink-50 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap max-h-64">
             {JSON.stringify(payload, null, 2)}
           </pre>
         )}
 
         <div className="flex flex-wrap gap-2 items-center pt-1">
-          <button formAction={approveAction} className="btn btn-primary">
-            {isEmail ? "Godkänn & skicka" : "Godkänn & kör"}
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => runAction(approveAction, "sent")}
+            className="btn btn-primary"
+          >
+            {isPending ? "Skickar…" : isEmail ? "Godkänn & skicka" : "Godkänn & kör"}
           </button>
+
           {isEmail && (
             <button
-              formAction={saveDraftEdits}
+              type="button"
+              disabled={isPending}
+              onClick={() => runAction(saveDraftEdits)}
               className="btn btn-secondary"
               title="Spara redigeringar utan att skicka"
             >
-              Spara utkast
+              {isPending ? "Sparar…" : "Spara utkast"}
             </button>
           )}
-          <button formAction={rejectAction} className="btn btn-secondary">
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => runAction(rejectAction, "rejected")}
+            className="btn btn-secondary"
+          >
             Avvisa
           </button>
+
           <input
             name="reason"
             placeholder="Anledning vid avvisning"
