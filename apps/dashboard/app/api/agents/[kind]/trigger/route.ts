@@ -4,28 +4,25 @@ import { AGENT_REGISTRY } from "@agent-hub/agents";
 import { loadTenantConnectors } from "@agent-hub/connectors";
 import { executeAgent, loadTenant, type AgentKind } from "@agent-hub/core";
 
-// Allow up to 5 minutes — Sales agent can take a while.
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/agents/[kind]/trigger
- * Session-authenticated manual trigger. The browser keeps the connection open
- * until the run completes (up to maxDuration). Use this from the Agents UI
- * instead of a Server Action so the 60-second Server Action limit doesn't apply.
+ * Session-authenticated manual trigger. Returns immediately with { started: true }
+ * while the agent runs in the background. The caller should navigate to /runs
+ * to watch live status — do NOT await this endpoint in the UI.
  */
 export async function POST(
   _req: NextRequest,
   { params }: { params: { kind: string } },
 ) {
-  // Validate session
   const supa = createSupabaseServerClient();
   const { data: auth } = await supa.auth.getUser();
   if (!auth.user) {
     return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   }
 
-  // Resolve tenant for this user
   const { data: memberships } = await supa
     .from("users_tenants")
     .select("tenant_id, role, tenants(slug)")
@@ -53,27 +50,18 @@ export async function POST(
   const tenant = await loadTenant(admin as never, tenantSlug);
   const connectors = await loadTenantConnectors(admin as never, tenant);
 
-  try {
-    const result = await executeAgent({
-      tenant,
-      agent: agentDef,
-      input: {},
-      trigger: "manual",
-      connectors,
-      supabase: admin as never,
-    });
-    return NextResponse.json({
-      ok: true,
-      runId: result.runId,
-      status: result.status,
-      iterations: result.iterations,
-      costUsd: result.costUsd,
-      error: result.error ?? null,
-    });
-  } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: (e as Error).message },
-      { status: 500 },
-    );
-  }
+  // Fire and forget — the run continues after this response is sent.
+  // On Railway/Node.js this runs to completion; on Vercel it lives up to maxDuration.
+  void executeAgent({
+    tenant,
+    agent: agentDef,
+    input: {},
+    trigger: "manual",
+    connectors,
+    supabase: admin as never,
+  }).catch((e: unknown) => {
+    console.error(`[trigger] ${kind} run failed:`, (e as Error).message);
+  });
+
+  return NextResponse.json({ started: true, agent: kind, tenant: tenantSlug });
 }

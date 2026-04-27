@@ -1,45 +1,44 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export function RunNowButton({ agentKind }: { agentKind: string }) {
-  const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle");
-  const [message, setMessage] = useState("");
+  const router = useRouter();
+  const [state, setState] = useState<"idle" | "starting" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
 
   async function handleClick() {
-    setState("running");
-    setMessage("");
+    setState("starting");
+    setErrorMsg("");
     try {
       const res = await fetch(`/api/agents/${agentKind}/trigger`, { method: "POST" });
-      const json = (await res.json()) as { ok: boolean; status?: string; error?: string; runId?: string };
-      if (json.ok) {
-        setState("done");
-        setMessage(json.status === "failed" ? `Körde klart med fel: ${json.error ?? ""}` : "Körde klart");
-      } else {
+      const json = (await res.json()) as { started?: boolean; error?: string };
+      if (!res.ok || !json.started) {
         setState("error");
-        setMessage(json.error ?? "Okänt fel");
+        setErrorMsg(json.error ?? "Kunde inte starta agenten");
+        return;
       }
+      // Navigate to /runs immediately — the run continues in the background
+      router.push("/runs");
     } catch (e) {
       setState("error");
-      setMessage((e as Error).message);
+      setErrorMsg((e as Error).message);
     }
-    // Reset after 6 s so the button is usable again
-    setTimeout(() => setState("idle"), 6000);
+    setTimeout(() => setState("idle"), 5000);
   }
 
   return (
     <div className="flex flex-col gap-1">
       <button
         onClick={handleClick}
-        disabled={state === "running"}
+        disabled={state === "starting"}
         className="btn btn-primary"
       >
-        {state === "running" ? "Kör…" : state === "done" ? "✓ Klar" : state === "error" ? "✗ Fel" : "Run now"}
+        {state === "starting" ? "Startar…" : "Run now"}
       </button>
-      {message && (
-        <span className={`text-xs ${state === "error" || message.startsWith("Körde klart med") ? "text-red-600" : "text-green-600"}`}>
-          {message}
-        </span>
+      {state === "error" && errorMsg && (
+        <span className="text-xs text-red-600">{errorMsg}</span>
       )}
     </div>
   );
