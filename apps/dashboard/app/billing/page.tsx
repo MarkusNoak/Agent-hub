@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
 import { BillingCharts } from "./BillingCharts";
+import { PageHeader } from "@/app/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -133,52 +134,48 @@ export default async function BillingPage() {
   const projectedCost =
     dayOfMonth > 0 ? (totalCostThisMonth / dayOfMonth) * daysInMonth : 0;
 
+  const monthLabel = now.toLocaleString("sv-SE", { month: "long", year: "numeric" });
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Fakturering</h1>
-        <p className="text-ink-500 mt-1">
-          Claude API-användning och kostnader för{" "}
-          {now.toLocaleString("sv-SE", { month: "long", year: "numeric" })}.
-        </p>
-      </header>
+      <PageHeader
+        title="Fakturering"
+        subtitle={`Claude API-användning och kostnader för ${monthLabel}.`}
+      />
 
       {/* KPI cards */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-5">
-          <div className="text-xs text-ink-500 mb-1">Kostnad denna månad</div>
-          <div className="text-2xl font-semibold">
-            ${totalCostThisMonth.toFixed(3)}
+          <div className="section-label mb-4">Kostnad denna månad</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            <span className="text-xl font-bold mr-0.5 text-ink-400">$</span>{totalCostThisMonth.toFixed(3)}
           </div>
           {costDelta !== null && (
-            <div
-              className={`text-xs mt-1 ${costDelta > 0 ? "text-red-600" : "text-green-600"}`}
-            >
-              {costDelta > 0 ? "+" : ""}
-              {costDelta.toFixed(0)}% vs förra månaden
+            <div className={`mt-3 text-xs font-medium ${costDelta > 0 ? "text-red-600" : "text-emerald-600"}`}>
+              {costDelta > 0 ? "+" : ""}{costDelta.toFixed(0)}% vs förra månaden
             </div>
           )}
         </div>
         <div className="card p-5">
-          <div className="text-xs text-ink-500 mb-1">Prognos helmånad</div>
-          <div className="text-2xl font-semibold">${projectedCost.toFixed(3)}</div>
-          <div className="text-xs text-ink-400 mt-1">
-            baserat på {dayOfMonth} dagar
+          <div className="section-label mb-4 text-amber-600">Prognos helmånad</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            <span className="text-xl font-bold mr-0.5 text-ink-400">$</span>{projectedCost.toFixed(3)}
           </div>
+          <div className="mt-3 text-xs text-ink-400 font-medium">baserat på {dayOfMonth} dagar</div>
         </div>
         <div className="card p-5">
-          <div className="text-xs text-ink-500 mb-1">Snitkostnad / körning</div>
-          <div className="text-2xl font-semibold">${avgCostPerRun.toFixed(4)}</div>
-          <div className="text-xs text-ink-400 mt-1">
-            {runsThisMonth.length} körningar totalt
+          <div className="section-label mb-4 text-blue-600">Snitt / körning</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            <span className="text-xl font-bold mr-0.5 text-ink-400">$</span>{avgCostPerRun.toFixed(4)}
           </div>
+          <div className="mt-3 text-xs text-ink-400 font-medium">{runsThisMonth.length} körningar totalt</div>
         </div>
         <div className="card p-5">
-          <div className="text-xs text-ink-500 mb-1">Tokens denna månad</div>
-          <div className="text-2xl font-semibold">
-            {((totalTokensIn + totalTokensOut) / 1000).toFixed(1)}k
+          <div className="section-label mb-4">Tokens denna månad</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            {((totalTokensIn + totalTokensOut) / 1000).toFixed(1)}<span className="text-xl font-bold ml-0.5 text-ink-400">k</span>
           </div>
-          <div className="text-xs text-ink-400 mt-1">
+          <div className="mt-3 text-xs text-ink-400 font-medium">
             {(totalTokensIn / 1000).toFixed(1)}k in · {(totalTokensOut / 1000).toFixed(1)}k ut
           </div>
         </div>
@@ -188,102 +185,87 @@ export default async function BillingPage() {
       <BillingCharts dailyData={dailyData} agentStats={agentStats} />
 
       {/* Per-agent breakdown */}
-      <section className="card overflow-x-auto">
-        <div className="p-4 border-b border-ink-100">
-          <h2 className="font-semibold">Per agent — denna månad</h2>
+      <section className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-ink-100">
+          <div className="section-label">Per agent — denna månad</div>
         </div>
-        <table className="w-full text-sm">
-          <thead className="text-left text-ink-500 border-b border-ink-100">
-            <tr>
-              <th className="p-3">Agent</th>
-              <th className="p-3 text-right">Körningar</th>
-              <th className="p-3 text-right">Lyckade</th>
-              <th className="p-3 text-right">Misslyckade</th>
-              <th className="p-3 text-right">Tokens in</th>
-              <th className="p-3 text-right">Tokens ut</th>
-              <th className="p-3 text-right">Kostnad</th>
-              <th className="p-3 text-right">Snitt/körning</th>
-            </tr>
-          </thead>
-          <tbody>
-            {agentStats.map((a) => {
-              const successRate =
-                a.runs > 0 ? Math.round((a.succeeded / a.runs) * 100) : 0;
-              return (
-                <tr
-                  key={a.kind}
-                  className="border-t border-ink-100 hover:bg-ink-50/40"
-                >
-                  <td className="p-3">
-                    <span className="mr-2">{AGENT_ICONS[a.kind] ?? "🤖"}</span>
-                    <span className="font-medium">{a.name}</span>
-                    <code className="text-xs text-ink-400 ml-2">{a.kind}</code>
-                  </td>
-                  <td className="p-3 text-right">{a.runs}</td>
-                  <td className="p-3 text-right">
-                    <span
-                      className={`font-medium ${successRate >= 80 ? "text-green-700" : successRate >= 50 ? "text-yellow-700" : "text-red-700"}`}
-                    >
-                      {a.succeeded}
-                    </span>
-                    <span className="text-ink-400 text-xs ml-1">
-                      ({successRate}%)
-                    </span>
-                  </td>
-                  <td className="p-3 text-right text-red-600">{a.failed}</td>
-                  <td className="p-3 text-right text-ink-600">
-                    {(a.tokensIn / 1000).toFixed(1)}k
-                  </td>
-                  <td className="p-3 text-right text-ink-600">
-                    {(a.tokensOut / 1000).toFixed(1)}k
-                  </td>
-                  <td className="p-3 text-right font-medium">
-                    ${a.costUsd.toFixed(4)}
-                  </td>
-                  <td className="p-3 text-right text-ink-500">
-                    ${(a.runs > 0 ? a.costUsd / a.runs : 0).toFixed(5)}
+        <div className="overflow-x-auto">
+          <table className="table-premium">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th className="text-right">Körningar</th>
+                <th className="text-right">Lyckade</th>
+                <th className="text-right">Misslyckade</th>
+                <th className="text-right">Tokens in</th>
+                <th className="text-right">Tokens ut</th>
+                <th className="text-right">Kostnad</th>
+                <th className="text-right">Snitt/körn.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agentStats.map((a) => {
+                const successRate =
+                  a.runs > 0 ? Math.round((a.succeeded / a.runs) * 100) : 0;
+                return (
+                  <tr key={a.kind}>
+                    <td>
+                      <span className="mr-2 text-base">{AGENT_ICONS[a.kind] ?? "🤖"}</span>
+                      <span className="font-semibold text-ink-900">{a.name}</span>
+                      <code className="text-xs text-ink-300 ml-2 font-mono">{a.kind}</code>
+                    </td>
+                    <td className="text-right tabular-nums text-ink-700 font-medium">{a.runs}</td>
+                    <td className="text-right tabular-nums">
+                      <span className={`font-semibold ${successRate >= 80 ? "text-emerald-600" : successRate >= 50 ? "text-amber-600" : "text-red-600"}`}>
+                        {a.succeeded}
+                      </span>
+                      <span className="text-ink-300 text-xs ml-1">({successRate}%)</span>
+                    </td>
+                    <td className="text-right tabular-nums text-red-500 font-medium">{a.failed}</td>
+                    <td className="text-right tabular-nums text-ink-500">{(a.tokensIn / 1000).toFixed(1)}k</td>
+                    <td className="text-right tabular-nums text-ink-500">{(a.tokensOut / 1000).toFixed(1)}k</td>
+                    <td className="text-right tabular-nums font-semibold text-ink-900">${a.costUsd.toFixed(4)}</td>
+                    <td className="text-right tabular-nums text-ink-400 text-xs">${(a.runs > 0 ? a.costUsd / a.runs : 0).toFixed(5)}</td>
+                  </tr>
+                );
+              })}
+              {agentStats.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="py-16 text-center">
+                    <div className="text-ink-400 text-sm font-medium">Inga körningar denna månad</div>
                   </td>
                 </tr>
-              );
-            })}
-            {agentStats.length === 0 && (
-              <tr>
-                <td colSpan={8} className="p-10 text-center text-ink-500">
-                  Inga körningar denna månad.
-                </td>
-              </tr>
-            )}
-            {agentStats.length > 0 && (
-              <tr className="border-t-2 border-ink-200 font-semibold bg-ink-50/50">
-                <td className="p-3">Totalt</td>
-                <td className="p-3 text-right">{runsThisMonth.length}</td>
-                <td className="p-3 text-right text-green-700">
-                  {runsThisMonth.filter((r) => r.status === "succeeded").length}
-                </td>
-                <td className="p-3 text-right text-red-600">
-                  {runsThisMonth.filter((r) => r.status === "failed").length}
-                </td>
-                <td className="p-3 text-right">
-                  {(totalTokensIn / 1000).toFixed(1)}k
-                </td>
-                <td className="p-3 text-right">
-                  {(totalTokensOut / 1000).toFixed(1)}k
-                </td>
-                <td className="p-3 text-right">${totalCostThisMonth.toFixed(4)}</td>
-                <td className="p-3 text-right">${avgCostPerRun.toFixed(5)}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+              {agentStats.length > 0 && (
+                <tr className="bg-ink-50/60 font-semibold border-t-2 border-ink-100">
+                  <td className="text-ink-700">Totalt</td>
+                  <td className="text-right tabular-nums">{runsThisMonth.length}</td>
+                  <td className="text-right tabular-nums text-emerald-600">
+                    {runsThisMonth.filter((r) => r.status === "succeeded").length}
+                  </td>
+                  <td className="text-right tabular-nums text-red-500">
+                    {runsThisMonth.filter((r) => r.status === "failed").length}
+                  </td>
+                  <td className="text-right tabular-nums">{(totalTokensIn / 1000).toFixed(1)}k</td>
+                  <td className="text-right tabular-nums">{(totalTokensOut / 1000).toFixed(1)}k</td>
+                  <td className="text-right tabular-nums">${totalCostThisMonth.toFixed(4)}</td>
+                  <td className="text-right tabular-nums text-xs">${avgCostPerRun.toFixed(5)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       {/* Historical months */}
       <section className="card p-5">
-        <h2 className="font-semibold mb-1">Förra månaden</h2>
-        <p className="text-ink-500 text-sm">
-          {runsLastMonth.length} körningar ·{" "}
-          <span className="font-medium">${totalCostLastMonth.toFixed(4)}</span> totalt
-        </p>
+        <div className="section-label mb-3">Förra månaden</div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-[28px] font-extrabold tracking-[-0.02em] text-ink-900 tabular-nums">
+            <span className="text-base font-bold text-ink-400 mr-0.5">$</span>{totalCostLastMonth.toFixed(4)}
+          </span>
+          <span className="text-sm text-ink-400 font-medium">· {runsLastMonth.length} körningar</span>
+        </div>
       </section>
     </div>
   );

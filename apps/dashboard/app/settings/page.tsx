@@ -3,6 +3,7 @@ import { getActiveTenant } from "@/lib/tenant";
 import { InviteUserForm } from "./InviteUserForm";
 import { AgentSettingsForm } from "./AgentSettingsForm";
 import DisconnectButton from "./integrations/DisconnectButton";
+import { PageHeader } from "@/app/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +18,29 @@ const INTEGRATION_LABELS: Record<string, string> = {
   github: "GitHub",
 };
 
+const INTEGRATION_ICONS: Record<string, string> = {
+  visma_spiris: "🏦",
+  fortnox: "📒",
+  clockify: "⏱",
+  trello: "📋",
+  linkedin: "💼",
+  gmail: "✉️",
+  slack: "💬",
+  github: "🐙",
+};
+
 const ROLE_BADGE: Record<string, string> = {
   owner: "badge-blue",
   admin: "badge-blue",
   approver: "badge-yellow",
   viewer: "badge-gray",
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  owner: "Ägare",
+  admin: "Admin",
+  approver: "Godkännare",
+  viewer: "Läsare",
 };
 
 export default async function SettingsPage() {
@@ -34,7 +53,6 @@ export default async function SettingsPage() {
     .select("id, kind, label, status, last_synced_at")
     .eq("tenant_id", tenant.id);
 
-  // Build a map of kind -> list of connected accounts
   const configuredByKind = new Map<string, Array<{ id: string; label: string; status: string }>>();
   for (const row of integrations ?? []) {
     const kind = row.kind as string;
@@ -53,8 +71,6 @@ export default async function SettingsPage() {
     .select("user_id, role, created_at")
     .eq("tenant_id", tenant.id);
 
-  // Emails live in auth.users and are not exposed via PostgREST by default.
-  // We show role + user id; email for current user from session.
   const memberRows = (members ?? []).map((m) => ({
     user_id: m.user_id as string,
     role: m.role as string,
@@ -63,26 +79,53 @@ export default async function SettingsPage() {
   }));
 
   const canInvite = tenant.role === "owner" || tenant.role === "admin";
+  const connectedCount = [...configuredByKind.values()].reduce((s, v) => s + v.length, 0);
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-3xl font-semibold">Settings</h1>
-        <p className="text-ink-500">Tenant: {tenant.name}</p>
-      </header>
+      <PageHeader
+        title="Inställningar"
+        subtitle={`${tenant.name} · ${connectedCount} integrationer anslutna`}
+      />
 
-      <section className="card p-6">
-        <h2 className="font-semibold mb-4">Integrations</h2>
-        <div className="grid grid-cols-2 gap-3">
+      {/* Integrations */}
+      <section className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-ink-100">
+          <div className="section-label">Integrationer</div>
+          <p className="text-xs text-ink-400 mt-0.5">Anslut externa tjänster för att låsa upp agentfunktioner.</p>
+        </div>
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
           {Object.entries(INTEGRATION_LABELS).map(([kind, label]) => {
             const accounts = configuredByKind.get(kind) ?? [];
+            const isConnected = accounts.length > 0;
             return (
-              <div key={kind} className="flex items-start justify-between p-3 border border-ink-100 rounded-lg gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium">{label}</div>
-                  <div className="text-xs text-ink-500">{kind}</div>
-                  {accounts.length > 0 && (
-                    <div className="mt-2 space-y-1">
+              <div
+                key={kind}
+                className={`flex items-start gap-3 p-4 rounded-2xl border transition-colors ${
+                  isConnected
+                    ? "border-emerald-200 bg-emerald-50/40"
+                    : "border-ink-100 bg-white"
+                }`}
+              >
+                <div className="text-xl shrink-0 mt-0.5">{INTEGRATION_ICONS[kind] ?? "🔌"}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-sm text-ink-900">{label}</span>
+                    {isConnected ? (
+                      <a
+                        href={`/settings/integrations/${kind}/connect`}
+                        className="text-xs text-brand hover:underline whitespace-nowrap"
+                      >
+                        ＋ Lägg till
+                      </a>
+                    ) : (
+                      <a href={`/settings/integrations/${kind}/connect`} className="btn btn-secondary text-xs py-1 px-3">
+                        Anslut
+                      </a>
+                    )}
+                  </div>
+                  {accounts.length > 0 ? (
+                    <div className="mt-2 space-y-1.5">
                       {accounts.map((acc) => (
                         <div key={acc.id} className="flex items-center gap-2">
                           <span className="badge badge-green text-xs">{acc.label}</span>
@@ -90,20 +133,8 @@ export default async function SettingsPage() {
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-                <div className="flex-shrink-0">
-                  {accounts.length === 0 ? (
-                    <a href={`/settings/integrations/${kind}/connect`} className="btn btn-secondary">
-                      Connect
-                    </a>
                   ) : (
-                    <a
-                      href={`/settings/integrations/${kind}/connect`}
-                      className="text-xs text-brand hover:underline whitespace-nowrap"
-                    >
-                      ＋ Lägg till
-                    </a>
+                    <p className="text-xs text-ink-400 mt-1">Inte ansluten</p>
                   )}
                 </div>
               </div>
@@ -112,54 +143,62 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section className="card p-6 space-y-5">
-        <div>
-          <h2 className="font-semibold">Members</h2>
-          <p className="text-ink-500 text-sm">
-            {memberRows.length} member{memberRows.length === 1 ? "" : "s"} on this tenant.
+      {/* Members */}
+      <section className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-ink-100">
+          <div className="section-label">Teammedlemmar</div>
+          <p className="text-xs text-ink-400 mt-0.5">
+            {memberRows.length} {memberRows.length === 1 ? "person" : "personer"} i detta workspace.
           </p>
         </div>
 
-        <div className="divide-y divide-ink-100 border border-ink-100 rounded-lg">
+        <div className="divide-y divide-ink-50">
           {memberRows.map((m) => (
-            <div
-              key={m.user_id}
-              className="flex items-center justify-between p-3 text-sm"
-            >
-              <div className="font-mono text-xs text-ink-700">
-                {m.user_id}
-                {m.is_you && (
-                  <span className="ml-2 text-ink-500">(you)</span>
-                )}
+            <div key={m.user_id} className="flex items-center justify-between px-5 py-3">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-ink-900 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                  {m.user_id.slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div className="font-mono text-xs text-ink-700 leading-tight">{m.user_id}</div>
+                  {m.is_you && <div className="text-[10px] text-ink-400 mt-0.5">Du</div>}
+                </div>
               </div>
               <span className={`badge ${ROLE_BADGE[m.role] ?? "badge-gray"}`}>
-                {m.role}
+                {ROLE_LABEL[m.role] ?? m.role}
               </span>
             </div>
           ))}
         </div>
 
-        {canInvite ? (
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">Invite new member</h3>
+        {canInvite && (
+          <div className="px-5 py-4 border-t border-ink-100 bg-ink-50/40">
+            <div className="section-label mb-3">Bjud in ny teammedlem</div>
             <InviteUserForm tenantSlug={tenant.slug} callerRole={tenant.role} />
           </div>
-        ) : (
-          <p className="text-xs text-ink-500">
-            Only owners and admins can invite new members.
-          </p>
+        )}
+        {!canInvite && (
+          <div className="px-5 py-3 border-t border-ink-100">
+            <p className="text-xs text-ink-400">Endast ägare och admins kan bjuda in nya medlemmar.</p>
+          </div>
         )}
       </section>
 
-      <section className="card p-6">
-        <h2 className="font-semibold mb-4">Agent-inställningar</h2>
-        <AgentSettingsForm
-          tenantId={tenant.id}
-          currentSettings={{
-            googleApiKey: tenantSettings["google_api_key"] as string | undefined,
-            googleCseId: tenantSettings["google_cse_id"] as string | undefined,
-          }}
-        />
+      {/* Agent settings */}
+      <section className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-ink-100">
+          <div className="section-label">Agent-inställningar</div>
+          <p className="text-xs text-ink-400 mt-0.5">API-nycklar och sökparametrar för agent-körningar.</p>
+        </div>
+        <div className="p-5">
+          <AgentSettingsForm
+            tenantId={tenant.id}
+            currentSettings={{
+              googleApiKey: tenantSettings["google_api_key"] as string | undefined,
+              googleCseId: tenantSettings["google_cse_id"] as string | undefined,
+            }}
+          />
+        </div>
       </section>
     </div>
   );

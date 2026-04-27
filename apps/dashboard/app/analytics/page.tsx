@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
 import { AnalyticsCharts } from "./AnalyticsCharts";
+import { PageHeader } from "@/app/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -152,42 +153,40 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Analys</h1>
-        <p className="text-ink-500 mt-1">
-          Pipeline-konvertering, leadsignaler och agentprestanda.
-        </p>
-      </header>
+      <PageHeader
+        title="Analys"
+        subtitle="Pipeline-konvertering, leadsignaler och agentprestanda."
+      />
 
       {/* KPI summary */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-5">
-          <div className="text-xs text-ink-500 mb-1">Totalt leads</div>
-          <div className="text-2xl font-semibold">{totalLeads}</div>
-          <div className="text-xs text-ink-400 mt-0.5">{activeLeads} aktiva i pipeline</div>
+          <div className="section-label mb-4">Totalt leads</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">{totalLeads}</div>
+          <div className="mt-3 text-xs text-ink-400 font-medium">{activeLeads} aktiva i pipeline</div>
         </div>
         <div className="card p-5">
-          <div className="text-xs text-ink-500 mb-1">Konverteringsgrad</div>
-          <div className="text-2xl font-semibold">
-            {totalLeads > 0 ? Math.round((wonLeads / totalLeads) * 100) : 0}%
+          <div className="section-label mb-4 text-emerald-600">Konverteringsgrad</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-emerald-700 tabular-nums">
+            {totalLeads > 0 ? Math.round((wonLeads / totalLeads) * 100) : 0}<span className="text-xl font-bold ml-0.5">%</span>
           </div>
-          <div className="text-xs text-ink-400 mt-0.5">{wonLeads} vunna av {totalLeads}</div>
+          <div className="mt-3 text-xs text-ink-400 font-medium">{wonLeads} vunna av {totalLeads}</div>
         </div>
         <div className="card p-5">
-          <div className="text-xs text-ink-500 mb-1">Godkännandegrad</div>
-          <div className="text-2xl font-semibold">
-            {approvalRate !== null ? `${approvalRate}%` : "—"}
+          <div className="section-label mb-4 text-blue-600">Godkännandegrad</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            {approvalRate !== null ? <>{approvalRate}<span className="text-xl font-bold ml-0.5">%</span></> : "—"}
           </div>
-          <div className="text-xs text-ink-400 mt-0.5">
+          <div className="mt-3 text-xs text-ink-400 font-medium">
             {approvalStats.approved} godkända · {approvalStats.rejected} avvisade
           </div>
         </div>
         <div className="card p-5">
-          <div className="text-xs text-ink-500 mb-1">Agent-framgång</div>
-          <div className="text-2xl font-semibold">
-            {successRate !== null ? `${successRate}%` : "—"}
+          <div className="section-label mb-4 text-amber-600">Agent-framgång</div>
+          <div className="text-[36px] font-extrabold tracking-[-0.03em] leading-none text-ink-900 tabular-nums">
+            {successRate !== null ? <>{successRate}<span className="text-xl font-bold ml-0.5">%</span></> : "—"}
           </div>
-          <div className="text-xs text-ink-400 mt-0.5">
+          <div className="mt-3 text-xs text-ink-400 font-medium">
             {completedRuns.length} avslutade körningar
           </div>
         </div>
@@ -204,33 +203,35 @@ export default async function AnalyticsPage() {
 
       {/* Top leads by score */}
       {topLeads.length > 0 && (
-        <section className="card p-5">
-          <h2 className="font-semibold mb-3">Topp-leads per score</h2>
-          <div className="space-y-2">
+        <section className="card overflow-hidden">
+          <div className="px-5 py-4 border-b border-ink-100">
+            <div className="section-label">Topp-leads per score</div>
+          </div>
+          <div className="divide-y divide-ink-50">
             {topLeads.map((l, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm py-2 border-b border-ink-100 last:border-0"
+                className="flex items-center justify-between px-5 py-3 hover:bg-brand-muted/40 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-ink-400 font-mono text-xs w-5">
-                    {i + 1}.
-                  </span>
+                <div className="flex items-center gap-4">
+                  <span className="text-ink-300 font-mono text-xs w-4 tabular-nums">{i + 1}</span>
                   <div>
-                    <span className="font-medium">{String(l.offer_type).replace(/_/g, " ")}</span>
+                    <span className="text-sm font-semibold text-ink-900">
+                      {OFFER_LABELS[String(l.offer_type)] ?? String(l.offer_type).replace(/_/g, " ")}
+                    </span>
                     <span className="ml-2 text-xs text-ink-400">
                       {String(l.signal_type ?? "—")}
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="w-24 h-2 bg-ink-100 rounded-full overflow-hidden">
+                  <div className="w-20 h-1.5 bg-ink-100 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-brand rounded-full"
                       style={{ width: `${((l.score as number) / 10) * 100}%` }}
                     />
                   </div>
-                  <span className="font-semibold text-brand w-6 text-right">
+                  <span className="text-sm font-bold text-brand tabular-nums w-4 text-right">
                     {l.score}
                   </span>
                 </div>

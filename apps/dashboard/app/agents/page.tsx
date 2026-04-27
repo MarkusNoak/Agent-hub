@@ -5,6 +5,7 @@ import { RunNowButton } from "./RunNowButton";
 import { formatDistanceToNow } from "date-fns";
 import { sv } from "date-fns/locale";
 import { AgentConfigPanel } from "./AgentConfigPanel";
+import { PageHeader } from "@/app/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -95,15 +96,15 @@ export default async function AgentsPage() {
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
+  const enabledCount = agents?.filter((a) => a.status === "enabled").length ?? 0;
+  const totalCount = agents?.length ?? 0;
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Agenter</h1>
-        <p className="text-ink-500 mt-1">
-          {agents?.filter((a) => a.status === "enabled").length ?? 0} av{" "}
-          {agents?.length ?? 0} agenter aktiva.
-        </p>
-      </header>
+      <PageHeader
+        title="Agenter"
+        subtitle={`${enabledCount} av ${totalCount} agenter aktiva.`}
+      />
 
       <div className="grid grid-cols-1 gap-4">
         {agents?.map((a) => {
@@ -127,12 +128,18 @@ export default async function AgentsPage() {
 
           return (
             <div key={a.id} className="card p-6">
-              <div className="flex items-start gap-4">
-                {/* Icon + info */}
-                <div className="text-3xl select-none">{meta.icon}</div>
+              <div className="flex items-start gap-5">
+                {/* Icon */}
+                <div
+                  className="w-11 h-11 rounded-xl flex items-center justify-center text-xl select-none shrink-0"
+                  style={{ background: "linear-gradient(135deg, #f7f4f0, #ede8e0)" }}
+                >
+                  {meta.icon}
+                </div>
+
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <h3 className="font-semibold text-lg">{a.name}</h3>
+                    <h3 className="font-bold text-[17px] tracking-[-0.01em] text-ink-900">{a.name}</h3>
                     <span
                       className={`badge ${
                         a.status === "enabled"
@@ -145,35 +152,32 @@ export default async function AgentsPage() {
                       {a.status === "enabled" ? "Aktiv" : a.status === "paused" ? "Pausad" : "Inaktiv"}
                     </span>
                   </div>
-                  <p className="text-sm text-ink-500 mt-1">{meta.description}</p>
+                  <p className="text-sm text-ink-400 mt-1 leading-relaxed">{meta.description}</p>
 
-                  {/* Stats row */}
-                  <div className="flex flex-wrap gap-4 mt-3 text-xs text-ink-500">
-                    <div>
-                      <span className="font-medium text-ink-700">{runsThisMonth.length}</span> körningar i mån
+                  {/* Stats chips */}
+                  <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-3">
+                    <div className="text-xs text-ink-400">
+                      <span className="font-semibold text-ink-700 tabular-nums">{runsThisMonth.length}</span> körn. / mån
                     </div>
                     {successRate !== null && (
-                      <div>
-                        <span
-                          className={`font-medium ${successRate >= 80 ? "text-green-700" : successRate >= 50 ? "text-yellow-700" : "text-red-700"}`}
-                        >
+                      <div className="text-xs text-ink-400">
+                        <span className={`font-semibold tabular-nums ${successRate >= 80 ? "text-emerald-600" : successRate >= 50 ? "text-amber-600" : "text-red-600"}`}>
                           {successRate}%
-                        </span>{" "}
-                        lyckade
+                        </span>{" "}lyckade
                       </div>
                     )}
-                    <div>
-                      <span className="font-medium text-ink-700">${monthCost.toFixed(3)}</span> denna mån
+                    <div className="text-xs text-ink-400">
+                      <span className="font-semibold text-ink-700 tabular-nums">${monthCost.toFixed(3)}</span> denna mån
                     </div>
-                    <div>
-                      <span className="font-medium text-ink-700">${totalCostUsd.toFixed(3)}</span> totalt
+                    <div className="text-xs text-ink-400">
+                      <span className="font-semibold text-ink-700 tabular-nums">${totalCostUsd.toFixed(3)}</span> totalt
                     </div>
-                    <div>
-                      Schema: <span className="font-medium text-ink-700">{humanCron(a.cron)}</span>
+                    <div className="text-xs text-ink-400">
+                      Schema: <span className="font-semibold text-ink-700">{humanCron(a.cron)}</span>
                     </div>
-                    <div>
+                    <div className="text-xs text-ink-400">
                       Senast:{" "}
-                      <span className="font-medium text-ink-700">
+                      <span className="font-semibold text-ink-700">
                         {a.last_run_at
                           ? formatDistanceToNow(new Date(a.last_run_at), { addSuffix: true, locale: sv })
                           : "aldrig"}
