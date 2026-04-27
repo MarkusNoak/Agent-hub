@@ -79,7 +79,7 @@ export default async function RunsPage() {
                       {r.status === "running" ? "⟳ running" : r.status}
                     </span>
                     {r.error && (
-                      <p className="text-xs text-red-600 mt-1 max-w-xs truncate" title={r.error}>
+                      <p className="text-xs text-red-600 mt-1 max-w-sm break-words whitespace-pre-wrap">
                         {r.error}
                       </p>
                     )}

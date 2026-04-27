@@ -62,7 +62,8 @@ export async function executeAgent<O = unknown>(
   } = opts;
 
   const model = process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
-  const maxIter = parseInt(process.env.AGENT_MAX_ITERATIONS ?? "25", 10);
+  const maxIterRaw = parseInt(process.env.AGENT_MAX_ITERATIONS ?? "25", 10);
+  const maxIter = isNaN(maxIterRaw) || maxIterRaw <= 0 ? 25 : maxIterRaw;
   const toolTimeoutMs = parseInt(process.env.AGENT_TOOL_TIMEOUT_MS ?? "45000", 10);
   const runTimeoutMs = parseInt(process.env.AGENT_RUN_TIMEOUT_SECONDS ?? "480", 10) * 1000;
 
