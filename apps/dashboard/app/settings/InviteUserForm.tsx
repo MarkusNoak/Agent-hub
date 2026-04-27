@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
 
 type Role = "owner" | "admin" | "approver" | "viewer";
 
@@ -37,25 +36,9 @@ export function InviteUserForm({
     setLoading(true);
 
     try {
-      const supa = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      );
-      const { data: sess } = await supa.auth.getSession();
-      const token = sess.session?.access_token;
-      if (!token) {
-        setErr("No active session. Please sign in again.");
-        setLoading(false);
-        return;
-      }
-
-      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/invite-user`;
-      const res = await fetch(url, {
+      const res = await fetch("/api/invite-user", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, role, tenantSlug }),
       });
 

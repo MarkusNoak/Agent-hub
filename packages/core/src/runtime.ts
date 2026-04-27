@@ -138,17 +138,25 @@ export async function executeAgent<O = unknown>(
       }
       iterations++;
 
-      const resp = await anthropic.messages.create({
-        model,
-        max_tokens: 4096,
-        system: systemPromptOverride ?? agent.systemPrompt(tenant),
-        tools: agent.tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-        })),
-        messages,
-      });
+      const resp = await Promise.race([
+        anthropic.messages.create({
+          model,
+          max_tokens: 4096,
+          system: systemPromptOverride ?? agent.systemPrompt(tenant),
+          tools: agent.tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            input_schema: t.input_schema as Anthropic.Tool["input_schema"],
+          })),
+          messages,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Anthropic API svarade inte inom 120s — kontrollera API-nyckel och nätverk")),
+            120_000,
+          ),
+        ),
+      ]);
 
       tokensIn += resp.usage.input_tokens;
       tokensOut += resp.usage.output_tokens;
