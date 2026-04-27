@@ -13,31 +13,40 @@ import {
   Settings,
 } from "lucide-react";
 
-const nav = [
-  { href: "/",          label: "Översikt",      icon: LayoutDashboard },
-  { href: "/approvals", label: "Godkännanden",  icon: Inbox },
-  { href: "/agents",    label: "Agenter",       icon: Bot },
-  { href: "/leads",     label: "Leads",         icon: Users },
-  { href: "/runs",      label: "Körningar",     icon: Workflow },
-  { href: "/analytics", label: "Analys",        icon: BarChart3 },
-  { href: "/billing",   label: "Fakturering",   icon: CreditCard },
-  { href: "/settings",  label: "Inställningar", icon: Settings },
-];
-
 const groups = [
-  { label: "Arbetsyta", items: nav.slice(0, 5) },
-  { label: "Insikter",  items: nav.slice(5, 7) },
-  { label: "Konto",     items: nav.slice(7) },
+  {
+    label: "Arbetsyta",
+    items: [
+      { href: "/",          label: "Översikt",     icon: LayoutDashboard },
+      { href: "/approvals", label: "Godkännanden", icon: Inbox },
+      { href: "/agents",    label: "Agenter",      icon: Bot },
+      { href: "/leads",     label: "Leads",        icon: Users },
+      { href: "/runs",      label: "Körningar",    icon: Workflow },
+    ],
+  },
+  {
+    label: "Insikter",
+    items: [
+      { href: "/analytics", label: "Analys",      icon: BarChart3 },
+      { href: "/billing",   label: "Fakturering", icon: CreditCard },
+    ],
+  },
+  {
+    label: "Konto",
+    items: [
+      { href: "/settings", label: "Inställningar", icon: Settings },
+    ],
+  },
 ];
 
 export function NavLinks() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
+    <nav className="flex-1 px-3 py-2 space-y-4 overflow-y-auto no-scrollbar">
       {groups.map((group) => (
         <div key={group.label}>
-          <div className="px-3 mb-1.5 text-[10px] font-semibold text-ink-400 uppercase tracking-widest">
+          <div className="px-3 mb-1 text-[9px] font-bold text-white/20 uppercase tracking-[0.15em]">
             {group.label}
           </div>
           <div className="space-y-0.5">
@@ -48,21 +57,20 @@ export function NavLinks() {
                 <Link
                   key={n.href}
                   href={n.href}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
+                  className={`group flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 ${
                     active
-                      ? "bg-brand-soft text-amber-900 shadow-sm"
-                      : "text-ink-600 hover:bg-ink-50 hover:text-ink-900"
+                      ? "bg-white/10 text-white"
+                      : "text-white/40 hover:text-white/80 hover:bg-white/5"
                   }`}
                 >
+                  {/* Active indicator */}
+                  <span className={`absolute left-3 w-0.5 h-4 rounded-full bg-brand transition-opacity duration-150 ${active ? "opacity-100" : "opacity-0"}`} style={{position: "relative", flexShrink: 0, width: 2, height: 16, borderRadius: 2, background: active ? "#e8a020" : "transparent"}} />
                   <n.icon
-                    size={15}
-                    className={`shrink-0 ${active ? "text-brand" : "text-ink-400"}`}
-                    strokeWidth={active ? 2.5 : 1.75}
+                    size={14}
+                    strokeWidth={active ? 2.25 : 1.75}
+                    className={`shrink-0 transition-colors ${active ? "text-brand" : "text-white/30 group-hover:text-white/60"}`}
                   />
-                  <span className={active ? "font-semibold" : ""}>{n.label}</span>
-                  {n.href === "/approvals" && active === false && (
-                    <span className="ml-auto" />
-                  )}
+                  <span className={active ? "text-white" : ""}>{n.label}</span>
                 </Link>
               );
             })}
