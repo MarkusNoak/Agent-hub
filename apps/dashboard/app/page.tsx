@@ -146,39 +146,39 @@ export default async function Overview() {
     <div className="space-y-8">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Översikt</h1>
           <p className="text-ink-500">
-            Agent Hub for <span className="font-medium">{tenant.name}</span> - Plan:{" "}
-            <span className="font-medium">{tenant.plan}</span>
+            Agent Hub · <span className="font-medium">{tenant.name}</span> ·{" "}
+            <span className="capitalize">{tenant.plan}</span>
           </p>
         </div>
         {pendingApprovals > 0 && (
           <Link href="/approvals" className="btn btn-primary whitespace-nowrap animate-pulse">
-            {pendingApprovals} pending approval{pendingApprovals === 1 ? "" : "s"}
+            {pendingApprovals} väntande godkännande{pendingApprovals === 1 ? "" : "n"}
           </Link>
         )}
       </header>
 
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <ImpactKpi
-          label="Hours saved this month"
+          label="Tid sparad denna månad"
           value={`${Math.round(hoursSaved)}h`}
-          subtitle={`~${Math.round(sekSaved).toLocaleString("sv-SE")} SEK at ${HOURLY_COST_SEK}/h`}
+          subtitle={`~${Math.round(sekSaved).toLocaleString("sv-SE")} SEK à ${HOURLY_COST_SEK}/h`}
           tone="green"
         />
         <ImpactKpi
-          label="Agents enabled"
+          label="Aktiva agenter"
           value={`${enabledAgents}/${agents.length}`}
-          subtitle="Turn more on in /agents"
+          subtitle="Aktivera fler under Agenter"
           tone="indigo"
         />
         <ImpactKpi
-          label="Runs this month"
+          label="Körningar denna månad"
           value={runsThisMonth.length.toString()}
-          subtitle={`$${monthCostUsd.toFixed(2)} spent on Claude API`}
+          subtitle={`$${monthCostUsd.toFixed(3)} Claude API-kostnad`}
         />
         <ImpactKpi
-          label="Pending approvals"
+          label="Väntande godkännanden"
           value={pendingApprovals.toString()}
           subtitle="Human-in-the-loop gate"
           tone={pendingApprovals > 0 ? "amber" : "default"}

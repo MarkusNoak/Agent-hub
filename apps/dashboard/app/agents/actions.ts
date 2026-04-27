@@ -44,10 +44,6 @@ export async function triggerAgentManual(formData: FormData) {
   const def = AGENT_REGISTRY[agentRow.kind as AgentKind];
   if (!def) throw new Error(`Unknown agent kind ${agentRow.kind}`);
 
-  // On Vercel serverless, fire-and-forget promises are killed the moment the
-  // HTTP response is sent. Await the run so it actually completes. The UI
-  // waits up to `maxDuration` (set on app/agents/page.tsx); for runs that
-  // need longer, use the pg_cron scheduler instead.
   try {
     await executeAgent({
       tenant,
@@ -59,10 +55,25 @@ export async function triggerAgentManual(formData: FormData) {
     });
   } catch (e) {
     console.error("manual run failed", e);
-    // Run row is already marked failed inside executeAgent's error handler,
-    // so we just swallow here to let the UI revalidate and show the failure.
   }
 
   revalidatePath("/agents");
   revalidatePath("/runs");
+}
+
+export async function saveAgentConfig(formData: FormData) {
+  const agentId = String(formData.get("agentId"));
+  const tenantId = String(formData.get("tenantId"));
+  const cron = String(formData.get("cron")).trim() || null;
+  const systemPrompt = String(formData.get("systemPrompt")).trim() || null;
+
+  const supa = createSupabaseServerClient();
+  const { error } = await supa
+    .from("agents")
+    .update({ cron, system_prompt: systemPrompt })
+    .eq("id", agentId)
+    .eq("tenant_id", tenantId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/agents");
 }
