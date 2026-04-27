@@ -667,7 +667,8 @@ function inferDomain(companyName: string): string {
 function extractEmails(html: string, preferredDomain: string): string[] {
   const NOISE = ["example.", "sentry.", "w3.org", "schema.org", "apple.com", "microsoft.com"];
   const all = [...html.matchAll(EMAIL_RE)]
-    .map((m) => m[1].toLowerCase())
+    .map((m) => (m[1] ?? "").toLowerCase())
+    .filter((e) => e.length > 0)
     .filter((e) => {
       const parts = e.split("@");
       const d = parts[1] ?? "";
@@ -759,23 +760,24 @@ export async function researchCompany(opts: {
     const searchUrl = `https://www.allabolag.se/what/${encodeURIComponent(opts.companyName)}`;
     const html = await fetchPageSilent(searchUrl);
     if (html) {
-      const orgMatch = html.match(/(\d{6}-\d{4})/);
-      if (orgMatch) {
-        result.org_number = orgMatch[1];
-        result.key_facts.push(`Org.nr: ${orgMatch[1]}`);
+      const orgText = html.match(/(\d{6}-\d{4})/)?.[1];
+      if (orgText) {
+        result.org_number = orgText;
+        result.key_facts.push(`Org.nr: ${orgText}`);
       }
-      const empMatch =
-        html.match(/(\d+[\s–\-]+\d+)\s+anst/i) ?? html.match(/anst[^<>]{0,20}(\d+)/i);
-      if (empMatch) {
-        result.employees = empMatch[1];
-        result.key_facts.push(`Anställda: ${empMatch[1]}`);
+      const empText =
+        (html.match(/(\d+[\s–\-]+\d+)\s+anst/i) ?? html.match(/anst[^<>]{0,20}(\d+)/i))?.[1];
+      if (empText) {
+        result.employees = empText;
+        result.key_facts.push(`Anställda: ${empText}`);
       }
       const revMatch = html.match(
         /omsättning[^<>]{0,60}([\d\s.,]+(?:tkr|mnkr|mkr|msek|ksek|kr))/i,
       );
-      if (revMatch) {
-        result.revenue = revMatch[1].trim();
-        result.key_facts.push(`Omsättning: ${revMatch[1].trim()}`);
+      const revText = revMatch?.[1];
+      if (revText) {
+        result.revenue = revText.trim();
+        result.key_facts.push(`Omsättning: ${revText.trim()}`);
       }
     }
     await sleep(1500);
