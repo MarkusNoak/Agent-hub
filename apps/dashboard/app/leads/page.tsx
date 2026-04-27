@@ -1,6 +1,6 @@
+import { Suspense } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
-import { updateLeadStage } from "./actions";
 import { LeadsFilter } from "./LeadsFilter";
 import { LeadRow } from "./LeadRow";
 import Link from "next/link";
@@ -80,15 +80,12 @@ export default async function LeadsPage({
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Leads</h1>
-          <p className="text-ink-500 mt-1">
+          <h1 className="text-2xl font-bold tracking-tight">Leads</h1>
+          <p className="text-ink-500 text-sm mt-0.5">
             Pipeline från Sales Agent. Uppdatera stage manuellt när prospekt svarar.
           </p>
         </div>
-        <Link
-          href="/api/leads/export"
-          className="btn btn-outline gap-1.5 shrink-0"
-        >
+        <Link href="/api/leads/export" className="btn btn-outline gap-1.5 shrink-0">
           <Download size={14} />
           Exportera CSV
         </Link>
@@ -97,60 +94,62 @@ export default async function LeadsPage({
       {/* Pipeline summary */}
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="card p-4">
-          <div className="text-xs text-ink-500 mb-1">I pipeline</div>
-          <div className="text-2xl font-semibold">{pipelineValue}</div>
-          <div className="text-xs text-ink-400 mt-0.5">aktiva leads</div>
+          <div className="section-label mb-1">I pipeline</div>
+          <div className="stat-value">{pipelineValue}</div>
+          <div className="stat-sub">aktiva leads</div>
+        </div>
+        <div className="card-green p-4">
+          <div className="section-label mb-1 text-emerald-600">Vunna</div>
+          <div className="text-2xl font-bold text-emerald-900 tabular-nums">{wonCount}</div>
+          <div className="text-xs text-emerald-700 mt-0.5">avslutade affärer</div>
+        </div>
+        <div className="card-blue p-4">
+          <div className="section-label mb-1 text-blue-600">Konvertering</div>
+          <div className="text-2xl font-bold text-blue-900 tabular-nums">{conversionRate}%</div>
+          <div className="text-xs text-blue-700 mt-0.5">kvalificerade av aktiva</div>
         </div>
         <div className="card p-4">
-          <div className="text-xs text-ink-500 mb-1">Vunna</div>
-          <div className="text-2xl font-semibold text-green-700">{wonCount}</div>
-          <div className="text-xs text-ink-400 mt-0.5">avslutade affärer</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-xs text-ink-500 mb-1">Konverteringsgrad</div>
-          <div className="text-2xl font-semibold">{conversionRate}%</div>
-          <div className="text-xs text-ink-400 mt-0.5">kvalificerade av aktiva</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-xs text-ink-500 mb-1">Totalt</div>
-          <div className="text-2xl font-semibold">{allLeads?.length ?? 0}</div>
-          <div className="text-xs text-ink-400 mt-0.5">leads alla tider</div>
+          <div className="section-label mb-1">Totalt</div>
+          <div className="stat-value">{allLeads?.length ?? 0}</div>
+          <div className="stat-sub">leads alla tider</div>
         </div>
       </section>
 
       {/* Stage funnel */}
       <section className="card p-4">
-        <div className="text-xs font-semibold text-ink-500 uppercase tracking-wider mb-3">
-          Stage-fördelning
-        </div>
+        <div className="section-label mb-3">Stage-fördelning</div>
         <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
           {STAGE_ORDER.map((s) => (
             <div key={s} className="text-center">
-              <div className="text-lg font-semibold">{byStage[s] ?? 0}</div>
-              <div className="text-xs text-ink-500 mt-0.5 leading-tight">
-                {s.replace(/_/g, " ")}
+              <div className="text-xl font-bold tabular-nums">{byStage[s] ?? 0}</div>
+              <div className="text-xs text-ink-400 mt-0.5 leading-tight">
+                {s.replace(/_/g, " ")}
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Filter bar */}
-      <LeadsFilter total={leads.length} />
+      {/* Filter bar — wrapped in Suspense because LeadsFilter uses useSearchParams */}
+      <Suspense fallback={
+        <div className="h-10 bg-ink-100 rounded-xl animate-pulse" />
+      }>
+        <LeadsFilter total={leads.length} />
+      </Suspense>
 
       {/* Table */}
       <section className="card overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-ink-500 border-b border-ink-100">
+          <thead className="text-left border-b border-ink-100">
             <tr>
-              <th className="p-3">Bolag</th>
-              <th className="p-3">Kontaktperson</th>
-              <th className="p-3">Signal</th>
-              <th className="p-3">Erbjudande</th>
-              <th className="p-3">Score</th>
-              <th className="p-3">Stage</th>
-              <th className="p-3">Kontaktad</th>
-              <th className="p-3">Tillagd</th>
+              <th className="p-3 section-label">Bolag</th>
+              <th className="p-3 section-label">Kontakt</th>
+              <th className="p-3 section-label">Signal</th>
+              <th className="p-3 section-label">Erbjudande</th>
+              <th className="p-3 section-label">Score</th>
+              <th className="p-3 section-label">Stage</th>
+              <th className="p-3 section-label">Kontaktad</th>
+              <th className="p-3 section-label">Tillagd</th>
               <th className="p-3"></th>
             </tr>
           </thead>
@@ -160,7 +159,6 @@ export default async function LeadsPage({
                 key={l.id}
                 lead={l as Parameters<typeof LeadRow>[0]["lead"]}
                 tenantId={tenant.id}
-                updateStageAction={updateLeadStage}
               />
             ))}
             {!leads.length && (

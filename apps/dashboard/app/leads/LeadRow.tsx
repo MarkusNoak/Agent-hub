@@ -4,6 +4,7 @@ import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { sv } from "date-fns/locale";
 import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { updateLeadStage } from "./actions";
 
 type Lead = {
   id: string;
@@ -37,11 +38,9 @@ const MANUAL_STAGES = ["replied", "qualified", "won", "lost"] as const;
 export function LeadRow({
   lead,
   tenantId,
-  updateStageAction,
 }: {
   lead: Lead;
   tenantId: string;
-  updateStageAction: (fd: FormData) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -164,7 +163,7 @@ export function LeadRow({
                 ))}
               </select>
               <button
-                formAction={updateStageAction}
+                formAction={updateLeadStage}
                 type="submit"
                 className="sr-only"
                 aria-label="Spara stage"
