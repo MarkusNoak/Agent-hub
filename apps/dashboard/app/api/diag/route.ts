@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-server";
-import Anthropic from "@anthropic-ai/sdk";
 
 export const dynamic = "force-dynamic";
 
@@ -50,31 +49,47 @@ export async function GET() {
     results["supabase"] = { ok: false, error: (e as Error).message };
   }
 
-  // ── 3. Anthropic API ping ───────────────────────────────────────────────────
+  // ── 3. Anthropic API ping (raw fetch — no SDK import needed) ────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     results["anthropic"] = { ok: false, error: "ANTHROPIC_API_KEY not set" };
   } else {
     try {
-      const client = new Anthropic({ apiKey });
+      const model = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
       const start = Date.now();
-      const resp = await Promise.race([
-        client.messages.create({
-          model: process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001",
-          max_tokens: 16,
-          messages: [{ role: "user", content: "Reply with just: ok" }],
+      const res = await Promise.race([
+        fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 16,
+            messages: [{ role: "user", content: "Reply with just: ok" }],
+          }),
         }),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("Timed out after 30s")), 30_000),
         ),
       ]);
-      results["anthropic"] = {
-        ok: true,
-        latency_ms: Date.now() - start,
-        model: resp.model,
-        response: resp.content[0]?.type === "text" ? resp.content[0].text : "(non-text)",
-        tokens_used: resp.usage.input_tokens + resp.usage.output_tokens,
-      };
+      const json = await res.json() as Record<string, unknown>;
+      if (!res.ok) {
+        results["anthropic"] = { ok: false, http_status: res.status, error: json["error"] ?? json };
+      } else {
+        const content = json["content"] as Array<{ type: string; text?: string }> | undefined;
+        results["anthropic"] = {
+          ok: true,
+          latency_ms: Date.now() - start,
+          model: json["model"],
+          response: content?.[0]?.text ?? "(non-text)",
+          tokens_used:
+            ((json["usage"] as Record<string, number>)?.["input_tokens"] ?? 0) +
+            ((json["usage"] as Record<string, number>)?.["output_tokens"] ?? 0),
+        };
+      }
     } catch (e) {
       results["anthropic"] = { ok: false, error: (e as Error).message };
     }
