@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
 import { formatDistanceToNow } from "date-fns";
+import Link from "next/link";
 import { RunsRefresher } from "./RunsRefresher";
 
 export const dynamic = "force-dynamic";
@@ -66,8 +67,10 @@ export default async function RunsPage() {
               return (
                 <tr key={r.id} className="border-t border-ink-100 hover:bg-ink-50/40">
                   <td className="p-3">
-                    <div className="font-medium">{ag?.name ?? ag?.kind ?? "—"}</div>
-                    <code className="text-xs text-ink-500">{ag?.kind}</code>
+                    <Link href={`/runs/${r.id}`} className="font-medium hover:text-brand hover:underline">
+                      {ag?.name ?? ag?.kind ?? "—"}
+                    </Link>
+                    <code className="text-xs text-ink-500 block">{ag?.kind}</code>
                   </td>
                   <td className="p-3 text-ink-500">{r.trigger}</td>
                   <td className="p-3">
