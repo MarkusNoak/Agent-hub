@@ -17,6 +17,20 @@ type Approval = {
 
 const EMAIL_ACTIONS = new Set(["send_email", "send_invoice_reminder"]);
 
+/** Strip HTML tags so the textarea shows plain text, not markup. */
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function ApprovalCard({
   approval,
   tenantId,
@@ -34,21 +48,32 @@ export function ApprovalCard({
 
   const rawTo = String(payload["to_email"] ?? payload["customer_email"] ?? "");
   const rawSubject = String(payload["subject"] ?? "");
-  const rawBody = String(payload["body"] ?? payload["body_html"] ?? "");
+  const rawBodyHtml = String(payload["body_html"] ?? payload["body"] ?? "");
 
-  const defaultTo = rawTo.replace(/^\[VERIFIERA ADRESS\]\s*/i, "");
-  const defaultSubject = rawSubject.replace(/^\[VERIFIERA ADRESS\]\s*/i, "");
-  const needsAddressVerification =
+  const needsVerify =
     rawSubject.toUpperCase().includes("[VERIFIERA ADRESS]") ||
     rawTo.toUpperCase().includes("[VERIFIERA ADRESS]");
 
-  function runAction(action: (fd: FormData) => Promise<void>, successMsg?: string) {
+  // Controlled state — preserves edits across any server re-renders
+  const [toVal, setToVal] = useState(
+    rawTo.replace(/^\[VERIFIERA ADRESS\]\s*/i, ""),
+  );
+  const [subjectVal, setSubjectVal] = useState(
+    rawSubject.replace(/^\[VERIFIERA ADRESS\]\s*/i, ""),
+  );
+  const [bodyVal, setBodyVal] = useState(htmlToPlain(rawBodyHtml));
+
+  function runAction(action: (fd: FormData) => Promise<void>, onSuccess: "done" | "none") {
     setError(null);
+    // Build FormData manually from controlled state + hidden fields
     const fd = new FormData(formRef.current!);
+    fd.set("edit_to_email", toVal);
+    fd.set("edit_subject", subjectVal);
+    fd.set("edit_body", bodyVal);
     startTransition(async () => {
       try {
         await action(fd);
-        if (successMsg) setDone(true);
+        if (onSuccess === "done") setDone(true);
       } catch (e) {
         setError((e as Error).message);
       }
@@ -65,13 +90,15 @@ export function ApprovalCard({
 
   return (
     <div className="card p-5 space-y-3">
-      {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <span className="badge badge-blue">{approval.agent_kind}</span>
           <span className="badge badge-gray">{approval.action}</span>
-          {needsAddressVerification && (
-            <span className="badge badge-yellow" title="Agenten kunde inte hitta en verifierad e-postadress — kontrollera fältet 'Till' nedan.">
+          {needsVerify && (
+            <span
+              className="badge badge-yellow"
+              title="Agenten kunde inte hitta en verifierad adress — korrigera fältet 'Till'."
+            >
               ⚠ Verifiera adress
             </span>
           )}
@@ -92,6 +119,7 @@ export function ApprovalCard({
         </div>
       )}
 
+      {/* Hidden fields only — the three editable fields are controlled above */}
       <form ref={formRef} className="space-y-3">
         <input type="hidden" name="id" value={approval.id} />
         <input type="hidden" name="tenantId" value={tenantId} />
@@ -102,11 +130,11 @@ export function ApprovalCard({
               <label className="text-xs font-medium text-ink-500 text-right">Till</label>
               <input
                 type="email"
-                name="edit_to_email"
-                defaultValue={defaultTo}
+                value={toVal}
+                onChange={(e) => setToVal(e.target.value)}
                 required
                 className={`border rounded-lg p-2 text-sm w-full ${
-                  needsAddressVerification
+                  needsVerify
                     ? "border-yellow-400 bg-yellow-50 focus:border-yellow-500"
                     : "border-ink-200"
                 }`}
@@ -117,19 +145,21 @@ export function ApprovalCard({
               <label className="text-xs font-medium text-ink-500 text-right">Ämne</label>
               <input
                 type="text"
-                name="edit_subject"
-                defaultValue={defaultSubject}
+                value={subjectVal}
+                onChange={(e) => setSubjectVal(e.target.value)}
                 required
                 className="border border-ink-200 rounded-lg p-2 text-sm w-full"
               />
             </div>
 
             <div className="grid grid-cols-[4rem_1fr] items-start gap-2">
-              <label className="text-xs font-medium text-ink-500 text-right pt-2">Meddelande</label>
+              <label className="text-xs font-medium text-ink-500 text-right pt-2">
+                Meddelande
+              </label>
               <textarea
-                name="edit_body"
-                rows={9}
-                defaultValue={rawBody}
+                value={bodyVal}
+                onChange={(e) => setBodyVal(e.target.value)}
+                rows={12}
                 required
                 className="border border-ink-200 rounded-lg p-2 text-sm w-full resize-y font-sans leading-relaxed"
               />
@@ -145,7 +175,7 @@ export function ApprovalCard({
           <button
             type="button"
             disabled={isPending}
-            onClick={() => runAction(approveAction, "sent")}
+            onClick={() => runAction(approveAction, "done")}
             className="btn btn-primary"
           >
             {isPending ? "Skickar…" : isEmail ? "Godkänn & skicka" : "Godkänn & kör"}
@@ -155,7 +185,7 @@ export function ApprovalCard({
             <button
               type="button"
               disabled={isPending}
-              onClick={() => runAction(saveDraftEdits)}
+              onClick={() => runAction(saveDraftEdits, "none")}
               className="btn btn-secondary"
               title="Spara redigeringar utan att skicka"
             >
@@ -166,7 +196,7 @@ export function ApprovalCard({
           <button
             type="button"
             disabled={isPending}
-            onClick={() => runAction(rejectAction, "rejected")}
+            onClick={() => runAction(rejectAction, "done")}
             className="btn btn-secondary"
           >
             Avvisa

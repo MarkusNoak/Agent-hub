@@ -110,14 +110,18 @@ The outreach MUST include a short PS revealing this email was written by the Sal
   "PS — detta mejl skrevs av vår Sales Agent. Jag godkände det innan det gick ut. Det är produkten jag vill visa dig."
 ` : ""}
 ────────────────────────────────────────
-EMAIL INFERENCE RULE:
-When no contact email is known, infer the domain from the company name:
-- "Branäsgruppen AB" → branasgruppen.se → info@branasgruppen.se
-- "Crona Software AB" → cronasoftware.se → info@cronasoftware.se
-- Strip "AB", "HB", spaces, åäö→aao, special chars → lowercase → .se
-Use info@[domain] as to_email placeholder.
-Add "[VERIFIERA ADRESS]" at the start of the subject line.
-The human reviewer corrects the address before approving.
+TO-EMAIL SELECTION RULE (mandatory — follow exactly):
+ALWAYS call research_company first. Then pick to_email in this order:
+  1. contact_emails[0] is present → use it. No flag in subject. Highest confidence.
+  2. email_candidates[0] is present (generated from VD name) → use it. Add "[VERIFIERA ADRESS]" to subject. Better than info@.
+  3. ONLY if BOTH contact_emails AND email_candidates are empty → fall back to info@[domain]. Always add "[VERIFIERA ADRESS]" to subject.
+Domain inference: strip "AB"/"HB", replace åäö→aao, remove spaces/special chars, add .se.
+Example fallback only: "Branäsgruppen AB" → info@branasgruppen.se (use ONLY when step 1 and 2 both fail).
+────────────────────────────────────────
+GREETING RULE:
+  1. vd_name found → "Hej [Firstname],"
+  2. contact_names[0] found → "Hej [Firstname],"
+  3. nothing found → "Hej,"
 ────────────────────────────────────────
 STAFFING COMPANY RULE:
 SKIP companies that are staffing/recruitment firms hiring on behalf of clients (Adecco, Randstad, Manpower, Poolia, Academic Work, etc.) — they are not the end employer.
@@ -140,21 +144,13 @@ DATA SOURCES (call as tools — all free):
 7. fetch_no_website_companies    Allabolag SNI + DNS-check. SMBs without websites → webb_design.
 ────────────────────────────────────────
 ENRICHMENT TOOLS (use after scoring, before upsert_lead):
-• research_company      Fetches company website, Allabolag company page, PRoff.se.
-                        Returns: contact_emails (found on site), email_candidates (generated
-                        from VD name — personalized but unverified), vd_name, key_facts.
-                        EMAIL PRIORITY:
-                          1. contact_emails[0]   → use directly, high confidence, no flag needed
-                          2. email_candidates[0]  → use with [VERIFIERA ADRESS] in subject
-                          3. EMAIL INFERENCE RULE → info@ fallback, always [VERIFIERA ADRESS]
-                        NAME PRIORITY:
-                          1. vd_name             → "Hej [Firstname],"
-                          2. contact_names[0]    → "Hej [Firstname],"
-                          3. nothing found       → "Hej,"
+• research_company      CALL THIS FOR EVERY PROSPECT before drafting.
+                        Returns: contact_emails (scraped from site — use first),
+                        email_candidates (generated from VD name — use if no contact_emails),
+                        vd_name, contact_names, key_facts.
 • validate_email_domain DNS MX check. Returns confidence=high/low/unknown.
-                        high    → remove [VERIFIERA ADRESS] from subject.
-                        low     → keep [VERIFIERA ADRESS].
                         unknown → skip company (domain doesn't resolve).
+                        high + contact_emails[0] used → remove [VERIFIERA ADRESS] from subject.
 ────────────────────────────────────────
 DECISION FLOW:
 1. Call \`list_recent_outreach\` first.
@@ -163,16 +159,15 @@ DECISION FLOW:
    a. If source=funding_news → extract actual company name from headline.
    b. Score ICP fit 0–100. Skip if score < 55.
    c. Pick ONE offer_type (use suggested_offer_hint, refine based on signals).
-   d. Call \`research_company\` → get VD name, contact emails, email candidates, key facts.
-   e. Call \`validate_email_domain\` on the domain.
-      Skip companies where confidence=unknown.
-      Remove [VERIFIERA ADRESS] if confidence=high AND contact_emails[0] used.
-   f. \`upsert_lead\` with all signals + enriched contact data.
-      DO NOT invent lead_id.
-   g. \`draft_outreach_approval\` with ≤130-word Swedish email.
-      Use EMAIL PRIORITY and NAME PRIORITY above.
-      Personalise body using key_facts (employees, revenue, what the company does).
-   h. If source=visma_upsell, call \`mark_visma_upsell_contacted\`.
+   d. Call \`research_company\` — required for every prospect.
+   e. Call \`validate_email_domain\` on the domain. Skip if confidence=unknown.
+   f. Select to_email using TO-EMAIL SELECTION RULE above (steps 1→2→3).
+   g. \`upsert_lead\` with all signals + enriched contact data. DO NOT invent lead_id.
+   h. \`draft_outreach_approval\` with ≤130-word Swedish email.
+      • Use the to_email and greeting from steps f and GREETING RULE.
+      • Personalise body using key_facts (employees, revenue, what the company does).
+      • Add "[VERIFIERA ADRESS]" to subject ONLY when using email_candidates or info@ fallback.
+   i. If source=visma_upsell, call \`mark_visma_upsell_contacted\`.
 4. Respect input.max_drafts across all sources.
 5. NEVER send — everything queues via draft_outreach_approval.
 Offers available: ${offers.join(", ")}.`;
@@ -463,7 +458,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "draft_outreach_approval",
       description:
-        "Enqueue a drafted outreach email for human approval. Never sent until approved. Use EMAIL INFERENCE RULE for to_email if unknown.",
+        "Enqueue a drafted outreach email for human approval. Never sent until approved. to_email must follow TO-EMAIL SELECTION RULE: contact_emails[0] → email_candidates[0] → info@ fallback (last resort only).",
       input_schema: {
         type: "object",
         properties: {

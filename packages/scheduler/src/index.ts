@@ -43,7 +43,8 @@ async function main() {
       continue;
     }
 
-    const tenantRow = row.tenants as {
+    const tenantRaw = row.tenants as unknown;
+    const tenantRow = (Array.isArray(tenantRaw) ? tenantRaw[0] : tenantRaw) as {
       slug: string;
       name: string;
       settings: Record<string, unknown>;
