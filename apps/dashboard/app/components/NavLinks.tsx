@@ -11,6 +11,7 @@ import {
   BarChart3,
   CreditCard,
   Settings,
+  MessageCircle,
 } from "lucide-react";
 
 const groups = [
@@ -21,6 +22,7 @@ const groups = [
       { href: "/approvals", label: "Godkännanden",  icon: Inbox },
       { href: "/agents",    label: "Agenter",       icon: Bot },
       { href: "/leads",     label: "Leads",         icon: Users },
+      { href: "/chat",      label: "Dev Support",   icon: MessageCircle },
       { href: "/runs",      label: "Körningar",     icon: Workflow },
     ],
   },
