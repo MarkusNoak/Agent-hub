@@ -70,7 +70,7 @@ function sleep(ms: number) {
 async function fetchWithRetry(
   url: string,
   opts: RequestInit = {},
-  retries = 2,
+  retries = 1,           // max 1 retry (2 attempts total) — avoids long stalls
 ): Promise<Response> {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -80,12 +80,13 @@ async function fetchWithRetry(
           "User-Agent": "AgentHub-SalesAgent/1.0 (+https://weknowit.se)",
           ...(opts.headers ?? {}),
         },
+        signal: AbortSignal.timeout(8000),   // 8 s hard cap per attempt
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res;
     } catch (err) {
       if (i === retries) throw err;
-      await sleep(1500 * (i + 1));
+      await sleep(1200 * (i + 1));
     }
   }
   throw new Error("unreachable");
@@ -644,7 +645,7 @@ async function fetchPageSilent(url: string): Promise<string | null> {
         "User-Agent": "AgentHub-SalesAgent/1.0 (+https://weknowit.se)",
         Accept: "text/html,application/xhtml+xml",
       },
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(4000),   // 4 s — tight budget; we call this many times
     });
     if (!res.ok) return null;
     const ct = res.headers.get("content-type") ?? "";
@@ -754,28 +755,17 @@ export async function researchCompany(opts: {
     key_facts: [],
   };
 
-  // --- Step 1: Fetch company website ---
-  const urlsToTry = [
-    `https://${domain}`,
-    `https://www.${domain}`,
-    `https://${domain}/kontakt`,
-    `https://${domain}/om-oss`,
-    `https://${domain}/contact`,
-    `https://${domain}/about`,
-  ];
+  // --- Step 1: Fetch company website (max 2 attempts to stay under budget) ---
+  // Try homepage; if no emails found, try /kontakt as a second shot.
+  const urlsToTry = [`https://${domain}`, `https://${domain}/kontakt`];
 
-  let foundEmails = false;
   for (const url of urlsToTry) {
     const html = await fetchPageSilent(url);
     if (!html) continue;
 
     const emails = extractEmails(html, domain);
-    if (emails.length) {
-      result.contact_emails.push(...emails);
-      foundEmails = true;
-    }
+    result.contact_emails.push(...emails);
 
-    // Meta description (first page only)
     if (!result.website_description) {
       const desc =
         html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{10,250})["']/i)?.[1] ??
@@ -786,13 +776,12 @@ export async function researchCompany(opts: {
       }
     }
 
-    // Extract contact names from stripped text
     const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    const names = extractContactNames(text);
-    result.contact_names.push(...names);
+    result.contact_names.push(...extractContactNames(text));
 
-    if (foundEmails && result.contact_names.length > 0) break;
-    await sleep(800);
+    // Stop early if we already have what we need
+    if (result.contact_emails.length > 0 && result.contact_names.length > 0) break;
+    await sleep(400);
   }
 
   // --- Step 2: Allabolag search for company facts + VD name ---
@@ -820,9 +809,8 @@ export async function researchCompany(opts: {
         result.key_facts.push(`Omsättning: ${revText.trim()}`);
       }
 
-      // Fetch full company page for VD name if we have the org number
+      // Fetch full company page for VD name only if org number found quickly
       if (result.org_number) {
-        await sleep(1000);
         const companyPageUrl = `https://www.allabolag.se/${result.org_number.replace("-", "")}`;
         const companyHtml = await fetchPageSilent(companyPageUrl);
         if (companyHtml) {
@@ -835,13 +823,14 @@ export async function researchCompany(opts: {
         }
       }
     }
-    await sleep(1000);
+    await sleep(500);
   } catch {
     // Allabolag is optional enrichment
   }
 
-  // --- Step 3: PRoff.se fallback for VD name if not found yet ---
-  if (!result.vd_name) {
+  // --- Step 3: PRoff.se fallback — only if no VD found and no contact emails ---
+  // Skip PRoff if we already have enough data to write a personalised email.
+  if (!result.vd_name && result.contact_emails.length === 0) {
     try {
       const proffUrl = `https://www.proff.se/s%C3%B6k?q=${encodeURIComponent(opts.companyName)}`;
       const proffHtml = await fetchPageSilent(proffUrl);
@@ -853,7 +842,6 @@ export async function researchCompany(opts: {
           result.key_facts.push(`VD (PRoff): ${vd}`);
         }
       }
-      await sleep(800);
     } catch {
       // PRoff is optional
     }
@@ -914,10 +902,10 @@ export async function fetchNoWebsiteCompanies(
   const results: ProspectSignal[] = [];
   const limit = opts.limit ?? 8;
 
-  for (const { sni, industry } of NO_WEBSITE_SNI) {
+  // Process at most 4 SNI codes per call — keeps total tool time under ~30 s
+  for (const { sni, industry } of NO_WEBSITE_SNI.slice(0, 4)) {
     if (results.length >= limit) break;
     try {
-      // Small companies (1-9 employees) most likely to lack websites
       const url = `https://www.allabolag.se/bransch/${sni}?anstallda=1-9`;
       const res = await fetchWithRetry(url);
       const html = await res.text();
@@ -927,14 +915,13 @@ export async function fetchNoWebsiteCompanies(
         ),
       ];
       const names = matches
-        .slice(0, 10)
+        .slice(0, 6)
         .map((m) => (m[1] ?? "").trim().replace(/&amp;/g, "&"))
         .filter((n) => n.length > 3);
 
-      // DNS check in parallel (max 5 at once)
-      const batch = names.slice(0, 5);
+      // DNS checks in parallel — batch of 3 to avoid flooding DNS
       const checks = await Promise.allSettled(
-        batch.map(async (name) => {
+        names.slice(0, 3).map(async (name) => {
           const domain = inferDomain(name);
           const hasWebsite = await domainHasWebsite(domain);
           return { name, domain, hasWebsite };
@@ -959,7 +946,7 @@ export async function fetchNoWebsiteCompanies(
           });
         }
       }
-      await sleep(1500);
+      await sleep(1000);
     } catch (e) {
       console.warn(`fetchNoWebsiteCompanies SNI ${sni} failed:`, (e as Error).message);
     }

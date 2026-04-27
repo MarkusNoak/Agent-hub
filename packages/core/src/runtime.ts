@@ -63,6 +63,8 @@ export async function executeAgent<O = unknown>(
 
   const model = process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
   const maxIter = parseInt(process.env.AGENT_MAX_ITERATIONS ?? "25", 10);
+  const toolTimeoutMs = parseInt(process.env.AGENT_TOOL_TIMEOUT_MS ?? "45000", 10);
+  const runTimeoutMs = parseInt(process.env.AGENT_RUN_TIMEOUT_SECONDS ?? "480", 10) * 1000;
 
   const log = createLogger({ tenant: tenant.tenantSlug, agent: agent.kind });
   const db = new TenantScopedDb(supabase, tenant.tenantId);
@@ -125,9 +127,14 @@ export async function executeAgent<O = unknown>(
   let tokensOut = 0;
   let finalOutput: unknown | undefined;
   let error: string | undefined;
+  const runDeadline = Date.now() + runTimeoutMs;
 
   try {
     while (iterations < maxIter) {
+      if (Date.now() > runDeadline) {
+        error = `Run exceeded maximum duration (${runTimeoutMs / 60000} minutes).`;
+        break;
+      }
       iterations++;
 
       const resp = await anthropic.messages.create({
@@ -185,10 +192,18 @@ export async function executeAgent<O = unknown>(
         });
 
         try {
-          const result = await tool.execute(
-            (block.input ?? {}) as Record<string, unknown>,
-            toolCtx,
-          );
+          const result = await Promise.race([
+            tool.execute(
+              (block.input ?? {}) as Record<string, unknown>,
+              toolCtx,
+            ),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`Tool "${block.name}" timed out after ${toolTimeoutMs / 1000}s`)),
+                toolTimeoutMs,
+              ),
+            ),
+          ]);
           const asText = typeof result === "string" ? result : JSON.stringify(result);
           toolResults.push({
             type: "tool_result",
