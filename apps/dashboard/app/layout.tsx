@@ -117,7 +117,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {/* ── Main content ── */}
             <main
               className="flex-1 min-h-screen overflow-y-auto"
-              style={{ background: "linear-gradient(160deg, #eeebe5 0%, #e9e5de 50%, #e5e1d9 100%)" }}
+              style={{ background: "linear-gradient(160deg, #e0dcd5 0%, #d9d4cb 50%, #d5d0c6 100%)" }}
             >
               <div className="max-w-[1020px] mx-auto px-8 py-8">
                 {children}

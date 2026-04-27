@@ -77,7 +77,7 @@ export const salesAgent: AgentDefinition = {
   description:
     "Pulls prospects from 7 free sources (Breakit/DI RSS, Allabolag, Arbetsförmedlingen AI-roles, Arbetsförmedlingen growth-roles, Google CSE, Visma upsell, Allabolag DNS-check), matches each to the right revenue line (webb / app / ai-auto / agent_platform / upsell), and drafts personalized outreach.",
   requiresApproval: true,
-  defaultCron: "0 8 * * 1-5",
+  defaultCron: "0 8 * * *",
   inputSchema: InputSchema,
   outputSchema: OutputSchema,
   systemPrompt: (tenant) => {

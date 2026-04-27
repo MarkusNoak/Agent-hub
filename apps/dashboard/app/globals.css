@@ -9,7 +9,7 @@
     color-scheme: light;
     --sidebar-w: 228px;
     --radius-card: 18px;
-    --surface: #edeae4;
+    --surface: #ddd9cf;
   }
 
   html {
@@ -21,7 +21,8 @@
   }
 
   body {
-    @apply bg-[#edeae4] text-ink-900;
+    background-color: #ddd9cf;
+    color: #111009;
   }
 
   /* ── Scrollbar ── */

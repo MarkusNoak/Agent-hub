@@ -36,7 +36,7 @@ select
 from wki, (values
   ('invoice',        'Invoice Agent',        null,          '{"reminder_days":[3,7,14],"escalate_days":30}'),
   ('finance_report', 'Finance Report Agent', '0 7 * * 5',   '{"period":"weekly","recipients":["markus@weknowit.se"]}'),
-  ('sales',          'Sales Agent',          '0 8 * * 1-5', '{"max_outreach_per_day":15,"require_approval":true}'),
+  ('sales',          'Sales Agent',          '0 8 * * *',   '{"max_outreach_per_day":15,"require_approval":true}'),
   ('client_status',  'Client Status Agent',  '0 9 * * 1',   '{"risk_threshold_hours":8}'),
   ('dev_support',    'Dev Support Agent',    null,          '{"trigger":"trello_label:blocker"}'),
   ('project',        'Project Agent',        '0 */4 * * *', '{"alert_variance_pct":15}'),
