@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
 import { InviteUserForm } from "./InviteUserForm";
+import { AgentSettingsForm } from "./AgentSettingsForm";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,8 @@ export default async function SettingsPage() {
     .eq("tenant_id", tenant.id);
 
   const configured = new Set((integrations ?? []).map((i) => i.kind));
+
+  const tenantSettings = (tenant.settings ?? {}) as Record<string, unknown>;
 
   const { data: members } = await supa
     .from("users_tenants")
@@ -115,6 +118,17 @@ export default async function SettingsPage() {
             Only owners and admins can invite new members.
           </p>
         )}
+      </section>
+
+      <section className="card p-6">
+        <h2 className="font-semibold mb-4">Agent-inställningar</h2>
+        <AgentSettingsForm
+          tenantId={tenant.id}
+          currentSettings={{
+            googleApiKey: tenantSettings["google_api_key"] as string | undefined,
+            googleCseId: tenantSettings["google_cse_id"] as string | undefined,
+          }}
+        />
       </section>
     </div>
   );

@@ -56,6 +56,16 @@ export async function approveAction(formData: FormData) {
     })
     .eq("id", id);
 
+  // Advance lead stage to outreach_sent when a sales email is executed
+  const leadId = (approval.payload as Record<string, unknown>)?.["lead_id"] as string | undefined;
+  if (approval.action === "send_email" && leadId) {
+    await admin
+      .from("leads")
+      .update({ stage: "outreach_sent", updated_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId)
+      .eq("id", leadId);
+  }
+
   await admin.from("audit_log").insert({
     tenant_id: tenantId,
     actor: `user:${auth.user.id}`,
