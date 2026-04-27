@@ -44,7 +44,7 @@ export async function saveTrello(formData: FormData): Promise<void> {
       config: {},
       last_synced_at: new Date().toISOString(),
     },
-    { onConflict: "tenant_id,kind" },
+    { onConflict: "tenant_id,kind,label" },
   );
   if (error) throw new Error(`Kunde inte spara: ${error.message}`);
 }

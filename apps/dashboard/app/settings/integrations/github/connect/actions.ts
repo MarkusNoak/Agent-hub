@@ -47,7 +47,7 @@ export async function saveGithub(formData: FormData): Promise<void> {
       config: { org: org || null },
       last_synced_at: new Date().toISOString(),
     },
-    { onConflict: "tenant_id,kind" },
+    { onConflict: "tenant_id,kind,label" },
   );
   if (error) throw new Error(`Kunde inte spara: ${error.message}`);
 }

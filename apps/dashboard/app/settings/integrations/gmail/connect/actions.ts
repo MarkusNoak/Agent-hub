@@ -67,7 +67,7 @@ export async function saveGmailSmtp(formData: FormData): Promise<void> {
         config: { transport: "smtp", host: "smtp.gmail.com", port: 587 },
         last_synced_at: new Date().toISOString(),
       },
-      { onConflict: "tenant_id,kind" },
+      { onConflict: "tenant_id,kind,label" },
     );
 
   if (upsertErr) {

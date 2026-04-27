@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
 import { InviteUserForm } from "./InviteUserForm";
 import { AgentSettingsForm } from "./AgentSettingsForm";
+import DisconnectButton from "./integrations/DisconnectButton";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,20 @@ export default async function SettingsPage() {
 
   const { data: integrations } = await supa
     .from("integrations")
-    .select("kind, label, status, last_synced_at")
+    .select("id, kind, label, status, last_synced_at")
     .eq("tenant_id", tenant.id);
 
-  const configured = new Set((integrations ?? []).map((i) => i.kind));
+  // Build a map of kind -> list of connected accounts
+  const configuredByKind = new Map<string, Array<{ id: string; label: string; status: string }>>();
+  for (const row of integrations ?? []) {
+    const kind = row.kind as string;
+    if (!configuredByKind.has(kind)) configuredByKind.set(kind, []);
+    configuredByKind.get(kind)!.push({
+      id: row.id as string,
+      label: (row.label ?? kind) as string,
+      status: (row.status ?? "active") as string,
+    });
+  }
 
   const tenantSettings = (tenant.settings ?? {}) as Record<string, unknown>;
 
@@ -63,21 +74,41 @@ export default async function SettingsPage() {
       <section className="card p-6">
         <h2 className="font-semibold mb-4">Integrations</h2>
         <div className="grid grid-cols-2 gap-3">
-          {Object.entries(INTEGRATION_LABELS).map(([kind, label]) => (
-            <div key={kind} className="flex items-center justify-between p-3 border border-ink-100 rounded-lg">
-              <div>
-                <div className="font-medium">{label}</div>
-                <div className="text-xs text-ink-500">{kind}</div>
+          {Object.entries(INTEGRATION_LABELS).map(([kind, label]) => {
+            const accounts = configuredByKind.get(kind) ?? [];
+            return (
+              <div key={kind} className="flex items-start justify-between p-3 border border-ink-100 rounded-lg gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{label}</div>
+                  <div className="text-xs text-ink-500">{kind}</div>
+                  {accounts.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {accounts.map((acc) => (
+                        <div key={acc.id} className="flex items-center gap-2">
+                          <span className="badge badge-green text-xs">{acc.label}</span>
+                          <DisconnectButton id={acc.id} tenantId={tenant.id} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex-shrink-0">
+                  {accounts.length === 0 ? (
+                    <a href={`/settings/integrations/${kind}/connect`} className="btn btn-secondary">
+                      Connect
+                    </a>
+                  ) : (
+                    <a
+                      href={`/settings/integrations/${kind}/connect`}
+                      className="text-xs text-brand hover:underline whitespace-nowrap"
+                    >
+                      ＋ Lägg till
+                    </a>
+                  )}
+                </div>
               </div>
-              {configured.has(kind) ? (
-                <span className="badge badge-green">connected</span>
-              ) : (
-                <a href={`/settings/integrations/${kind}/connect`} className="btn btn-secondary">
-                  Connect
-                </a>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
