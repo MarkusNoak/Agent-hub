@@ -6,4 +6,5 @@ export * from "./linkedin.js";
 export * from "./github.js";
 export * from "./slack.js";
 export * from "./prospecting.js";
+export * from "./google-ads.js";
 export * from "./registry.js";

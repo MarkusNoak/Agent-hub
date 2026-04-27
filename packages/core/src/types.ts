@@ -25,6 +25,7 @@ export const INTEGRATION_KINDS = [
   "gmail",
   "slack",
   "github",
+  "google_ads",
 ] as const;
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number];

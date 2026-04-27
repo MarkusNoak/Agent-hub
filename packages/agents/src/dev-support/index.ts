@@ -17,7 +17,7 @@ const InputSchema = z.object({
 });
 
 const OutputSchema = z.object({
-  mode: z.enum(["chat", "trello", "pr_review"]),
+  mode: z.enum(["chat", "trello", "pr_review"]).optional(),
   diagnosis: z.string(),
   suggested_fixes: z.array(
     z.object({
@@ -25,8 +25,8 @@ const OutputSchema = z.object({
       detail: z.string(),
       references: z.array(z.string()).default([]),
     }),
-  ),
-  next_action: z.string(),
+  ).default([]),
+  next_action: z.string().optional(),
   posted: z.boolean().default(false),
 });
 

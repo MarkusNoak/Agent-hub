@@ -8,6 +8,7 @@ import { gmailFactory } from "./email.js";
 import { linkedinFactory } from "./linkedin.js";
 import { githubFactory } from "./github.js";
 import { slackFactory } from "./slack.js";
+import { googleAdsFactory } from "./google-ads.js";
 
 /**
  * Central registry of connector factories. Adding a new integration =
@@ -22,6 +23,7 @@ export const FACTORIES: Record<IntegrationKind, ConnectorFactory> = {
   gmail: gmailFactory,
   github: githubFactory,
   slack: slackFactory,
+  google_ads: googleAdsFactory,
 };
 
 /**

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentDefinition } from "@agent-hub/core";
 import { enqueueApproval } from "@agent-hub/core";
-import type { LinkedInConnector } from "@agent-hub/connectors";
+import type { GoogleAdsConnector } from "@agent-hub/connectors";
 
 const InputSchema = z.object({
   topic_hint: z.string().optional(),
@@ -35,22 +35,23 @@ export const marketingAgent: AgentDefinition<
     const tone =
       (tenant.settings as { marketing?: { tone?: string } })?.marketing?.tone ??
       "sharp-executive";
-    const adsAccountId =
-      (tenant.settings as { marketing?: { linkedin_ads_account_id?: string } })?.marketing
-        ?.linkedin_ads_account_id ?? null;
+    const adsCustomerId =
+      (tenant.settings as { marketing?: { google_ads_customer_id?: string } })?.marketing
+        ?.google_ads_customer_id ?? null;
 
     return `You are the **Marketing Agent** for ${tenant.tenantName}.
 
 You run every Monday morning. Your job is a two-part content pipeline:
 
 ## Part 1 — Analyse performance
-${adsAccountId
-  ? `1. Call "get_ad_performance" with account_id="${adsAccountId}" to fetch last 30 days of campaign data.
-   - Which campaigns have the best/worst CTR?
-   - Which have the highest cost-per-click?
+${adsCustomerId
+  ? `1. Call "get_ad_performance" with customer_id="${adsCustomerId}" to fetch last 30 days of Google Ads campaign data.
+   - Which campaigns have the best/worst CTR and conversion rate?
+   - Which campaigns have the highest cost-per-click?
+   - Which keywords are driving the most conversions?
    - Identify the weakest campaign and draft improved ad copy for it.`
-  : "1. LinkedIn Ads not configured — skip ad analysis."}
-2. Call "get_organic_post_stats" to see which recent posts performed best.
+  : "1. Google Ads not configured — skip ad analysis."}
+2. Call "get_organic_post_stats" to see which recent LinkedIn posts performed best.
    - Note the top 2 posts by engagement and the bottom 2.
    - Extract what worked: hook style, topic, length.
 
@@ -58,13 +59,13 @@ ${adsAccountId
 Based on the analysis + recent business signals:
 3. Call "list_recent_wins" for fresh story material.
 4. Call "list_recent_leads" to understand what companies you're attracting.
-5. Draft ${3} LinkedIn posts via "draft_linkedin_post". Each must:
+5. Draft 3 LinkedIn posts via "draft_linkedin_post". Each must:
    - Voice = "${tone}": first person, direct, opinionated
    - Lead with a concrete number, decision, or story — never a question
    - 100–180 words, no hashtags, no corp-speak
    - Be distinct in angle from the others
-${adsAccountId
-  ? `6. Draft 1–2 improved ad copy variants for the weakest campaign via "draft_ad_copy".`
+${adsCustomerId
+  ? `6. Draft 1–2 improved Google Ads copy variants for the weakest campaign via "draft_ad_copy".`
   : ""}
 
 ## Output rules
@@ -76,32 +77,31 @@ ${adsAccountId
   tools: [
     {
       name: "get_ad_performance",
-      description: "Fetch LinkedIn Ads campaign performance for the last 30 days.",
+      description: "Fetch Google Ads campaign + keyword performance for the last 30 days.",
       input_schema: {
         type: "object",
         properties: {
-          account_id: { type: "string", description: "LinkedIn Ads account ID (numeric)" },
+          customer_id: { type: "string", description: "Google Ads customer ID (numeric, no dashes)" },
         },
-        required: ["account_id"],
+        required: ["customer_id"],
       },
       execute: async (args, ctx) => {
-        const li = ctx.connectors.linkedin as LinkedInConnector | undefined;
-        if (!li) return { error: "LinkedIn not configured", campaigns: [] };
-        const end = new Date().toISOString().slice(0, 10);
-        const start = new Date(Date.now() - 30 * 86400 * 1000).toISOString().slice(0, 10);
-        const campaigns = await li.getAdCampaignStats(String(args["account_id"]), { start, end });
-        return { campaigns, period: `${start} → ${end}` };
+        const gads = ctx.connectors.google_ads as GoogleAdsConnector | undefined;
+        if (!gads) return { error: "Google Ads not configured", campaigns: [], keywords: [] };
+        const customerId = String(args["customer_id"]);
+        const [campaigns, keywords] = await Promise.all([
+          gads.getCampaignPerformance(customerId, "LAST_30_DAYS"),
+          gads.getTopKeywords(customerId, "LAST_30_DAYS"),
+        ]);
+        return { campaigns, keywords, period: "last 30 days" };
       },
     },
     {
       name: "get_organic_post_stats",
-      description: "Fetch recent organic LinkedIn post performance metrics.",
+      description: "Fetch recent organic LinkedIn post metrics.",
       input_schema: { type: "object", properties: { count: { type: "number" } } },
-      execute: async (args, ctx) => {
-        const li = ctx.connectors.linkedin as LinkedInConnector | undefined;
-        if (!li) return { error: "LinkedIn not configured", posts: [] };
-        const posts = await li.getOrganicPostStats(Number(args["count"] ?? 10));
-        return { posts };
+      execute: async (_args, _ctx) => {
+        return { note: "LinkedIn organic analytics requires LinkedIn connector — configure if available.", posts: [] };
       },
     },
     {
