@@ -38,7 +38,7 @@ export default async function LeadsPage() {
   const { data: leads } = await supa
     .from("leads")
     .select(
-      "id, company_name, company_domain, contact_email, signal_type, offer_type, stage, score, created_at, updated_at",
+      "id, company_name, company_domain, contact_name, contact_email, contact_linkedin, signal_type, signal_summary, offer_type, stage, score, created_at, updated_at",
     )
     .eq("tenant_id", tenant.id)
     .order("updated_at", { ascending: false })
@@ -71,34 +71,66 @@ export default async function LeadsPage() {
           <thead className="text-left text-ink-500 border-b border-ink-100">
             <tr>
               <th className="p-3">Bolag</th>
-              <th className="p-3">Kontakt</th>
+              <th className="p-3">Kontaktperson</th>
               <th className="p-3">Signal</th>
               <th className="p-3">Erbjudande</th>
               <th className="p-3">Score</th>
               <th className="p-3">Stage</th>
-              <th className="p-3">Senast</th>
+              <th className="p-3">Kontaktad</th>
+              <th className="p-3">Tillagd</th>
               <th className="p-3"></th>
             </tr>
           </thead>
           <tbody>
-            {leads?.map((l) => (
+            {leads?.map((l) => {
+              const contactedAt = (["outreach_sent","replied","qualified","won","lost"] as string[]).includes(l.stage)
+                ? l.updated_at
+                : null;
+              return (
               <tr key={l.id} className="border-t border-ink-100 hover:bg-ink-50/40">
                 <td className="p-3">
                   <div className="font-medium">{l.company_name}</div>
                   {l.company_domain && (
-                    <div className="text-xs text-ink-500">{l.company_domain}</div>
+                    <a
+                      href={`https://${l.company_domain}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-brand hover:underline"
+                    >
+                      {l.company_domain}
+                    </a>
                   )}
                 </td>
-                <td className="p-3 text-xs text-ink-600">
+                <td className="p-3 text-xs space-y-0.5">
+                  {l.contact_name && (
+                    <div className="font-medium text-ink-800">{l.contact_name as string}</div>
+                  )}
                   {l.contact_email ? (
-                    <a href={`mailto:${l.contact_email}`} className="text-brand underline">
+                    <a href={`mailto:${l.contact_email}`} className="block text-brand hover:underline">
                       {l.contact_email}
                     </a>
                   ) : (
-                    <span className="text-ink-400">—</span>
+                    !l.contact_name && <span className="text-ink-400">—</span>
+                  )}
+                  {l.contact_linkedin && (
+                    <a
+                      href={l.contact_linkedin as string}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-ink-500 hover:text-brand hover:underline"
+                    >
+                      LinkedIn ↗
+                    </a>
                   )}
                 </td>
-                <td className="p-3 text-ink-500 text-xs">{l.signal_type ?? "—"}</td>
+                <td className="p-3 text-xs text-ink-500">
+                  <div>{l.signal_type ?? "—"}</div>
+                  {l.signal_summary && (
+                    <div className="text-ink-400 mt-0.5 max-w-[180px] truncate" title={l.signal_summary as string}>
+                      {l.signal_summary}
+                    </div>
+                  )}
+                </td>
                 <td className="p-3">
                   <span className="badge badge-blue">{l.offer_type}</span>
                 </td>
@@ -108,10 +140,13 @@ export default async function LeadsPage() {
                     {l.stage.replace(/_/g, " ")}
                   </span>
                 </td>
-                <td className="p-3 text-xs text-ink-500">
-                  {formatDistanceToNow(new Date(l.updated_at ?? l.created_at), {
-                    addSuffix: true,
-                  })}
+                <td className="p-3 text-xs text-ink-500 whitespace-nowrap">
+                  {contactedAt
+                    ? formatDistanceToNow(new Date(contactedAt), { addSuffix: true })
+                    : <span className="text-ink-300">—</span>}
+                </td>
+                <td className="p-3 text-xs text-ink-500 whitespace-nowrap">
+                  {formatDistanceToNow(new Date(l.created_at), { addSuffix: true })}
                 </td>
                 <td className="p-3">
                   {/* Only show stage picker for leads that can be manually advanced */}
@@ -148,10 +183,11 @@ export default async function LeadsPage() {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {!leads?.length && (
               <tr>
-                <td colSpan={8} className="p-12 text-center text-ink-500">
+                <td colSpan={9} className="p-12 text-center text-ink-500">
                   Inga leads ännu. Kör Sales Agent för att börja.
                 </td>
               </tr>
