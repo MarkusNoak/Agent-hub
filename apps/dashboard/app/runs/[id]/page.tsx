@@ -2,6 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-server";
 import { formatDistanceToNow, format } from "date-fns";
 import { sv } from "date-fns/locale";
 import Link from "next/link";
+import { AlertCircle, Cpu, Search } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,9 @@ export default async function RunDetailPage({ params }: { params: { id: string }
       <div className="space-y-6">
         <Link href="/runs" className="text-sm text-ink-400 hover:text-ink-700 transition-colors">← Körningar</Link>
         <div className="card p-16 text-center">
-          <div className="text-4xl mb-3">🔍</div>
+          <div className="w-12 h-12 rounded-full bg-ink-100 flex items-center justify-center mx-auto mb-3">
+              <Search size={22} strokeWidth={1.5} className="text-ink-400" />
+            </div>
           <div className="text-ink-700 font-semibold">Körning hittades inte</div>
           <div className="text-ink-400 text-sm mt-1">Kontrollera att ID:t är korrekt.</div>
         </div>
@@ -185,7 +188,7 @@ export default async function RunDetailPage({ params }: { params: { id: string }
                         ? String(p?.["error"] ?? "error")
                         : String(JSON.stringify(p?.["result"] ?? "")).slice(0, 80)
                     }`}
-                    {s.kind === "message" && `🤖 stop_reason: ${String(p?.["stop_reason"] ?? "")}`}
+                    {s.kind === "message" && `stop_reason: ${String(p?.["stop_reason"] ?? "")}`}
                   </span>
                   <span className="text-xs text-ink-300 shrink-0 group-open:rotate-90 transition-transform">›</span>
                 </summary>
@@ -199,7 +202,9 @@ export default async function RunDetailPage({ params }: { params: { id: string }
           })}
           {!steps?.length && (
             <div className="py-16 text-center">
-              <div className="text-2xl mb-2">🔎</div>
+              <div className="w-12 h-12 rounded-full bg-ink-100 flex items-center justify-center mx-auto mb-3">
+                <Cpu size={20} strokeWidth={1.5} className="text-ink-400" />
+              </div>
               <div className="text-ink-500 text-sm font-medium">Inga steg loggade</div>
               <div className="text-ink-300 text-xs mt-1">Kör agenten igen och ladda om sidan.</div>
             </div>

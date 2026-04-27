@@ -4,6 +4,10 @@ import { InviteUserForm } from "./InviteUserForm";
 import { AgentSettingsForm } from "./AgentSettingsForm";
 import DisconnectButton from "./integrations/DisconnectButton";
 import { PageHeader } from "@/app/components/PageHeader";
+import {
+  Building2, BookOpen, Clock, LayoutGrid, Share2, Mail, MessageSquare, GitBranch,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +22,15 @@ const INTEGRATION_LABELS: Record<string, string> = {
   github: "GitHub",
 };
 
-const INTEGRATION_ICONS: Record<string, string> = {
-  visma_spiris: "🏦",
-  fortnox: "📒",
-  clockify: "⏱",
-  trello: "📋",
-  linkedin: "💼",
-  gmail: "✉️",
-  slack: "💬",
-  github: "🐙",
+const INTEGRATION_ICON: Record<string, LucideIcon> = {
+  visma_spiris: Building2,
+  fortnox:      BookOpen,
+  clockify:     Clock,
+  trello:       LayoutGrid,
+  linkedin:     Share2,
+  gmail:        Mail,
+  slack:        MessageSquare,
+  github:       GitBranch,
 };
 
 const ROLE_BADGE: Record<string, string> = {
@@ -107,7 +111,20 @@ export default async function SettingsPage() {
                     : "border-ink-100 bg-white"
                 }`}
               >
-                <div className="text-xl shrink-0 mt-0.5">{INTEGRATION_ICONS[kind] ?? "🔌"}</div>
+                {(() => {
+                  const Icon = INTEGRATION_ICON[kind] ?? Mail;
+                  return (
+                    <div
+                      className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+                      style={{
+                        background: isConnected ? "linear-gradient(145deg,#16a34a,#15803d)" : "linear-gradient(145deg,#e8e4dd,#d4cfc8)",
+                        boxShadow: "inset 0 1px 0 rgb(255 255 255/0.2)",
+                      }}
+                    >
+                      <Icon size={15} strokeWidth={1.75} color={isConnected ? "white" : "#78716c"} />
+                    </div>
+                  );
+                })()}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold text-sm text-ink-900">{label}</span>

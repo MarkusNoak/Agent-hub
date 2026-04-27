@@ -2,17 +2,20 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
 import { BillingCharts } from "./BillingCharts";
 import { PageHeader } from "@/app/components/PageHeader";
+import { Target, FileText, TrendingUp, Bell, Code2, Layers, Megaphone, Bot } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-const AGENT_ICONS: Record<string, string> = {
-  sales: "🎯",
-  invoice: "🧾",
-  finance_report: "📊",
-  client_status: "📬",
-  dev_support: "🛠",
-  project: "📋",
-  marketing: "📣",
+type AgentIconMeta = { Icon: LucideIcon; gradient: string };
+const AGENT_ICON_META: Record<string, AgentIconMeta> = {
+  sales:          { Icon: Target,   gradient: "linear-gradient(145deg,#1a8a4a,#15703a)" },
+  invoice:        { Icon: FileText, gradient: "linear-gradient(145deg,#e8960c,#c67808)" },
+  finance_report: { Icon: TrendingUp, gradient: "linear-gradient(145deg,#2563eb,#1d4ed8)" },
+  client_status:  { Icon: Bell,     gradient: "linear-gradient(145deg,#7c3aed,#6d28d9)" },
+  dev_support:    { Icon: Code2,    gradient: "linear-gradient(145deg,#475569,#334155)" },
+  project:        { Icon: Layers,   gradient: "linear-gradient(145deg,#dc2626,#b91c1c)" },
+  marketing:      { Icon: Megaphone,gradient: "linear-gradient(145deg,#db2777,#be185d)" },
 };
 
 export default async function BillingPage() {
@@ -210,9 +213,21 @@ export default async function BillingPage() {
                 return (
                   <tr key={a.kind}>
                     <td>
-                      <span className="mr-2 text-base">{AGENT_ICONS[a.kind] ?? "🤖"}</span>
-                      <span className="font-semibold text-ink-900">{a.name}</span>
-                      <code className="text-xs text-ink-300 ml-2 font-mono">{a.kind}</code>
+                      <div className="flex items-center gap-2.5">
+                        {(() => {
+                          const m = AGENT_ICON_META[a.kind] ?? { Icon: Bot, gradient: "linear-gradient(145deg,#374151,#1f2937)" };
+                          return (
+                            <div className="w-7 h-7 rounded-[8px] flex items-center justify-center shrink-0"
+                              style={{ background: m.gradient, boxShadow: "inset 0 1px 0 rgb(255 255 255/0.2)" }}>
+                              <m.Icon size={13} strokeWidth={2} color="white" />
+                            </div>
+                          );
+                        })()}
+                        <div>
+                          <div className="font-semibold text-sm text-ink-900">{a.name}</div>
+                          <code className="text-[10px] text-ink-300 font-mono leading-none">{a.kind}</code>
+                        </div>
+                      </div>
                     </td>
                     <td className="text-right tabular-nums text-ink-700 font-medium">{a.runs}</td>
                     <td className="text-right tabular-nums">

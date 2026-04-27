@@ -196,7 +196,9 @@ export default async function LeadsPage({
               {!leads.length && (
                 <tr>
                   <td colSpan={9} className="py-20 text-center">
-                    <div className="text-2xl mb-2">🔍</div>
+                    <div className="w-12 h-12 rounded-full bg-ink-100 flex items-center justify-center mx-auto mb-3">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-ink-400"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    </div>
                     <div className="text-ink-500 text-sm font-medium">
                       {q || stageFilter || offerFilter
                         ? "Inga leads matchar filtret."

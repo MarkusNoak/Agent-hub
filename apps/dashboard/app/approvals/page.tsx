@@ -1,6 +1,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getActiveTenant } from "@/lib/tenant";
 import { ApprovalCard } from "./ApprovalCard";
+import { CheckCircle2 } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -34,24 +36,18 @@ export default async function ApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-[28px] font-bold tracking-[-0.02em] text-ink-900 leading-tight">
-          Godkännanden
-        </h1>
-        <p className="text-ink-400 text-sm mt-1 font-medium">
-          {count > 0
-            ? `${count} väntande — granska, redigera och skicka`
-            : "Ingen kö — allt klart"}
-        </p>
-      </header>
+      <PageHeader
+        title="Godkännanden"
+        subtitle={count > 0 ? `${count} väntande — granska, redigera och skicka` : "Ingen kö — allt klart"}
+      />
 
       {count === 0 && (
         <div className="card p-16 text-center">
-          <div className="text-4xl mb-3">✓</div>
-          <div className="text-ink-700 font-semibold">Kön är tom</div>
-          <div className="text-ink-400 text-sm mt-1">
-            Inga väntande godkännanden just nu.
+          <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 size={28} strokeWidth={1.5} className="text-emerald-500" />
           </div>
+          <div className="text-ink-800 font-semibold text-[15px]">Kön är tom</div>
+          <div className="text-ink-400 text-sm mt-1">Inga väntande godkännanden just nu.</div>
         </div>
       )}
 

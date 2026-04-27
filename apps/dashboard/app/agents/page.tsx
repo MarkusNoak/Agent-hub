@@ -6,45 +6,55 @@ import { formatDistanceToNow } from "date-fns";
 import { sv } from "date-fns/locale";
 import { AgentConfigPanel } from "./AgentConfigPanel";
 import { PageHeader } from "@/app/components/PageHeader";
+import {
+  Target, FileText, TrendingUp, Bell, Code2, Layers, Megaphone, Bot,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const AGENT_META: Record<string, { description: string; icon: string }> = {
+type AgentMeta = {
+  description: string;
+  Icon: LucideIcon;
+  gradient: string;
+};
+
+const AGENT_META: Record<string, AgentMeta> = {
   sales: {
-    icon: "🎯",
-    description:
-      "Hittar bolag med svag digital närvaro via Google CSE och skriver anpassade outreach-mejl för WKIT:s tjänster.",
+    Icon: Target,
+    gradient: "linear-gradient(145deg, #1a8a4a, #15703a)",
+    description: "Hittar bolag med svag digital närvaro via Google CSE och skriver anpassade outreach-mejl för WKIT:s tjänster.",
   },
   invoice: {
-    icon: "🧾",
-    description:
-      "Genererar och skickar fakturor automatiskt via Fortnox eller Visma Spiris.",
+    Icon: FileText,
+    gradient: "linear-gradient(145deg, #e8960c, #c67808)",
+    description: "Genererar och skickar fakturor automatiskt via Fortnox eller Visma Spiris.",
   },
   finance_report: {
-    icon: "📊",
-    description:
-      "Sammanställer månadsrapporter med intäkter, kostnader och kassaflöde.",
+    Icon: TrendingUp,
+    gradient: "linear-gradient(145deg, #2563eb, #1d4ed8)",
+    description: "Sammanställer månadsrapporter med intäkter, kostnader och kassaflöde.",
   },
   client_status: {
-    icon: "📬",
-    description:
-      "Håller kunder uppdaterade om projektstatus via automatiserade mejl.",
+    Icon: Bell,
+    gradient: "linear-gradient(145deg, #7c3aed, #6d28d9)",
+    description: "Håller kunder uppdaterade om projektstatus via automatiserade mejl.",
   },
   dev_support: {
-    icon: "🛠",
-    description:
-      "Bevakar GitHub-issues, prioriterar buggar och skapar Trello-kort automatiskt.",
+    Icon: Code2,
+    gradient: "linear-gradient(145deg, #475569, #334155)",
+    description: "Bevakar GitHub-issues, prioriterar buggar och skapar Trello-kort automatiskt.",
   },
   project: {
-    icon: "📋",
-    description:
-      "Följer upp projekttid i Clockify och varnar vid risk för överdrag.",
+    Icon: Layers,
+    gradient: "linear-gradient(145deg, #dc2626, #b91c1c)",
+    description: "Följer upp projekttid i Clockify och varnar vid risk för överdrag.",
   },
   marketing: {
-    icon: "📣",
-    description:
-      "Skapar LinkedIn-inlägg och marknadsmaterial baserat på projektresultat.",
+    Icon: Megaphone,
+    gradient: "linear-gradient(145deg, #db2777, #be185d)",
+    description: "Skapar LinkedIn-inlägg och marknadsmaterial baserat på projektresultat.",
   },
 };
 
@@ -84,7 +94,6 @@ export default async function AgentsPage() {
       .limit(500),
   ]);
 
-  // Build per-agent stats
   const runsByAgent = new Map<string, typeof runs>();
   for (const r of runs ?? []) {
     const key = r.agent_id as string;
@@ -108,81 +117,81 @@ export default async function AgentsPage() {
 
       <div className="grid grid-cols-1 gap-4">
         {agents?.map((a) => {
-          const meta = AGENT_META[a.kind] ?? { icon: "🤖", description: "" };
+          const meta = AGENT_META[a.kind] ?? {
+            Icon: Bot,
+            gradient: "linear-gradient(145deg, #374151, #1f2937)",
+            description: "",
+          };
+          const { Icon, gradient, description } = meta;
+
           const agentRuns = runsByAgent.get(a.id) ?? [];
           const runsThisMonth = agentRuns.filter(
             (r) => r.started_at && new Date(r.started_at) >= monthStart,
           );
           const succeeded = agentRuns.filter((r) => r.status === "succeeded").length;
-          const failed = agentRuns.filter((r) => r.status === "failed").length;
-          const total = succeeded + failed;
+          const failed    = agentRuns.filter((r) => r.status === "failed").length;
+          const total     = succeeded + failed;
           const successRate = total > 0 ? Math.round((succeeded / total) * 100) : null;
-          const totalCostUsd = agentRuns.reduce(
-            (s, r) => s + Number(r.cost_usd ?? 0),
-            0,
-          );
-          const monthCost = runsThisMonth.reduce(
-            (s, r) => s + Number(r.cost_usd ?? 0),
-            0,
-          );
+          const totalCostUsd = agentRuns.reduce((s, r) => s + Number(r.cost_usd ?? 0), 0);
+          const monthCost    = runsThisMonth.reduce((s, r) => s + Number(r.cost_usd ?? 0), 0);
 
           return (
             <div key={a.id} className="card p-6">
               <div className="flex items-start gap-5">
-                {/* Icon */}
+
+                {/* Apple-style icon container */}
                 <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center text-xl select-none shrink-0"
-                  style={{ background: "linear-gradient(135deg, #f7f4f0, #ede8e0)" }}
+                  className="w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0"
+                  style={{
+                    background: gradient,
+                    boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.2), 0 2px 10px rgb(0 0 0 / 0.18)",
+                  }}
                 >
-                  {meta.icon}
+                  <Icon size={20} strokeWidth={1.75} color="white" />
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <h3 className="font-bold text-[17px] tracking-[-0.01em] text-ink-900">{a.name}</h3>
+                    <h3 className="font-bold text-[16px] tracking-[-0.01em] text-ink-900">
+                      {a.name}
+                    </h3>
                     <span
                       className={`badge ${
-                        a.status === "enabled"
-                          ? "badge-green"
-                          : a.status === "paused"
-                          ? "badge-yellow"
-                          : "badge-gray"
+                        a.status === "enabled" ? "badge-green"
+                        : a.status === "paused"  ? "badge-yellow"
+                        : "badge-gray"
                       }`}
                     >
                       {a.status === "enabled" ? "Aktiv" : a.status === "paused" ? "Pausad" : "Inaktiv"}
                     </span>
                   </div>
-                  <p className="text-sm text-ink-400 mt-1 leading-relaxed">{meta.description}</p>
+                  <p className="text-sm text-ink-400 mt-1 leading-relaxed max-w-xl">{description}</p>
 
-                  {/* Stats chips */}
+                  {/* Stats row */}
                   <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-3">
-                    <div className="text-xs text-ink-400">
-                      <span className="font-semibold text-ink-700 tabular-nums">{runsThisMonth.length}</span> körn. / mån
-                    </div>
-                    {successRate !== null && (
-                      <div className="text-xs text-ink-400">
-                        <span className={`font-semibold tabular-nums ${successRate >= 80 ? "text-emerald-600" : successRate >= 50 ? "text-amber-600" : "text-red-600"}`}>
-                          {successRate}%
-                        </span>{" "}lyckade
-                      </div>
-                    )}
-                    <div className="text-xs text-ink-400">
-                      <span className="font-semibold text-ink-700 tabular-nums">${monthCost.toFixed(3)}</span> denna mån
-                    </div>
-                    <div className="text-xs text-ink-400">
-                      <span className="font-semibold text-ink-700 tabular-nums">${totalCostUsd.toFixed(3)}</span> totalt
-                    </div>
-                    <div className="text-xs text-ink-400">
-                      Schema: <span className="font-semibold text-ink-700">{humanCron(a.cron)}</span>
-                    </div>
-                    <div className="text-xs text-ink-400">
-                      Senast:{" "}
-                      <span className="font-semibold text-ink-700">
-                        {a.last_run_at
+                    {[
+                      { label: "körn. / mån", value: runsThisMonth.length },
+                      successRate !== null
+                        ? { label: "lyckade", value: `${successRate}%`, colored: successRate >= 80 ? "text-emerald-600" : successRate >= 50 ? "text-amber-600" : "text-red-600" }
+                        : null,
+                      { label: "denna mån", value: `$${monthCost.toFixed(3)}` },
+                      { label: "totalt", value: `$${totalCostUsd.toFixed(3)}` },
+                      { label: "schema", value: humanCron(a.cron) },
+                      {
+                        label: "senast",
+                        value: a.last_run_at
                           ? formatDistanceToNow(new Date(a.last_run_at), { addSuffix: true, locale: sv })
-                          : "aldrig"}
-                      </span>
-                    </div>
+                          : "aldrig",
+                      },
+                    ]
+                      .filter(Boolean)
+                      .map((stat, i) => stat && (
+                        <div key={i} className="text-xs text-ink-400">
+                          <span className={`font-semibold tabular-nums ${stat.colored ?? "text-ink-700"}`}>
+                            {stat.value}
+                          </span>{" "}{stat.label}
+                        </div>
+                      ))}
                   </div>
                 </div>
 
@@ -196,7 +205,7 @@ export default async function AgentsPage() {
                       name="newStatus"
                       value={a.status === "enabled" ? "disabled" : "enabled"}
                     />
-                    <button formAction={toggleAgent} className="btn btn-secondary">
+                    <button formAction={toggleAgent} className="btn btn-secondary text-sm">
                       {a.status === "enabled" ? "Inaktivera" : "Aktivera"}
                     </button>
                   </form>
@@ -204,7 +213,6 @@ export default async function AgentsPage() {
                 </div>
               </div>
 
-              {/* Expandable config panel */}
               <AgentConfigPanel
                 agentId={a.id}
                 tenantId={tenant.id}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Check } from "lucide-react";
 import { saveAgentConfig } from "./actions";
 
 export function AgentConfigPanel({
@@ -103,7 +103,9 @@ export function AgentConfigPanel({
               {isPending ? "Sparar…" : "Spara"}
             </button>
             {saved && (
-              <span className="text-sm text-green-700 font-medium">✓ Sparat</span>
+              <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700 font-medium">
+                <Check size={14} strokeWidth={2.5} /> Sparat
+              </span>
             )}
           </div>
         </div>

@@ -189,7 +189,7 @@ export default async function Overview() {
               ${monthCostUsd.toFixed(2)}
             </div>
             <div className="mt-3 text-xs text-ink-400 font-medium">
-              {runsThisMonth.length} körningar · ingen kö ✓
+              {runsThisMonth.length} körningar · kön tom
             </div>
           </div>
         )}
