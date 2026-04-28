@@ -790,22 +790,68 @@ function extractEmails(html: string, preferredDomain: string): string[] {
   return [...new Set([...onDomain, ...others])].slice(0, 5);
 }
 
-function extractContactNames(text: string): string[] {
+function extractContactNames(html: string): string[] {
   const names: string[] = [];
   const SWEDISH_NAME = "[A-ZÅÄÖ][a-zåäö]+(?:\\s+[A-ZÅÄÖ][a-zåäö]+)+";
-  const rolePattern = new RegExp(
+  const seen = new Set<string>();
+  const add = (n: string, priority = false) => {
+    const clean = n.trim();
+    if (clean.length > 3 && !seen.has(clean)) {
+      seen.add(clean);
+      priority ? names.unshift(clean) : names.push(clean);
+    }
+  };
+
+  // JSON-LD Person schema — most reliable when present
+  for (const m of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const data = JSON.parse(m[1] ?? "{}") as Record<string, unknown>;
+      const items: Record<string, unknown>[] = Array.isArray(data) ? data as Record<string, unknown>[] : [data];
+      for (const item of items) {
+        if (item["@type"] === "Person" && item["name"]) {
+          const role = String(item["jobTitle"] ?? "").toLowerCase();
+          const isDecisionMaker = /vd|ceo|grundare|direktör|chef|ägare|partner/.test(role);
+          add(String(item["name"]), isDecisionMaker);
+        }
+      }
+    } catch { /* malformed JSON-LD */ }
+  }
+
+  // HTML heading followed by role — team/om-oss pages: <h3>Erik Andersson</h3>...<p>VD</p>
+  const ROLE_RE = /vd|ceo|grundare|direktör|chef|ägare|partner|ansvarig/i;
+  for (const m of html.matchAll(
+    /<(?:h[2-4]|strong|b)[^>]*>\s*([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)+)\s*<\/(?:h[2-4]|strong|b)>\s*(?:<[^>]+>)*\s*([^<]{1,80})/gi,
+  )) {
+    const name = (m[1] ?? "").trim();
+    const context = (m[2] ?? "").toLowerCase();
+    if (ROLE_RE.test(context)) add(name, true);
+    else add(name);
+  }
+
+  // Plain text: "roll: Namn" or "Namn, roll"
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const roleBeforeName = new RegExp(
     `(?:vd|ceo|grundare|partner|ansvarig|ägare|direktör|chef)\\s*[:\\-–]\\s*(${SWEDISH_NAME})`,
     "gi",
   );
-  for (const m of text.matchAll(rolePattern)) {
-    if (m[1]) names.push(m[1].trim());
+  for (const m of text.matchAll(roleBeforeName)) {
+    add(m[1] ?? "", true);
   }
-  // Name immediately before an @ email
+  const nameBeforeRole = new RegExp(
+    `(${SWEDISH_NAME})\\s*[,–\\-]\\s*(?:VD|CEO|Grundare|Direktör|Ägare|Partner|Ansvarig)`,
+    "g",
+  );
+  for (const m of text.matchAll(nameBeforeRole)) {
+    add(m[1] ?? "", true);
+  }
+
+  // Name directly before an @ email address
   const beforeEmail = new RegExp(`(${SWEDISH_NAME})\\s*[<(]?\\s*[a-zA-Z0-9._%+\\-]+@`, "g");
   for (const m of text.matchAll(beforeEmail)) {
-    if (m[1]) names.push(m[1].trim());
+    add(m[1] ?? "");
   }
-  return [...new Set(names)].slice(0, 3);
+
+  return names.slice(0, 5);
 }
 
 /** Generate probable work email patterns from a full name + domain. */
@@ -888,18 +934,26 @@ export async function researchCompany(opts: {
     key_facts: [],
   };
 
-  // --- Step 1: Fetch company website (max 2 attempts to stay under budget) ---
-  // Try homepage; if no emails found, try /kontakt as a second shot.
-  const urlsToTry = [`https://${domain}`, `https://${domain}/kontakt`];
+  // --- Step 1: Fetch company website ---
+  // Try homepage first (meta description + emails + names).
+  // Then work through contact/about pages until we have both an email and a name.
+  // Max 4 pages to stay within time budget.
+  const primaryPages = [`https://${domain}`, `https://www.${domain}`];
+  const extraPages = [
+    `/kontakt`, `/om-oss`, `/team`, `/ledning`, `/personal`,
+    `/medarbetare`, `/om-foretaget`, `/about`, `/contact`,
+  ].map((p) => `https://${domain}${p}`);
 
-  for (const url of urlsToTry) {
+  let scrapedHomepage = false;
+  for (const url of [...primaryPages, ...extraPages]) {
+    if (result.contact_emails.length > 0 && result.contact_names.length > 0) break;
     const html = await fetchPageSilent(url);
     if (!html) continue;
 
     const emails = extractEmails(html, domain);
     result.contact_emails.push(...emails);
 
-    if (!result.website_description) {
+    if (!result.website_description && !scrapedHomepage) {
       const desc =
         html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{10,250})["']/i)?.[1] ??
         html.match(/<meta[^>]+content=["']([^"']{10,250})["'][^>]+name=["']description["']/i)?.[1];
@@ -907,14 +961,11 @@ export async function researchCompany(opts: {
         result.website_description = desc.trim();
         result.key_facts.push(`Hemsidebeskrivning: ${desc.trim().substring(0, 150)}`);
       }
+      scrapedHomepage = true;
     }
 
-    const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    result.contact_names.push(...extractContactNames(text));
-
-    // Stop early if we already have what we need
-    if (result.contact_emails.length > 0 && result.contact_names.length > 0) break;
-    await sleep(400);
+    result.contact_names.push(...extractContactNames(html));
+    await sleep(300);
   }
 
   // --- Step 2: Allabolag search for company facts + VD name ---
@@ -983,7 +1034,51 @@ export async function researchCompany(opts: {
     // Allabolag is optional enrichment
   }
 
-  // --- Step 3: PRoff.se fallback — only if no VD found ---
+  // --- Step 3: Ratsit.se — structured Swedish company directory, reliable VD names ---
+  if (!result.vd_name) {
+    try {
+      // Search by company name; if org number is known, go directly to company page
+      let ratsitHtml: string | null = null;
+      if (result.org_number) {
+        ratsitHtml = await fetchPageSilent(
+          `https://www.ratsit.se/foretag/${result.org_number}`,
+        );
+      }
+      if (!ratsitHtml) {
+        const searchHtml = await fetchPageSilent(
+          `https://www.ratsit.se/foretag/search?q=${encodeURIComponent(opts.companyName)}`,
+        );
+        if (searchHtml) {
+          // First company link: /foretag/XXXXXX-XXXX
+          const companyPath = searchHtml.match(/href="(\/foretag\/\d{6}-\d{4}[^"]{0,80})"/i)?.[1];
+          if (companyPath) {
+            await sleep(300);
+            ratsitHtml = await fetchPageSilent(`https://www.ratsit.se${companyPath}`);
+          }
+        }
+      }
+      if (ratsitHtml) {
+        const vd = extractVdName(ratsitHtml);
+        if (vd) {
+          result.vd_name = vd;
+          result.contact_names.unshift(vd);
+          result.key_facts.push(`VD (Ratsit): ${vd}`);
+        }
+        // Ratsit also shows address — grab if missing
+        if (!result.address) {
+          const addr = ratsitHtml.replace(/<[^>]+>/g, " ").match(
+            /\b(\d{3}\s?\d{2}\s+[A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ]?[a-zåäö]+)*)\b/,
+          )?.[1];
+          if (addr) result.address = addr.trim();
+        }
+      }
+      await sleep(400);
+    } catch {
+      // Ratsit is optional enrichment
+    }
+  }
+
+  // --- Step 4: PRoff.se fallback — only if no VD found ---
   if (!result.vd_name) {
     try {
       // PRoff company page (more structured than search results)
