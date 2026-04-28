@@ -186,6 +186,44 @@ export async function fetchFundingNews(opts: { limit?: number } = {}): Promise<
 }
 
 // ------------------------------------------------------------
+// Shared HTML helper — extract company names from Allabolag listing pages
+// ------------------------------------------------------------
+function extractCompanyNamesFromHtml(html: string): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+
+  const add = (raw: string) => {
+    const name = raw.trim()
+      .replace(/&amp;/g, "&")
+      .replace(/&#(\d+);/g, (_, c) => String.fromCharCode(Number(c)))
+      .replace(/\s+/g, " ");
+    if (name.length > 3 && name.length < 90 && !seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  };
+
+  // Strategy 1 — org-number-based href links (Allabolag URL: /XXXXXXXXXX/slug or /XXXXXXXXXX)
+  for (const m of html.matchAll(/href="\/\d{6,10}[^"]*"[^>]*>\s*([^<\n]{3,80}?)\s*(?:<\/a>|<\/span>|<\/h[1-6]>)/gi)) {
+    add(m[1] ?? "");
+  }
+
+  // Strategy 2 — hrefs containing "/foretag/" or "/branschsida/"
+  for (const m of html.matchAll(/href="\/(?:foretag|branschsida)\/[^"]*"[^>]*>\s*([^<\n]{3,80}?)\s*</gi)) {
+    add(m[1] ?? "");
+  }
+
+  // Strategy 3 — Swedish company entity suffixes in inline elements (AB, HB, KB, etc.)
+  if (names.length < 3) {
+    for (const m of html.matchAll(/>\s*([A-ZÅÄÖ][^<\n]{1,55}\s+(?:AB|HB|KB|ek\.?för\.?|Ideell\s+förening|Stiftelse)\b[^<\n]{0,15})\s*</g)) {
+      add(m[1] ?? "");
+    }
+  }
+
+  return names;
+}
+
+// ------------------------------------------------------------
 // SOURCE 2 — Allabolag.se SNI + size filter → ai_automation
 // ------------------------------------------------------------
 export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
@@ -202,14 +240,9 @@ export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
     try {
       const res = await fetchWithRetry(url);
       const html = await res.text();
-      const matches = [
-        ...html.matchAll(
-          /class="[^"]*(?:company|foretag)[^"]*name[^"]*"[^>]*>\s*([^<]{3,80})\s*</gi,
-        ),
-      ];
-      matches.slice(0, 6).forEach((m) => {
-        const name = (m[1] ?? "").trim().replace(/&amp;/g, "&");
-        if (name.length > 3) companies.push({ name, sourceUrl: url });
+      const names = extractCompanyNamesFromHtml(html);
+      names.slice(0, 6).forEach((name) => {
+        companies.push({ name, sourceUrl: url });
       });
       await sleep(1500);
     } catch (e) {
@@ -801,11 +834,40 @@ function generateEmailCandidates(fullName: string, domain: string): string[] {
 
 /** Extract VD/CEO name from a Swedish company HTML page. */
 function extractVdName(html: string): string | undefined {
+  // JSON-LD structured data — fastest path if the page includes it
+  for (const m of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const data = JSON.parse(m[1] ?? "{}") as Record<string, unknown>;
+      const items: Record<string, unknown>[] = Array.isArray(data) ? data as Record<string, unknown>[] : [data];
+      for (const item of items) {
+        const title = String(item["jobTitle"] ?? "").toLowerCase();
+        if ((title.includes("vd") || title.includes("verkst") || title.includes("ceo")) && item["name"]) {
+          return String(item["name"]).trim();
+        }
+      }
+    } catch { /* ignore malformed JSON-LD */ }
+  }
+
+  // Table cell pattern: <td>Verkst. dir.</td><td>Name Name</td>
+  const SWEDISH_NAME_PAT = "[A-ZÅÄÖ][a-zåäö]+(?:\\s+[A-ZÅÄÖ][a-zåäö]+)+";
+  const tableMatch = html.match(
+    new RegExp(
+      `<td[^>]*>\\s*(?:Verkst(?:ällande)?(?:\\.)?(?:\\s+)?dir(?:ektör)?(?:\\.)?|VD|CEO)\\s*</td>\\s*<td[^>]*>\\s*(${SWEDISH_NAME_PAT})\\s*</td>`,
+      "i",
+    ),
+  );
+  if (tableMatch?.[1]) {
+    const name = tableMatch[1].trim();
+    if (name.split(" ").length >= 2) return name;
+  }
+
+  // Plain-text fallback after stripping all tags
   const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  const SWEDISH_NAME = "[A-ZÅÄÖ][a-zåäö]+(?:\\s+[A-ZÅÄÖ][a-zåäö]+)+";
   const patterns = [
-    new RegExp(`(?:Verkst\\.?\\s+dir\\.?|Verkst\\.direktör|Verkst\\.?\\s*dir\\.?\\s*\\(VD\\)|\\bVD\\b)\\s*[:\\-–]?\\s*(${SWEDISH_NAME})`, "i"),
-    new RegExp(`(${SWEDISH_NAME})\\s*[,–\\-]\\s*(?:VD|Vd|verkst\\.?\\s*dir\\.?)`, "i"),
+    new RegExp(`(?:Verkst(?:ällande)?(?:\\.)?\\s*dir(?:ektör)?(?:\\.)?|\\bVD\\b|\\bCEO\\b)\\s*[:\\-–]?\\s*(${SWEDISH_NAME_PAT})`, "i"),
+    new RegExp(`(${SWEDISH_NAME_PAT})\\s*[,–\\-]\\s*(?:VD|Vd|CEO|verkst(?:ällande)?\\s*dir(?:ektör)?)`, "i"),
+    // Allabolag person table: role followed by name on same line
+    new RegExp(`Verkst\\.\\s+dir\\.\\s+(${SWEDISH_NAME_PAT})`, "i"),
   ];
   for (const p of patterns) {
     const m = text.match(p);
@@ -863,11 +925,15 @@ export async function researchCompany(opts: {
     const searchUrl = `https://www.allabolag.se/what/${encodeURIComponent(opts.companyName)}`;
     const searchHtml = await fetchPageSilent(searchUrl);
     if (searchHtml) {
-      const orgText = searchHtml.match(/(\d{6}-\d{4})/)?.[1];
-      if (orgText) {
-        result.org_number = orgText;
-        result.key_facts.push(`Org.nr: ${orgText}`);
+      // Extract org number: from text like "556716-8218" OR from href links like "/5567168218/"
+      const orgFromText = searchHtml.match(/(\d{6}-\d{4})/)?.[1];
+      const orgFromHref = searchHtml.match(/href="\/(\d{10})\//)?.[1];
+      const rawOrg = orgFromText ?? (orgFromHref ? `${orgFromHref.slice(0, 6)}-${orgFromHref.slice(6)}` : undefined);
+      if (rawOrg) {
+        result.org_number = rawOrg;
+        result.key_facts.push(`Org.nr: ${rawOrg}`);
       }
+
       const empText =
         (searchHtml.match(/(\d+[\s–\-]+\d+)\s+anst/i) ??
           searchHtml.match(/anst[^<>]{0,20}(\d+)/i))?.[1];
@@ -883,10 +949,28 @@ export async function researchCompany(opts: {
         result.key_facts.push(`Omsättning: ${revText.trim()}`);
       }
 
-      // Fetch full company page for VD name only if org number found quickly
+      // Fetch full company page for VD name; try both with and without trailing slug
       if (result.org_number) {
-        const companyPageUrl = `https://www.allabolag.se/${result.org_number.replace("-", "")}`;
+        const orgDigits = result.org_number.replace("-", "");
+        // Allabolag company URL: /XXXXXXXXXX/slug — redirect follows automatically
+        const companyPageUrl = `https://www.allabolag.se/${orgDigits}`;
         const companyHtml = await fetchPageSilent(companyPageUrl);
+        if (companyHtml) {
+          const vd = extractVdName(companyHtml);
+          if (vd) {
+            result.vd_name = vd;
+            result.contact_names.unshift(vd);
+            result.key_facts.push(`VD: ${vd}`);
+          }
+          // Also pick up employee/revenue data from the company page itself
+          if (!result.employees) {
+            const emp = companyHtml.replace(/<[^>]+>/g, " ").match(/(\d+[\s–\-]+\d+)\s+anst/i)?.[1];
+            if (emp) { result.employees = emp; result.key_facts.push(`Anställda: ${emp}`); }
+          }
+        }
+      } else if (orgFromHref) {
+        // We have a 10-digit org number from href but couldn't format with dash — try it directly
+        const companyHtml = await fetchPageSilent(`https://www.allabolag.se/${orgFromHref}`);
         if (companyHtml) {
           const vd = extractVdName(companyHtml);
           if (vd) {
@@ -902,18 +986,32 @@ export async function researchCompany(opts: {
     // Allabolag is optional enrichment
   }
 
-  // --- Step 3: PRoff.se fallback — only if no VD found and no contact emails ---
-  // Skip PRoff if we already have enough data to write a personalised email.
-  if (!result.vd_name && result.contact_emails.length === 0) {
+  // --- Step 3: PRoff.se fallback — only if no VD found ---
+  if (!result.vd_name) {
     try {
-      const proffUrl = `https://www.proff.se/s%C3%B6k?q=${encodeURIComponent(opts.companyName)}`;
-      const proffHtml = await fetchPageSilent(proffUrl);
+      // PRoff company page (more structured than search results)
+      const proffSearchUrl = `https://www.proff.se/s%C3%B6k?q=${encodeURIComponent(opts.companyName)}`;
+      const proffHtml = await fetchPageSilent(proffSearchUrl);
       if (proffHtml) {
         const vd = extractVdName(proffHtml);
         if (vd) {
           result.vd_name = vd;
           result.contact_names.unshift(vd);
           result.key_facts.push(`VD (PRoff): ${vd}`);
+        }
+        // PRoff search might show a direct company link — follow it for richer data
+        const proffCompanyPath = proffHtml.match(/href="(\/(?:bolag|f%C3%B6retag|foretag)\/[^"]{3,80})"/i)?.[1];
+        if (proffCompanyPath && !result.vd_name) {
+          await sleep(300);
+          const proffCompanyHtml = await fetchPageSilent(`https://www.proff.se${proffCompanyPath}`);
+          if (proffCompanyHtml) {
+            const vd2 = extractVdName(proffCompanyHtml);
+            if (vd2) {
+              result.vd_name = vd2;
+              result.contact_names.unshift(vd2);
+              result.key_facts.push(`VD (PRoff): ${vd2}`);
+            }
+          }
         }
       }
     } catch {
@@ -983,15 +1081,7 @@ export async function fetchNoWebsiteCompanies(
       const url = `https://www.allabolag.se/bransch/${sni}?anstallda=1-9`;
       const res = await fetchWithRetry(url);
       const html = await res.text();
-      const matches = [
-        ...html.matchAll(
-          /class="[^"]*(?:company|foretag)[^"]*name[^"]*"[^>]*>\s*([^<]{3,80})\s*</gi,
-        ),
-      ];
-      const names = matches
-        .slice(0, 6)
-        .map((m) => (m[1] ?? "").trim().replace(/&amp;/g, "&"))
-        .filter((n) => n.length > 3);
+      const names = extractCompanyNamesFromHtml(html).slice(0, 6);
 
       // DNS checks in parallel — batch of 3 to avoid flooding DNS
       const checks = await Promise.allSettled(
