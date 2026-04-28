@@ -2,21 +2,23 @@
 
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
 
-export async function saveLinkedIn(formData: FormData): Promise<void> {
+type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function saveLinkedIn(formData: FormData): Promise<ActionResult> {
   const tenantId = String(formData.get("tenantId"));
   const access_token = String(formData.get("access_token") ?? "").trim();
   const author_urn = String(formData.get("author_urn") ?? "").trim();
   let label = String(formData.get("label") ?? "").trim();
 
-  if (!tenantId) throw new Error("Missing tenantId.");
-  if (!access_token) throw new Error("Access token krävs.");
+  if (!tenantId) return { ok: false, error: "Missing tenantId." };
+  if (!access_token) return { ok: false, error: "Access token krävs." };
   if (!author_urn.startsWith("urn:li:")) {
-    throw new Error("Author URN måste börja med urn:li:");
+    return { ok: false, error: "Author URN måste börja med urn:li:" };
   }
 
   const supa = createSupabaseServerClient();
   const { data: auth } = await supa.auth.getUser();
-  if (!auth.user) throw new Error("Inte inloggad.");
+  if (!auth.user) return { ok: false, error: "Inte inloggad." };
 
   const { data: membership } = await supa
     .from("users_tenants")
@@ -25,20 +27,17 @@ export async function saveLinkedIn(formData: FormData): Promise<void> {
     .eq("user_id", auth.user.id)
     .maybeSingle();
   if (!membership || !["owner", "admin"].includes(membership.role as string)) {
-    throw new Error("Bara owner eller admin kan koppla integrationer.");
+    return { ok: false, error: "Bara owner eller admin kan koppla integrationer." };
   }
 
-  // Test access token against LinkedIn API
   const meRes = await fetch("https://api.linkedin.com/v2/me", {
     headers: { Authorization: `Bearer ${access_token}` },
   });
   if (meRes.status === 401) {
-    throw new Error(
-      "Ogiltig access token — den har troligtvis löpt ut (60 dagar). Generera en ny.",
-    );
+    return { ok: false, error: "Ogiltig access token — den har troligtvis löpt ut (60 dagar). Generera en ny." };
   }
   if (!meRes.ok) {
-    throw new Error(`LinkedIn API-fel (HTTP ${meRes.status}). Kontrollera token.`);
+    return { ok: false, error: `LinkedIn API-fel (HTTP ${meRes.status}). Kontrollera token.` };
   }
 
   const me = (await meRes.json()) as {
@@ -66,5 +65,7 @@ export async function saveLinkedIn(formData: FormData): Promise<void> {
     },
     { onConflict: "tenant_id,kind,label" },
   );
-  if (error) throw new Error(`Kunde inte spara integration: ${error.message}`);
+  if (error) return { ok: false, error: `Kunde inte spara integration: ${error.message}` };
+
+  return { ok: true };
 }

@@ -15,11 +15,11 @@ export default function SlackConnectForm({ tenantId }: { tenantId: string }) {
     setError(null);
     const fd = new FormData(formRef.current!);
     startTransition(async () => {
-      try {
-        await saveSlack(fd);
+      const result = await saveSlack(fd);
+      if (!result.ok) {
+        setError(result.error);
+      } else {
         router.push("/settings?slack=connected");
-      } catch (err) {
-        setError((err as Error).message);
       }
     });
   }

@@ -2,17 +2,19 @@
 
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
 
-export async function saveGithub(formData: FormData): Promise<void> {
+type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function saveGithub(formData: FormData): Promise<ActionResult> {
   const tenantId = String(formData.get("tenantId"));
   const token = String(formData.get("token") ?? "").trim();
   const org = String(formData.get("org") ?? "").trim();
 
-  if (!tenantId) throw new Error("Missing tenantId.");
-  if (!token) throw new Error("Personal Access Token krävs.");
+  if (!tenantId) return { ok: false, error: "Missing tenantId." };
+  if (!token) return { ok: false, error: "Personal Access Token krävs." };
 
   const supa = createSupabaseServerClient();
   const { data: auth } = await supa.auth.getUser();
-  if (!auth.user) throw new Error("Inte inloggad.");
+  if (!auth.user) return { ok: false, error: "Inte inloggad." };
 
   const { data: membership } = await supa
     .from("users_tenants")
@@ -21,7 +23,7 @@ export async function saveGithub(formData: FormData): Promise<void> {
     .eq("user_id", auth.user.id)
     .maybeSingle();
   if (!membership || !["owner", "admin"].includes(membership.role as string)) {
-    throw new Error("Bara owner eller admin kan koppla integrationer.");
+    return { ok: false, error: "Bara owner eller admin kan koppla integrationer." };
   }
 
   const testRes = await fetch("https://api.github.com/user", {
@@ -32,7 +34,7 @@ export async function saveGithub(formData: FormData): Promise<void> {
     },
   });
   if (!testRes.ok) {
-    throw new Error(`GitHub-verifiering misslyckades (HTTP ${testRes.status}). Kontrollera token och behörigheter.`);
+    return { ok: false, error: `GitHub-verifiering misslyckades (HTTP ${testRes.status}). Kontrollera token och behörigheter.` };
   }
   const user = await testRes.json() as { login?: string };
 
@@ -49,5 +51,7 @@ export async function saveGithub(formData: FormData): Promise<void> {
     },
     { onConflict: "tenant_id,kind,label" },
   );
-  if (error) throw new Error(`Kunde inte spara: ${error.message}`);
+  if (error) return { ok: false, error: `Kunde inte spara: ${error.message}` };
+
+  return { ok: true };
 }

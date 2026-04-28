@@ -2,20 +2,22 @@
 
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
 
-export async function saveSlack(formData: FormData): Promise<void> {
+type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function saveSlack(formData: FormData): Promise<ActionResult> {
   const tenantId = String(formData.get("tenantId"));
   const webhookUrl = String(formData.get("webhook_url") ?? "").trim();
   const botToken = String(formData.get("bot_token") ?? "").trim();
 
-  if (!tenantId) throw new Error("Missing tenantId.");
-  if (!webhookUrl) throw new Error("Webhook URL krävs.");
+  if (!tenantId) return { ok: false, error: "Missing tenantId." };
+  if (!webhookUrl) return { ok: false, error: "Webhook URL krävs." };
   if (!webhookUrl.startsWith("https://hooks.slack.com/")) {
-    throw new Error("Ogiltig webhook URL — ska börja med https://hooks.slack.com/");
+    return { ok: false, error: "Ogiltig webhook URL — ska börja med https://hooks.slack.com/" };
   }
 
   const supa = createSupabaseServerClient();
   const { data: auth } = await supa.auth.getUser();
-  if (!auth.user) throw new Error("Inte inloggad.");
+  if (!auth.user) return { ok: false, error: "Inte inloggad." };
 
   const { data: membership } = await supa
     .from("users_tenants")
@@ -24,17 +26,16 @@ export async function saveSlack(formData: FormData): Promise<void> {
     .eq("user_id", auth.user.id)
     .maybeSingle();
   if (!membership || !["owner", "admin"].includes(membership.role as string)) {
-    throw new Error("Bara owner eller admin kan koppla integrationer.");
+    return { ok: false, error: "Bara owner eller admin kan koppla integrationer." };
   }
 
-  // Test webhook
   const testRes = await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text: "✅ Agent Hub Slack-koppling verifierad!" }),
   });
   if (!testRes.ok) {
-    throw new Error(`Webhook-test misslyckades (HTTP ${testRes.status}). Kontrollera URL:en.`);
+    return { ok: false, error: `Webhook-test misslyckades (HTTP ${testRes.status}). Kontrollera URL:en.` };
   }
 
   const admin = createSupabaseAdminClient();
@@ -53,5 +54,7 @@ export async function saveSlack(formData: FormData): Promise<void> {
     },
     { onConflict: "tenant_id,kind,label" },
   );
-  if (error) throw new Error(`Kunde inte spara: ${error.message}`);
+  if (error) return { ok: false, error: `Kunde inte spara: ${error.message}` };
+
+  return { ok: true };
 }

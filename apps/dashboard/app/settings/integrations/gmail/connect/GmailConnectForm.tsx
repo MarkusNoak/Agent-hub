@@ -15,11 +15,11 @@ export default function GmailConnectForm({ tenantId }: { tenantId: string }) {
     setError(null);
     const fd = new FormData(formRef.current!);
     startTransition(async () => {
-      try {
-        await saveGmailSmtp(fd);
+      const result = await saveGmailSmtp(fd);
+      if (!result.ok) {
+        setError(result.error);
+      } else {
         router.push("/settings?gmail=connected");
-      } catch (err) {
-        setError((err as Error).message);
       }
     });
   }

@@ -3,24 +3,27 @@
 import nodemailer from "nodemailer";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
 
-export async function saveGmailSmtp(formData: FormData): Promise<void> {
+type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function saveGmailSmtp(formData: FormData): Promise<ActionResult> {
   const tenantId = String(formData.get("tenantId"));
   const from = String(formData.get("from") ?? "").trim();
   const password = String(formData.get("password") ?? "").trim().replace(/\s+/g, "");
 
-  if (!tenantId) throw new Error("Missing tenantId.");
+  if (!tenantId) return { ok: false, error: "Missing tenantId." };
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) {
-    throw new Error("Ogiltig avsändaradress.");
+    return { ok: false, error: "Ogiltig avsändaradress." };
   }
   if (password.length < 12 || password.length > 32) {
-    throw new Error(
-      "App Password verkar ogiltigt (förväntas ~16 tecken utan mellanslag). Generera ett nytt på myaccount.google.com/apppasswords.",
-    );
+    return {
+      ok: false,
+      error: "App Password verkar ogiltigt (förväntas ~16 tecken utan mellanslag). Generera ett nytt på myaccount.google.com/apppasswords.",
+    };
   }
 
   const supa = createSupabaseServerClient();
   const { data: auth } = await supa.auth.getUser();
-  if (!auth.user) throw new Error("Du är inte inloggad.");
+  if (!auth.user) return { ok: false, error: "Du är inte inloggad." };
 
   const { data: membership } = await supa
     .from("users_tenants")
@@ -29,9 +32,9 @@ export async function saveGmailSmtp(formData: FormData): Promise<void> {
     .eq("user_id", auth.user.id)
     .maybeSingle();
 
-  if (!membership) throw new Error("Du är inte medlem i denna tenant.");
+  if (!membership) return { ok: false, error: "Du är inte medlem i denna tenant." };
   if (membership.role !== "owner" && membership.role !== "admin") {
-    throw new Error("Bara owner eller admin kan koppla integrations.");
+    return { ok: false, error: "Bara owner eller admin kan koppla integrations." };
   }
 
   // Verify SMTP credentials before saving.
@@ -51,7 +54,7 @@ export async function saveGmailSmtp(formData: FormData): Promise<void> {
         : raw.includes("534")
         ? " Aktivera 2FA och skapa ett App Password på myaccount.google.com/apppasswords."
         : "";
-    throw new Error(`SMTP-verifiering misslyckades: ${raw}.${hint}`);
+    return { ok: false, error: `SMTP-verifiering misslyckades: ${raw}.${hint}` };
   }
 
   const admin = createSupabaseAdminClient();
@@ -71,7 +74,7 @@ export async function saveGmailSmtp(formData: FormData): Promise<void> {
     );
 
   if (upsertErr) {
-    throw new Error(`Kunde inte spara integration: ${upsertErr.message}`);
+    return { ok: false, error: `Kunde inte spara integration: ${upsertErr.message}` };
   }
 
   await admin.from("audit_log").insert({
@@ -82,4 +85,6 @@ export async function saveGmailSmtp(formData: FormData): Promise<void> {
     subject_id: null,
     metadata: { kind: "gmail", transport: "smtp", from },
   });
+
+  return { ok: true };
 }

@@ -15,11 +15,11 @@ export default function GithubConnectForm({ tenantId }: { tenantId: string }) {
     setError(null);
     const fd = new FormData(formRef.current!);
     startTransition(async () => {
-      try {
-        await saveGithub(fd);
+      const result = await saveGithub(fd);
+      if (!result.ok) {
+        setError(result.error);
+      } else {
         router.push("/settings?github=connected");
-      } catch (err) {
-        setError((err as Error).message);
       }
     });
   }

@@ -15,11 +15,11 @@ export default function TrelloConnectForm({ tenantId }: { tenantId: string }) {
     setError(null);
     const fd = new FormData(formRef.current!);
     startTransition(async () => {
-      try {
-        await saveTrello(fd);
+      const result = await saveTrello(fd);
+      if (!result.ok) {
+        setError(result.error);
+      } else {
         router.push("/settings?trello=connected");
-      } catch (err) {
-        setError((err as Error).message);
       }
     });
   }

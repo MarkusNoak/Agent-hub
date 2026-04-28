@@ -15,11 +15,11 @@ export default function LinkedInConnectForm({ tenantId }: { tenantId: string }) 
     setError(null);
     const fd = new FormData(formRef.current!);
     startTransition(async () => {
-      try {
-        await saveLinkedIn(fd);
+      const result = await saveLinkedIn(fd);
+      if (!result.ok) {
+        setError(result.error);
+      } else {
         router.push("/settings?linkedin=connected");
-      } catch (err) {
-        setError((err as Error).message);
       }
     });
   }

@@ -15,11 +15,11 @@ export default function ClockifyConnectForm({ tenantId }: { tenantId: string }) 
     setError(null);
     const fd = new FormData(formRef.current!);
     startTransition(async () => {
-      try {
-        await saveClockify(fd);
+      const result = await saveClockify(fd);
+      if (!result.ok) {
+        setError(result.error);
+      } else {
         router.push("/settings?clockify=connected");
-      } catch (err) {
-        setError((err as Error).message);
       }
     });
   }
