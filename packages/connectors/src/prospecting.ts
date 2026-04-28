@@ -325,13 +325,10 @@ export async function fetchAiReplaceableJobs(
     }
   }
 
-  const relevant = ads.filter((ad) =>
-    [...AI_REPLACEABLE_ROLES].some((r) =>
-      (ad.title + ad.desc).toLowerCase().includes(r),
-    ),
-  );
   const limit = opts.limit ?? 10;
-  return relevant.slice(0, limit).map((ad) => ({
+  // Keep all ads — the query already targets AI-replaceable role keywords;
+  // secondary filtering by the agent's ICP score avoids double-filtering here.
+  return ads.slice(0, limit).map((ad) => ({
     source: "job_signal",
     company_name: ad.company,
     signals: [

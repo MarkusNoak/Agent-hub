@@ -35,7 +35,7 @@ const InputSchema = z.object({
   company_name: z.string().optional(),
   force_offer_type: OfferTypeEnum.optional(),
   sources: z.array(ProspectSourceEnum).optional(),
-  max_drafts: z.number().default(6),
+  max_drafts: z.number().default(10),
 });
 const OutputSchema = z.object({
   leads_processed: z.number(),
@@ -146,13 +146,14 @@ SOURCE → OFFER TYPE MAPPING:
 6. fetch_app_dev_signals         Arbetsförmedlingen digital roles → app_development.
 7. fetch_visma_upsell_candidates Existing WKIT clients 14–60 days post-delivery → upsell (always process first).
 
-TARGET DISTRIBUTION per run (max_drafts=6 example):
-  webb_design      2 (from fetch_no_website_companies + search_weak_digital_presence)
-  app_development  1 (from fetch_funding_news or fetch_app_dev_signals)
-  ai_automation    1 (from fetch_ai_replaceable_jobs or scrape_allabolag)
-  agent_platform   1 (from scrape_allabolag or search_weak_digital_presence)
+TARGET DISTRIBUTION per run (max_drafts=10 example):
+  webb_design      3 (from fetch_no_website_companies + search_weak_digital_presence)
+  app_development  2 (from fetch_funding_news + fetch_app_dev_signals)
+  ai_automation    2 (from fetch_ai_replaceable_jobs + scrape_allabolag)
+  agent_platform   2 (from scrape_allabolag + search_weak_digital_presence)
   upsell           1 (from fetch_visma_upsell_candidates if available)
 Adjust proportions if one source returns 0 results, but always aim for variety.
+Be generous with borderline prospects (score 45–65) — it's better to queue more leads for human review than to skip good ones.
 
 ────────────────────────────────────────
 ENRICHMENT TOOLS (use after scoring, before upsert_lead):
@@ -171,7 +172,7 @@ DECISION FLOW:
    fetch_funding_news, scrape_allabolag, fetch_ai_replaceable_jobs, fetch_app_dev_signals).
 4. For each returned prospect:
    a. If source=funding_news → extract actual company name from headline.
-   b. Score ICP fit 0–100. Skip if score < 55.
+   b. Score ICP fit 0–100. Skip if score < 45.
    c. Pick ONE offer_type using SOURCE → OFFER TYPE MAPPING above.
    d. Call \`research_company\` — required for EVERY prospect. No exceptions.
    e. Call \`validate_email_domain\` on the domain. Skip if confidence=unknown.
