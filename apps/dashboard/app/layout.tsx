@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { getActiveTenant } from "@/lib/tenant";
 import { NavLinks } from "./components/NavLinks";
+import { MobileSidebar } from "./components/MobileSidebar";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -25,9 +26,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {tenant ? (
           <div className="flex min-h-screen">
 
-            {/* ── Sidebar ── */}
+            {/* ── Mobile sidebar (hamburger + drawer) ── */}
+            <MobileSidebar
+              tenantName={tenant.name}
+              tenantPlan={tenant.plan}
+              tenantInitial={tenant.name.charAt(0).toUpperCase()}
+              userEmail={tenant.user.email ?? ""}
+            />
+
+            {/* ── Desktop sidebar ── */}
             <aside
-              className="w-[228px] shrink-0 flex flex-col sticky top-0 h-screen overflow-hidden"
+              className="hidden md:flex w-[228px] shrink-0 flex-col sticky top-0 h-screen overflow-hidden"
               style={{
                 background: "linear-gradient(180deg, #151210 0%, #111009 40%, #0e0d08 100%)",
                 borderRight: "1px solid rgb(255 255 255 / 0.05)",
@@ -119,7 +128,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               className="flex-1 min-h-screen overflow-y-auto"
               style={{ background: "linear-gradient(160deg, #e0dcd5 0%, #d9d4cb 50%, #d5d0c6 100%)" }}
             >
-              <div className="max-w-[1020px] mx-auto px-8 py-8">
+              <div className="max-w-[1020px] mx-auto px-4 md:px-8 py-8 pt-16 md:pt-8">
                 {children}
               </div>
             </main>
