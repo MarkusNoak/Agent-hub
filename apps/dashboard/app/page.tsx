@@ -135,7 +135,14 @@ export default async function Overview() {
       <header className="flex items-start justify-between gap-6 pb-2">
         <div>
           <h1 className="text-[28px] font-bold tracking-[-0.02em] text-ink-900 leading-tight">
-            God dag, {tenant.user.user_metadata?.full_name?.split(" ")[0] ?? tenant.user.user_metadata?.name?.split(" ")[0] ?? tenant.user.email?.split("@")[0] ?? tenant.name}
+            God dag, {(() => {
+              const meta = tenant.user.user_metadata;
+              const fromMeta = meta?.full_name?.split(" ")[0] ?? meta?.name?.split(" ")[0];
+              if (fromMeta) return fromMeta;
+              const emailPrefix = tenant.user.email?.split("@")[0] ?? "";
+              const firstName = emailPrefix.split(/[._]/)[0] ?? emailPrefix;
+              return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+            })()}
           </h1>
           <p className="text-ink-400 text-sm mt-1 font-medium">
             {monthName.charAt(0).toUpperCase() + monthName.slice(1)} · {now.getFullYear()}
