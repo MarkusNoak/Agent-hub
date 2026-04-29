@@ -18,6 +18,9 @@ import {
   searchRecentlyFundedCompanies,
   findDecisionMaker,
   enrichPersonEmail,
+  searchPlacesNoWebsite,
+  searchPlacesByCategory,
+  type ProspectSignal,
 } from "@agent-hub/connectors";
 
 const OfferTypeEnum = z.enum([
@@ -74,6 +77,7 @@ type TenantSettings = {
   meta_pitch_enabled?: boolean;
   google_api_key?: string;
   google_cse_id?: string;
+  google_places_api_key?: string;
   apollo_api_key?: string;
 };
 
@@ -157,34 +161,41 @@ DEDUP RULE (MANDATORY — do this FIRST):
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
 DATA SOURCES — PRIMARY (call every run — company-level signals, highest quality):
-You MUST call every PRIMARY source. Call SECONDARY sources if primary sources yield fewer than max_drafts.
+You MUST call every PRIMARY source. Call SECONDARY sources only if primary sources return <5 usable leads.
 
-PRIMARY SOURCES — company signals (not job ads):
-── Apollo.io (call if apollo_api_key is set) — CALL THESE FIRST ────────
-1. apollo_no_website_companies   Apollo: SE companies with no website → webb_design. HIGHEST PRIORITY.
-2. apollo_signal_companies       Apollo: SE companies by industry keyword → ai_automation / app_development / agent_platform.
+PRIMARY SOURCES — call in this order every run:
+── Google Places (CALL FIRST — works without any other API key) ──────────
+1. google_places_no_website      LOCAL Swedish businesses without a website → webb_design. HIGHEST PRIORITY.
+                                 This is the best source for webb_design. Always call it first.
+2. google_places_by_category     Local Swedish businesses by category → ai_automation / app_development.
+   Example queries for ai_automation: ["redovisningsbyrå Stockholm", "logistikbolag Göteborg", "tillverkningsbolag Malmö"]
+   Example queries for app_development: ["techbolag Uppsala", "startup Göteborg", "e-handelsbolag Stockholm"]
+   Only call if google_places_api_key is set.
+── Media RSS (free, always available) ───────────────────────────────────
+3. fetch_funding_news            Breakit/DI/NyTeknik → app_development.
+── Apollo.io (enrichment + supplementary — call if apollo_api_key is set) ─
+4. apollo_signal_companies       SE companies by industry keyword → ai_automation / app_development / agent_platform.
    Call 3 times: signal_type=ai_automation, signal_type=app_development, signal_type=agent_platform
-3. apollo_funded_companies       Apollo: Swedish startups/scaleups with growth signals → app_development.
-── Allabolag + DNS (free scraping) ──────────────────────────────────────
-4. fetch_no_website_companies    Allabolag + DNS check. No website → webb_design.
-5. scrape_allabolag              SNI filter 10–99 anst → ai_automation / agent_platform.
-── Media RSS (free) ──────────────────────────────────────────────────────
-6. fetch_funding_news            Breakit/DI/NyTeknik → app_development.
-── Google CSE (free, if configured) ─────────────────────────────────────
-7. search_weak_digital_presence  Google CSE queries → webb_design / app_development / agent_platform.
+5. apollo_funded_companies       Swedish startups/scaleups → app_development.
+6. apollo_no_website_companies   SE companies with no Apollo-registered website → webb_design (fallback if Places returns <5).
+── Allabolag + DNS (scraping — may be blocked) ───────────────────────────
+7. fetch_no_website_companies    Allabolag + DNS check → webb_design (fallback).
+8. scrape_allabolag              SNI filter → ai_automation / agent_platform (fallback).
+── Google CSE (if configured) ────────────────────────────────────────────
+9. search_weak_digital_presence  CSE queries → webb_design / agent_platform.
 ── Visma upsell (existing customers) ────────────────────────────────────
-8. fetch_visma_upsell_candidates Warm leads 14-60 days post-delivery → upsell.
+10. fetch_visma_upsell_candidates Warm leads 14-60 days post-delivery → upsell.
 
-SECONDARY SOURCES — job ad signals (only call if primary sources return <5 usable leads):
+SECONDARY SOURCES — only if primary returns <5 usable leads:
    fetch_ai_replaceable_jobs     Admin job ads → ai_automation (weak signal, last resort).
    fetch_app_dev_signals         Tech job ads → app_development (weak signal, last resort).
 
 TARGET DISTRIBUTION per run (max_drafts=10 example):
-  webb_design      3 (apollo_no_website_companies + fetch_no_website_companies)
-  app_development  3 (fetch_funding_news + apollo_funded_companies)
-  ai_automation    2 (apollo_signal_companies ai_automation + scrape_allabolag)
-  agent_platform   2 (apollo_signal_companies agent_platform + scrape_allabolag)
-Adjust proportions if one source returns 0 results, but always aim for variety across all offer types.
+  webb_design      4 (google_places_no_website PRIMARY + apollo/allabolag fallback)
+  app_development  3 (fetch_funding_news + google_places_by_category + apollo)
+  ai_automation    2 (google_places_by_category + apollo_signal_companies)
+  agent_platform   1 (apollo_signal_companies)
+Adjust proportions if one source returns 0. Always aim for variety across all offer types.
 Quality over quantity: only queue prospects with clear ICP fit (score ≥ 60). A short list of strong leads beats a long list of junk.
 
 ────────────────────────────────────────
@@ -220,7 +231,8 @@ DECISION FLOW:
    d. Call \`research_company\` — required for EVERY prospect. No exceptions.
    e. Call \`validate_email_domain\` on the inferred domain.
       Skip if confidence=unknown ONLY for sources where a working domain is expected (job_signal, funding_news, allabolag_icp).
-      For no-website sources (apollo_no_website_companies, fetch_no_website_companies), unknown is normal — do NOT skip. Continue with info@ fallback + [VERIFIERA ADRESS].
+      For no-website sources (google_places_no_website, apollo_no_website_companies, fetch_no_website_companies), unknown is normal — do NOT skip. Continue with info@ fallback + [VERIFIERA ADRESS].
+      For google_places_no_website leads: use phone number from extra.phone if available — include it in the outreach context for research_company.
    f. If research_company returned no contact_emails AND no email_candidates (no VD name found):
       → Call \`apollo_find_decision_maker\` (FREE) to get the VD/founder name.
       → If still no email: call \`apollo_enrich_contact\` (1 credit) ONLY for score ≥ 80 leads.
@@ -465,6 +477,63 @@ Offers available: ${offers.join(", ")}.`;
         const apiKey = (ctx.tenant.settings as TenantSettings).apollo_api_key;
         if (!apiKey) return { items: [], count: 0, note: "apollo_api_key not configured" };
         const items = await searchNoWebsiteCompanies({ apiKey, limit: (args["limit"] as number) ?? 10 });
+        return { items, count: items.length };
+      },
+    },
+    {
+      name: "google_places_no_website",
+      description:
+        "Google Places API: Search for local Swedish businesses without a registered website. This is the PRIMARY source for webb_design leads — more reliable and broader than Apollo for local SMBs. Rotates through business categories (restaurang, frisör, elektriker, etc.) and cities automatically. Only call if google_places_api_key is set in tenant settings.",
+      input_schema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max results (default 15)" },
+          city: { type: "string", description: "Override city, e.g. 'Göteborg'. Leave empty to auto-rotate." },
+        },
+      },
+      execute: async (args, ctx) => {
+        const apiKey = (ctx.tenant.settings as TenantSettings).google_places_api_key;
+        if (!apiKey) return { items: [], count: 0, note: "google_places_api_key not configured" };
+        const items = await searchPlacesNoWebsite({
+          apiKey,
+          limit: (args["limit"] as number) ?? 15,
+          cityOverride: args["city"] as string | undefined,
+        });
+        return { items, count: items.length };
+      },
+    },
+    {
+      name: "google_places_by_category",
+      description:
+        "Google Places API: Search for Swedish businesses by category and city. Use for ai_automation leads (redovisningsbyråer, logistikbolag, tillverkning) or app_development leads (techbolag, startups). Provide queries like ['redovisningsbyrå Stockholm', 'logistikbolag Göteborg']. Only call if google_places_api_key is set.",
+      input_schema: {
+        type: "object",
+        properties: {
+          queries: {
+            type: "array",
+            items: { type: "string" },
+            description: "Search queries, e.g. ['redovisningsbyrå Stockholm', 'byggfirma Malmö']",
+          },
+          offer_hint: {
+            type: "string",
+            enum: ["ai_automation", "app_development", "webb_design", "agent_platform"],
+            description: "Which offer type these leads map to",
+          },
+          label: { type: "string", description: "Signal label shown in lead, e.g. 'Bransch med manuell administration'" },
+          limit: { type: "number", description: "Max results (default 10)" },
+        },
+        required: ["queries", "offer_hint", "label"],
+      },
+      execute: async (args, ctx) => {
+        const apiKey = (ctx.tenant.settings as TenantSettings).google_places_api_key;
+        if (!apiKey) return { items: [], count: 0, note: "google_places_api_key not configured" };
+        const items = await searchPlacesByCategory({
+          apiKey,
+          queries: args["queries"] as string[],
+          offerHint: args["offer_hint"] as ProspectSignal["suggested_offer_hint"],
+          label: args["label"] as string,
+          limit: (args["limit"] as number) ?? 10,
+        });
         return { items, count: items.length };
       },
     },
