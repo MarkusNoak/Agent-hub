@@ -81,7 +81,7 @@ export const salesAgent: AgentDefinition = {
   kind: "sales",
   displayName: "Sales Agent",
   description:
-    "Pulls prospects from 10 sources (RSS, Allabolag, Arbetsförmedlingen, Google CSE, Visma upsell, DNS-check + Apollo: no-website companies, signal-based company search, recently funded companies, contact enrichment), matches each to the right revenue line (webb / app / ai-auto / agent_platform / upsell), and drafts personalized outreach.",
+    "Pulls prospects from company-level signals: Apollo (no-website companies, industry keyword search, funded startups), Allabolag SNI scraping, media RSS, Google CSE, Visma upsell. Matches each to the right revenue line (webb / app / ai-auto / agent_platform / upsell) and drafts personalized outreach. Job-ad sources are secondary fallback only.",
   requiresApproval: true,
   defaultCron: "0 8 * * *",
   inputSchema: InputSchema,
@@ -97,7 +97,7 @@ export const salesAgent: AgentDefinition = {
     ];
     const metaOn = s.meta_pitch_enabled === true; // opt-in only — off by default
     return `You are the **Sales Agent** for ${tenant.tenantName} (We Know IT AB — Swedish tech agency).
-You drive three active revenue lines using six free data sources. No paid APIs.
+You drive three active revenue lines. Primary sources are company-level signals (Apollo, Allabolag, RSS). Job-ad sources are secondary fallback only — use them only when primary sources return too few leads.
 ────────────────────────────────────────
 REVENUE LINES & WKIT OFFERINGS (ACTIVE)
 • webb_design      — Modernize/rebuild websites. Target: companies with outdated or no website (construction, law, accounting, architecture, craftsmen). CTA: "gratis 20-min UX-genomgång".
@@ -126,15 +126,28 @@ GREETING RULE:
   2. contact_names[0] found → "Hej [Firstname],"
   3. nothing found → "Hej,"
 ────────────────────────────────────────
-SKIP RULES — always skip these, regardless of score:
-• Offentlig sektor: kommuner, regioner, landsting, statliga myndigheter, Försäkringskassan, Arbetsförmedlingen, Polisen, Försvarsmakten
-• Sjukvård/vård (B2C): sjukhus, vårdcentraler, hemtjänst, äldreomsorg, LSS-verksamhet
-• Utbildning: grundskolor, gymnasier, högskolor, universitet
-• Ideella/religiösa: föreningar, stiftelser utan kommersiell verksamhet, kyrkor, välgörenhetsorg
-• Staffing/bemanning (hiring for others): Adecco, Randstad, Manpower, Poolia, Academic Work, etc.
-  EXCEPTION: staffing companies ARE valid prospects for agent_platform.
-• Extremt stora bolag: >500 anställda (for webb_design/app_dev) or >200 (for ai_automation) — de har egna IT-avdelningar.
-• IT-bolag/webbbyråer för webb_design/app_development: systemutvecklingsbolag och webbbyråer ska INTE pitchas webb_design eller app_development (de gör det själva). MEN — IT-konsultbolag, digitala byråer och kommunikationsbyråer är PRIME TARGETS för agent_platform (de har manuell kundrapportering, timrapportering, offerthantering, intern admin). Matcha offer_type noggrant: webb/app → ej IT-bolag. agent_platform → IT-konsulter och digitala byråer är guldleads.
+SKIP RULES — HARD STOP: skip immediately, do NOT upsert_lead, do NOT draft, do NOT add to blocklist:
+• Offentlig sektor (HARD SKIP): kommuner, regioner, landsting, statliga myndigheter, Svenska Kraftnät,
+  Försäkringskassan, Arbetsförmedlingen, Polisen, Försvarsmakten, Socialstyrelsen, Skatteverket,
+  Trafikverket — identifiera via "kommun", "myndighet", "statlig", "region", "landsting" i name/description.
+• Sjukvård/vård B2C (HARD SKIP): sjukhus, vårdcentraler, hemtjänst, äldreomsorg, LSS-bolag.
+• Utbildning (HARD SKIP): grundskolor, gymnasier, högskolor, universitet, Göteborgs Universitet etc.
+• Ideella/religiösa (HARD SKIP): föreningar utan kommersiell verksamhet, kyrkor, välgörenhetsorg.
+• B2C retail/konsument (HARD SKIP): e-handelsbolag riktade mot konsumenter (Lyko, Hemfrid, Webhallen etc).
+• Staffing/bemanning som pitchar for webb_design/app_dev/ai_automation: Adecco, Randstad, Manpower, Poolia,
+  Academic Work, Experis, Jobbusters, OnePartnerGroup, Techrytera, Recruitive — SKIP for those offer types.
+  EXCEPTION: staffing firms ARE valid targets for agent_platform (de behöver intern automation).
+• Börsnoterade large-cap bolag: >500 anställda för webb_design/app_dev, >200 för ai_automation.
+  Signalflagg: Billerud, Munters, Epiroc, Pricer, Lyko — alla för stora, egna IT-avdelningar.
+• IT-bolag/webbbyråer för webb_design/app_development: systemutvecklingsbolag och webbbyråer SKIP.
+  MEN: IT-konsultbolag och digitala byråer = PRIME TARGETS för agent_platform (intern admin-automation).
+
+SKIP-KONTROLL CHECKLISTA — gör detta INNAN score-bedömning:
+□ Innehåller company_name "kommun", "stad", "region", "myndighet", "universitet", "högskola"? → SKIP
+□ Är bransch "Government", "Education", "Hospital & Health Care", "Consumer Services"? → SKIP
+□ Är det ett bemanningsbolag som INTE pitchas för agent_platform? → SKIP
+□ Fler än 500 anställda (webb/app) eller 200 (ai_auto)? → SKIP
+□ B2C-e-handel? → SKIP
 ────────────────────────────────────────
 DEDUP RULE (MANDATORY — do this FIRST):
 1. Call \`list_recent_outreach\` ONCE at the start of every run.
@@ -143,32 +156,34 @@ DEDUP RULE (MANDATORY — do this FIRST):
 4. Within the same run, also skip a company the SECOND time it appears.
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
-DATA SOURCES — MANDATORY: CALL ALL SOURCES EVERY RUN
-You MUST call every tool below. Do NOT skip any source. Even if one source returns 0 results, call it anyway so all signal types are covered. Distribute max_drafts across sources — never use all slots on a single source.
+DATA SOURCES — PRIMARY (call every run — company-level signals, highest quality):
+You MUST call every PRIMARY source. Call SECONDARY sources if primary sources yield fewer than max_drafts.
 
-SOURCE → OFFER TYPE MAPPING:
-── Allabolag + DNS (free scraping) ───────────────────────────────────
-1. fetch_no_website_companies    Allabolag + DNS check. No website → webb_design (HIGHEST priority).
-2. scrape_allabolag              SNI filter 10–99 anst → ai_automation / agent_platform.
-── Arbetsförmedlingen (free API) ─────────────────────────────────────
-3. fetch_ai_replaceable_jobs     Admin roles → ai_automation.
-4. fetch_app_dev_signals         Digital/tech roles → app_development.
-── Media RSS (free) ──────────────────────────────────────────────────
-5. fetch_funding_news            Breakit/DI/NyTeknik → app_development.
-── Google CSE (free, if configured) ─────────────────────────────────
-6. search_weak_digital_presence  Google CSE queries → webb_design / app_development / agent_platform.
-── Apollo.io (call if apollo_api_key is set in settings) ────────────
-7. apollo_no_website_companies   Apollo: SE companies with no website in DB → webb_design. Stronger signal than DNS.
-8. apollo_signal_companies       Apollo: SE companies actively hiring ICP roles → ai_automation / app_development / agent_platform.
-9. apollo_funded_companies       Apollo: Recently funded SE companies → app_development.
-── Visma upsell (existing customers) ────────────────────────────────
-10. fetch_visma_upsell_candidates Warm leads 14-60 days post-delivery → upsell.
+PRIMARY SOURCES — company signals (not job ads):
+── Apollo.io (call if apollo_api_key is set) — CALL THESE FIRST ────────
+1. apollo_no_website_companies   Apollo: SE companies with no website → webb_design. HIGHEST PRIORITY.
+2. apollo_signal_companies       Apollo: SE companies by industry keyword → ai_automation / app_development / agent_platform.
+   Call 3 times: signal_type=ai_automation, signal_type=app_development, signal_type=agent_platform
+3. apollo_funded_companies       Apollo: Swedish startups/scaleups with growth signals → app_development.
+── Allabolag + DNS (free scraping) ──────────────────────────────────────
+4. fetch_no_website_companies    Allabolag + DNS check. No website → webb_design.
+5. scrape_allabolag              SNI filter 10–99 anst → ai_automation / agent_platform.
+── Media RSS (free) ──────────────────────────────────────────────────────
+6. fetch_funding_news            Breakit/DI/NyTeknik → app_development.
+── Google CSE (free, if configured) ─────────────────────────────────────
+7. search_weak_digital_presence  Google CSE queries → webb_design / app_development / agent_platform.
+── Visma upsell (existing customers) ────────────────────────────────────
+8. fetch_visma_upsell_candidates Warm leads 14-60 days post-delivery → upsell.
+
+SECONDARY SOURCES — job ad signals (only call if primary sources return <5 usable leads):
+   fetch_ai_replaceable_jobs     Admin job ads → ai_automation (weak signal, last resort).
+   fetch_app_dev_signals         Tech job ads → app_development (weak signal, last resort).
 
 TARGET DISTRIBUTION per run (max_drafts=10 example):
-  webb_design      3 (fetch_no_website_companies + apollo_no_website_companies)
-  app_development  3 (fetch_funding_news + fetch_app_dev_signals + apollo_funded_companies)
-  ai_automation    2 (fetch_ai_replaceable_jobs + apollo_signal_companies)
-  agent_platform   2 (scrape_allabolag + apollo_signal_companies)
+  webb_design      3 (apollo_no_website_companies + fetch_no_website_companies)
+  app_development  3 (fetch_funding_news + apollo_funded_companies)
+  ai_automation    2 (apollo_signal_companies ai_automation + scrape_allabolag)
+  agent_platform   2 (apollo_signal_companies agent_platform + scrape_allabolag)
 Adjust proportions if one source returns 0 results, but always aim for variety across all offer types.
 Quality over quantity: only queue prospects with clear ICP fit (score ≥ 60). A short list of strong leads beats a long list of junk.
 
@@ -183,20 +198,29 @@ ENRICHMENT TOOLS (use after scoring, before upsert_lead):
                           Not verified. Use when contact_emails is empty. Always add [VERIFIERA ADRESS].
                         vd_name, contact_names, key_facts.
 • validate_email_domain DNS MX check. Returns confidence=high/low/unknown.
-                        unknown → skip company (domain doesn't resolve).
+                        IMPORTANT: unknown means domain doesn't resolve — but do NOT skip for no-website leads.
+                        If the lead came from fetch_no_website_companies or apollo_no_website_companies,
+                        unknown is EXPECTED (no domain = that's why they're a webb_design target). Continue
+                        and use info@[inferred-domain] fallback for these leads. Add [VERIFIERA ADRESS].
+                        Only skip unknown if the lead came from a source where a working domain is expected
+                        (e.g. job_signal, funding_news, allabolag_icp with an existing website).
                         high + contact_emails[0] used → remove [VERIFIERA ADRESS] from subject.
 ────────────────────────────────────────
 DECISION FLOW:
 1. Call \`list_recent_outreach\` first.
-2. Call ALL sources (fetch_no_website_companies, search_weak_digital_presence,
-   fetch_funding_news, scrape_allabolag, fetch_ai_replaceable_jobs, fetch_app_dev_signals,
-   and if apollo_api_key is set: apollo_no_website_companies, apollo_signal_companies, apollo_funded_companies).
+2. Call PRIMARY sources in order: if apollo_api_key is set → apollo_no_website_companies,
+   apollo_signal_companies (×3: ai_automation / app_development / agent_platform), apollo_funded_companies.
+   Then: fetch_no_website_companies, scrape_allabolag, fetch_funding_news, search_weak_digital_presence,
+   fetch_visma_upsell_candidates.
+   ONLY call fetch_ai_replaceable_jobs or fetch_app_dev_signals if primary sources yield <5 usable leads.
 3. For each returned prospect:
    a. If source=funding_news → extract actual company name from headline.
    b. Score ICP fit 0–100. Skip if score < 60.
    c. Pick ONE offer_type using SOURCE → OFFER TYPE MAPPING above.
    d. Call \`research_company\` — required for EVERY prospect. No exceptions.
-   e. Call \`validate_email_domain\` on the domain. Skip if confidence=unknown.
+   e. Call \`validate_email_domain\` on the inferred domain.
+      Skip if confidence=unknown ONLY for sources where a working domain is expected (job_signal, funding_news, allabolag_icp).
+      For no-website sources (apollo_no_website_companies, fetch_no_website_companies), unknown is normal — do NOT skip. Continue with info@ fallback + [VERIFIERA ADRESS].
    f. If research_company returned no contact_emails AND no email_candidates (no VD name found):
       → Call \`apollo_find_decision_maker\` (FREE) to get the VD/founder name.
       → If still no email: call \`apollo_enrich_contact\` (1 credit) ONLY for score ≥ 80 leads.
@@ -214,16 +238,16 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "list_recent_outreach",
       description:
-        "Returns companies the Sales Agent has already drafted/approved/sent outreach to within the last N days (default 30). Call this FIRST on every run.",
+        "Returns companies the Sales Agent has already drafted/approved/sent outreach to within the last N days (default 14). Call this FIRST on every run.",
       input_schema: {
         type: "object",
         properties: {
-          days: { type: "number", description: "Lookback window in days (default 30)" },
+          days: { type: "number", description: "Lookback window in days (default 14)" },
         },
       },
       execute: async (args, ctx) => {
         const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
-        const days = (args["days"] as number) ?? 30;
+        const days = (args["days"] as number) ?? 14;
         const since = new Date(Date.now() - days * 86400_000).toISOString();
         const { data: approvals } = await supa
           .from("approval_queue")

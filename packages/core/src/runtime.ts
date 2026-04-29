@@ -161,6 +161,13 @@ export async function executeAgent<O = unknown>(
       tokensIn += resp.usage.input_tokens;
       tokensOut += resp.usage.output_tokens;
 
+      // Persist iteration count after every LLM call so the dashboard shows live progress.
+      await supabase
+        .from("agent_runs")
+        .update({ iterations })
+        .eq("id", runId)
+        .then(() => void 0); // best-effort — don't block on failure
+
       await logStep(supabase, tenant.tenantId, runId, iterations, "message", {
         id: resp.id,
         stop_reason: resp.stop_reason,
