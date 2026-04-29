@@ -99,8 +99,8 @@ REVENUE LINES & WKIT OFFERINGS (ACTIVE)
 • ai_automation    — Bounded AI integrations (invoice handling, customer service bots, admin automation). Target: companies with 10–150 employees hiring manual admin roles. CTA: "gratis 30-min AI-audit".
 
 Core ICP: ${coreIcp.industries?.join(", ") ?? "B2B, professional services, tech, real estate, construction"} · ${coreIcp.company_size ?? "10–200 anställda"} · ${coreIcp.geography?.join(", ") ?? "SE/NO/DK/FI"}
-Platform ICP: ${platformIcp.industries?.join(", ") ?? "agencies, consulting, recruitment, professional services"} · ${platformIcp.company_size ?? "5–100 anställda"}
-Platform pain signals (gold): ${(platformIcp.pains ?? ["manual invoice chasing", "weekly status reports by hand", "founder-led outreach", "manual timereporting"]).join("; ")}
+Platform ICP: ${platformIcp.industries?.join(", ") ?? "IT-konsultbolag, rekrytering, kommunikationsbyråer, digital marknadsföring, managementkonsulter, PR-byråer"} · ${platformIcp.company_size ?? "5–100 anställda"}
+Platform pain signals (gold): ${(platformIcp.pains ?? ["manual invoice chasing", "weekly status reports by hand", "founder-led outreach", "manual timereporting", "konsultbolag med manuell timrapportering", "IT-bolag utan intern automation", "digital byrå med manuell kundrapportering"]).join("; ")}
 
 ${metaOn ? `META-PITCH RULE (for offer_type=agent_platform):
 The outreach MUST include a short PS revealing this email was written by the Sales Agent itself. Vary wording. Example:
@@ -128,7 +128,7 @@ SKIP RULES — always skip these, regardless of score:
 • Staffing/bemanning (hiring for others): Adecco, Randstad, Manpower, Poolia, Academic Work, etc.
   EXCEPTION: staffing companies ARE valid prospects for agent_platform.
 • Extremt stora bolag: >500 anställda (for webb_design/app_dev) or >200 (for ai_automation) — de har egna IT-avdelningar.
-• IT-bolag/webbbyråer: systhutvecklingsbolag, webbbyråer, IT-konsultfirmor — de är konkurrenter.
+• IT-bolag/webbbyråer för webb_design/app_development: systemutvecklingsbolag och webbbyråer ska INTE pitchas webb_design eller app_development (de gör det själva). MEN — IT-konsultbolag, digitala byråer och kommunikationsbyråer är PRIME TARGETS för agent_platform (de har manuell kundrapportering, timrapportering, offerthantering, intern admin). Matcha offer_type noggrant: webb/app → ej IT-bolag. agent_platform → IT-konsulter och digitala byråer är guldleads.
 ────────────────────────────────────────
 DEDUP RULE (MANDATORY — do this FIRST):
 1. Call \`list_recent_outreach\` ONCE at the start of every run.
@@ -275,7 +275,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "scrape_allabolag",
       description:
-        "Scrape Allabolag.se for companies in ICP-relevant SNI codes with 10–99 employees. SNI codes: 69109 (advokatbyråer), 69200 (redovisning/revision), 71110 (arkitektkontor), 73110 (reklam/kommunikationsbyråer), 70220 (managementkonsulter), 68100 (fastighetsbolag). IT-bolag (62020) är exkluderade — konkurrenter. Signals → ai_automation or agent_platform.",
+        "Scrape Allabolag.se for companies in ICP-relevant SNI codes with 10–99 employees. SNI codes: 69109 (advokatbyråer), 69200 (redovisning/revision), 71110 (arkitektkontor), 73110 (reklam/kommunikationsbyråer), 70220 (managementkonsulter), 68100 (fastighetsbolag), 62020 (IT-konsultbolag → agent_platform), 73200 (digital marknadsföring/marknadsundersökning → agent_platform), 74909 (övriga konsulter → agent_platform). IT-konsultbolag (62020) är INTE konkurrenter — de är prime targets för agent_platform eftersom de saknar intern automation. Signals → ai_automation or agent_platform.",
       input_schema: {
         type: "object",
         properties: {
@@ -305,7 +305,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "fetch_app_dev_signals",
       description:
-        "Fetch job ads for growth/scaling roles (produktägare, digital projektledare, systemutvecklare, webbutvecklare). Companies hiring these roles are scaling and need app_development help. Staffing firms are excluded.",
+        "Fetch job ads for digital/tech hiring roles (produktägare, digital projektledare, systemutvecklare, webbutvecklare, apputvecklare, mobilutvecklare, frontend-utvecklare, backend-utvecklare, fullstack-utvecklare, iOS/Android-utvecklare, digital marknadsföring, performance marketing). Companies hiring these roles are scaling their digital capability and need app_development help. Staffing firms are excluded.",
       input_schema: {
         type: "object",
         properties: {

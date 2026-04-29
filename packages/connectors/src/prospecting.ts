@@ -54,10 +54,20 @@ export const APP_DEV_ROLES = [
   "projektledare digital",
   "systemutvecklare",
   "webbutvecklare",
+  "apputvecklare",
+  "mobilutvecklare",
+  "frontend-utvecklare",
+  "backend-utvecklare",
+  "fullstack-utvecklare",
+  "iOS-utvecklare",
+  "Android-utvecklare",
   "mjukvaruutvecklare",
   "digital projektledare",
   "it-projektledare",
   "teknisk projektledare",
+  "digital marknadsföring",
+  "SEO-specialist",
+  "performance marketing",
 ] as const;
 
 // ------------------------------------------------------------
@@ -230,7 +240,8 @@ export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
   ProspectSignal[]
 > {
   // SNI codes chosen for WKIT ICP: companies that need websites, automation, or agent_platform.
-  // 62020 (IT consulting) intentionally excluded — those are competitors.
+  // 62020 (IT-konsulttjänster) included for agent_platform — they have manual admin processes
+  // and need internal automation even though they build tech themselves.
   const sniSearches = [
     "https://www.allabolag.se/bransch/69109?anstallda=10-99",  // Juridiska tjänster (advokatbyråer)
     "https://www.allabolag.se/bransch/69200?anstallda=10-99",  // Redovisning/revision/bokföring
@@ -238,6 +249,9 @@ export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
     "https://www.allabolag.se/bransch/73110?anstallda=10-99",  // Reklam/kommunikationsbyråer
     "https://www.allabolag.se/bransch/70220?anstallda=10-99",  // Managementkonsulter
     "https://www.allabolag.se/bransch/68100?anstallda=10-99",  // Fastighetsbolag
+    "https://www.allabolag.se/bransch/62020?anstallda=10-99",  // IT-konsulttjänster → agent_platform
+    "https://www.allabolag.se/bransch/73200?anstallda=10-99",  // Marknadsundersökning/digital mktg
+    "https://www.allabolag.se/bransch/74909?anstallda=10-99",  // Övriga konsulttjänster
   ];
   const companies: { name: string; sourceUrl: string }[] = [];
   for (const url of sniSearches) {
@@ -255,16 +269,25 @@ export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
   }
   const unique = [...new Map(companies.map((c) => [c.name, c])).values()];
   const limit = opts.limit ?? 6;
-  return unique.slice(0, limit).map((c) => ({
-    source: "allabolag_icp",
-    company_name: c.name,
-    signals: [
-      "Listad på Allabolag.se med ICP-relevant SNI-kod",
-      "Storlek: 10–99 anställda (från filter)",
-    ],
-    suggested_offer_hint: "ai_automation",
-    extra: { sourceUrl: c.sourceUrl },
-  }));
+
+  const AGENT_PLATFORM_SNIS = ["62020", "73200", "74909"];
+
+  return unique.slice(0, limit).map((c) => {
+    const sniMatch = c.sourceUrl.match(/bransch\/(\d+)/);
+    const sni = sniMatch?.[1] ?? "";
+    const isAgentPlatform = AGENT_PLATFORM_SNIS.includes(sni);
+    return {
+      source: "allabolag_icp" as const,
+      company_name: c.name,
+      signals: [
+        "Listad på Allabolag.se med ICP-relevant SNI-kod",
+        "Storlek: 10–99 anställda (från filter)",
+        isAgentPlatform ? "IT-konsult / digital byrå — prime target för agent_platform" : "",
+      ].filter(Boolean),
+      suggested_offer_hint: isAgentPlatform ? "agent_platform" : "ai_automation",
+      extra: { sourceUrl: c.sourceUrl, sni },
+    };
+  });
 }
 
 // ------------------------------------------------------------
@@ -372,6 +395,15 @@ export async function fetchAppDevSignals(
     "it-projektledare",
     "systemutvecklare",
     "webbutvecklare",
+    "apputvecklare",
+    "mobilutvecklare",
+    "frontend-utvecklare",
+    "backend-utvecklare",
+    "fullstack-utvecklare",
+    "iOS-utvecklare",
+    "Android-utvecklare",
+    "digital marknadsföring",
+    "performance marketing",
   ];
 
   type JobAd = {
@@ -1236,8 +1268,7 @@ export async function fetchNoWebsiteCompanies(
   const results: ProspectSignal[] = [];
   const limit = opts.limit ?? 8;
 
-  // Process at most 4 SNI codes per call — keeps total tool time under ~30 s
-  for (const { sni, industry } of NO_WEBSITE_SNI.slice(0, 4)) {
+  for (const { sni, industry } of NO_WEBSITE_SNI) {
     if (results.length >= limit) break;
     try {
       const url = `https://www.allabolag.se/bransch/${sni}?anstallda=1-9`;
@@ -1245,9 +1276,9 @@ export async function fetchNoWebsiteCompanies(
       const html = await res.text();
       const names = extractCompanyNamesFromHtml(html).slice(0, 6);
 
-      // DNS checks in parallel — batch of 3 to avoid flooding DNS
+      // DNS checks in parallel — batch of 5
       const checks = await Promise.allSettled(
-        names.slice(0, 3).map(async (name) => {
+        names.slice(0, 5).map(async (name) => {
           const domain = inferDomain(name);
           const hasWebsite = await domainHasWebsite(domain);
           return { name, domain, hasWebsite };
