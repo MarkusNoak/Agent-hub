@@ -229,11 +229,15 @@ function extractCompanyNamesFromHtml(html: string): string[] {
 export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
   ProspectSignal[]
 > {
+  // SNI codes chosen for WKIT ICP: companies that need websites, automation, or agent_platform.
+  // 62020 (IT consulting) intentionally excluded — those are competitors.
   const sniSearches = [
-    "https://www.allabolag.se/bransch/62020?anstallda=10-99",
-    "https://www.allabolag.se/bransch/47910?anstallda=10-99",
-    "https://www.allabolag.se/bransch/68100?anstallda=10-99",
-    "https://www.allabolag.se/bransch/70220?anstallda=10-99",
+    "https://www.allabolag.se/bransch/69109?anstallda=10-99",  // Juridiska tjänster (advokatbyråer)
+    "https://www.allabolag.se/bransch/69200?anstallda=10-99",  // Redovisning/revision/bokföring
+    "https://www.allabolag.se/bransch/71110?anstallda=10-99",  // Arkitektkontor
+    "https://www.allabolag.se/bransch/73110?anstallda=10-99",  // Reklam/kommunikationsbyråer
+    "https://www.allabolag.se/bransch/70220?anstallda=10-99",  // Managementkonsulter
+    "https://www.allabolag.se/bransch/68100?anstallda=10-99",  // Fastighetsbolag
   ];
   const companies: { name: string; sourceUrl: string }[] = [];
   for (const url of sniSearches) {
@@ -303,14 +307,30 @@ export async function fetchAiReplaceableJobs(
     role: string;
   };
 
+  // Offentlig sektor / vård / utbildning — not WKIT ICP.
+  const NON_ICP_EMPLOYERS = [
+    "region", "landsting", "kommun", "stad", "sjukhus", "sjukvård",
+    "vård", "omsorg", "hemtjänst", "äldreomsorgen", "socialtjänst",
+    "skola", "gymnasium", "högskola", "universitet", "akademi",
+    "apotek", "kyrka", "kyrkan", "fk ", "försäkringskassan",
+    "arbetsförmedlingen", "migrationsverket", "polisen", "länsstyrelsen",
+    "riksdag", "myndighet",
+  ];
+
+  function isNonIcpEmployer(name: string): boolean {
+    const n = name.toLowerCase();
+    return NON_ICP_EMPLOYERS.some((kw) => n.includes(kw));
+  }
+
   const ads: JobAd[] = [];
   for (const role of roles) {
     try {
-      const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=5`;
+      const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=8`;
       const res = await fetchWithRetry(url, { headers: { accept: "application/json" } });
       const data = (await res.json()) as JobtechResponse;
       (data?.hits ?? []).forEach((hit) => {
         if (!hit.employer?.name) return;
+        if (isNonIcpEmployer(hit.employer.name)) return;
         ads.push({
           company: hit.employer.name,
           title: hit.headline ?? role,
@@ -326,8 +346,6 @@ export async function fetchAiReplaceableJobs(
   }
 
   const limit = opts.limit ?? 10;
-  // Keep all ads — the query already targets AI-replaceable role keywords;
-  // secondary filtering by the agent's ICP score avoids double-filtering here.
   return ads.slice(0, limit).map((ad) => ({
     source: "job_signal",
     company_name: ad.company,
@@ -363,17 +381,20 @@ export async function fetchAppDevSignals(
     location: string;
   };
 
+  const STAFFING_KEYWORDS = ["adecco", "randstad", "manpower", "poolia", "academicwork", "academic work", "experis", "jeffersonwells"];
+  const NON_ICP_APP = ["region ", "landsting", "kommun", "stad ", "sjukhus", "skola", "gymnasium", "högskola", "universitet", "myndighet"];
+
   const ads: JobAd[] = [];
   for (const role of roles) {
     try {
-      const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=5`;
+      const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=8`;
       const res = await fetchWithRetry(url, { headers: { accept: "application/json" } });
       const data = (await res.json()) as JobtechResponse;
       (data?.hits ?? []).forEach((hit) => {
         if (!hit.employer?.name) return;
-        // Skip staffing companies (they recruit for others, not themselves)
         const name = (hit.employer.name ?? "").toLowerCase();
-        if (["adecco", "randstad", "manpower", "poolia", "academicwork", "academic work"].some(s => name.includes(s))) return;
+        if (STAFFING_KEYWORDS.some(s => name.includes(s))) return;
+        if (NON_ICP_APP.some(s => name.includes(s))) return;
         ads.push({
           company: hit.employer.name,
           title: hit.headline ?? role,
@@ -553,6 +574,37 @@ export async function searchWeakDigitalPresence(opts: {
       q: 'site:hitta.se konsultbolag bemanning IT management 10-100 anställda',
       hint: "agent_platform",
       label: "Konsultbolag listad på hitta.se",
+    },
+    // ── PROFF.SE — Swedish business directory with financials ──────────────────
+    {
+      q: 'site:proff.se advokatbyrå 10-49 anställda',
+      hint: "webb_design",
+      label: "Advokatbyrå funnen på proff.se",
+    },
+    {
+      q: 'site:proff.se redovisningsbyrå revisorer 10-49 anställda',
+      hint: "ai_automation",
+      label: "Redovisningsbyrå på proff.se",
+    },
+    {
+      q: 'site:proff.se arkitektkontor ingenjörer 10-49 anställda',
+      hint: "webb_design",
+      label: "Arkitektkontor på proff.se",
+    },
+    {
+      q: 'site:proff.se rekryteringsbolag konsultbolag 10-50 anställda',
+      hint: "agent_platform",
+      label: "Rekryteringsbolag på proff.se",
+    },
+    {
+      q: 'site:proff.se reklambyrå kommunikationsbyrå marknadsbyrå',
+      hint: "agent_platform",
+      label: "Kommunikationsbyrå på proff.se",
+    },
+    {
+      q: 'site:proff.se byggbolag fastighetsbolag anläggning 10-99 anställda',
+      hint: "webb_design",
+      label: "Bygg/fastighetsbolag på proff.se",
     },
   ];
 

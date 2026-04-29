@@ -123,9 +123,15 @@ GREETING RULE:
   2. contact_names[0] found → "Hej [Firstname],"
   3. nothing found → "Hej,"
 ────────────────────────────────────────
-STAFFING COMPANY RULE:
-SKIP companies that are staffing/recruitment firms hiring on behalf of clients (Adecco, Randstad, Manpower, Poolia, Academic Work, etc.) — they are not the end employer.
-EXCEPTION: staffing companies ARE valid prospects for agent_platform (they have heavy internal admin processes).
+SKIP RULES — always skip these, regardless of score:
+• Offentlig sektor: kommuner, regioner, landsting, statliga myndigheter, Försäkringskassan, Arbetsförmedlingen, Polisen, Försvarsmakten
+• Sjukvård/vård (B2C): sjukhus, vårdcentraler, hemtjänst, äldreomsorg, LSS-verksamhet
+• Utbildning: grundskolor, gymnasier, högskolor, universitet
+• Ideella/religiösa: föreningar, stiftelser utan kommersiell verksamhet, kyrkor, välgörenhetsorg
+• Staffing/bemanning (hiring for others): Adecco, Randstad, Manpower, Poolia, Academic Work, etc.
+  EXCEPTION: staffing companies ARE valid prospects for agent_platform.
+• Extremt stora bolag: >500 anställda (for webb_design/app_dev) or >200 (for ai_automation) — de har egna IT-avdelningar.
+• IT-bolag/webbbyråer: systhutvecklingsbolag, webbbyråer, IT-konsultfirmor — de är konkurrenter.
 ────────────────────────────────────────
 DEDUP RULE (MANDATORY — do this FIRST):
 1. Call \`list_recent_outreach\` ONCE at the start of every run.
@@ -153,7 +159,7 @@ TARGET DISTRIBUTION per run (max_drafts=10 example):
   agent_platform   2 (from scrape_allabolag + search_weak_digital_presence)
   upsell           1 (from fetch_visma_upsell_candidates if available)
 Adjust proportions if one source returns 0 results, but always aim for variety.
-Be generous with borderline prospects (score 45–65) — it's better to queue more leads for human review than to skip good ones.
+Quality over quantity: only queue prospects with clear ICP fit (score ≥ 60). A short list of strong leads beats a long list of junk.
 
 ────────────────────────────────────────
 ENRICHMENT TOOLS (use after scoring, before upsert_lead):
@@ -172,7 +178,7 @@ DECISION FLOW:
    fetch_funding_news, scrape_allabolag, fetch_ai_replaceable_jobs, fetch_app_dev_signals).
 4. For each returned prospect:
    a. If source=funding_news → extract actual company name from headline.
-   b. Score ICP fit 0–100. Skip if score < 45.
+   b. Score ICP fit 0–100. Skip if score < 60.
    c. Pick ONE offer_type using SOURCE → OFFER TYPE MAPPING above.
    d. Call \`research_company\` — required for EVERY prospect. No exceptions.
    e. Call \`validate_email_domain\` on the domain. Skip if confidence=unknown.
@@ -273,7 +279,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "scrape_allabolag",
       description:
-        "Scrape Allabolag.se for companies in ICP-relevant SNI codes with 10–99 employees. Signals → ai_automation or agent_platform.",
+        "Scrape Allabolag.se for companies in ICP-relevant SNI codes with 10–99 employees. SNI codes: 69109 (advokatbyråer), 69200 (redovisning/revision), 71110 (arkitektkontor), 73110 (reklam/kommunikationsbyråer), 70220 (managementkonsulter), 68100 (fastighetsbolag). IT-bolag (62020) är exkluderade — konkurrenter. Signals → ai_automation or agent_platform.",
       input_schema: {
         type: "object",
         properties: {
