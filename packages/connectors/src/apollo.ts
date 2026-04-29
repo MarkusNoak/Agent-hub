@@ -73,19 +73,22 @@ type ApolloPerson = {
 
 // ------------------------------------------------------------
 // SOURCE A — Companies without websites in Sweden (FREE)
-// Finds Swedish SMBs with no website_url on file in Apollo —
-// strong webb_design buying signal.
 // ------------------------------------------------------------
 export async function searchNoWebsiteCompanies(opts: {
   apiKey: string;
   limit?: number;
 }): Promise<ProspectSignal[]> {
-  // Broad search — filter website_url=null afterwards.
-  // No keyword tags to avoid over-filtering.
+  // Industries that commonly lack websites — good webb_design targets.
+  // q_organization_keyword_tags works on free tier; q_organization_job_titles does NOT.
   const data = await apolloPost(opts.apiKey, "/mixed_companies/search", {
     organization_locations: ["Sweden"],
     organization_num_employees_ranges: ["1,9", "10,49"],
-    per_page: Math.min((opts.limit ?? 10) * 5, 100), // fetch more, filter down
+    q_organization_keyword_tags: [
+      "construction", "accounting", "legal services",
+      "restaurants", "beauty", "cleaning services",
+      "real estate", "architecture",
+    ],
+    per_page: 100,
     page: 1,
   });
 
@@ -115,37 +118,33 @@ export async function searchNoWebsiteCompanies(opts: {
 }
 
 // ------------------------------------------------------------
-// SOURCE B — Companies with buying signals (FREE)
-// Finds SE companies actively hiring roles that signal need for
-// our services, or recently funded.
+// SOURCE B — ICP companies by industry keyword (FREE)
+// q_organization_job_titles and latest_funding_date_range require
+// paid Apollo plan. Only q_organization_keyword_tags works on free tier.
 // ------------------------------------------------------------
 export type ApolloSignalType =
-  | "ai_automation"   // hiring manual admin roles
-  | "app_development" // hiring dev / product roles
-  | "agent_platform"  // IT-konsulter & digitala byråer
-  | "webb_design";    // no-website signal
+  | "ai_automation"
+  | "app_development"
+  | "agent_platform"
+  | "webb_design";
 
 const SIGNAL_CONFIGS: Array<{
-  jobTitles: string[];
   keywords: string[];
   offer: ApolloSignalType;
   label: string;
 }> = [
   {
-    jobTitles: ["ekonomiassistent", "redovisningsassistent", "löneadministratör", "fakturahandläggare", "orderadministratör", "backoffice"],
-    keywords: ["accounting", "finance", "logistics", "manufacturing", "real estate"],
+    keywords: ["accounting", "logistics", "manufacturing", "real estate", "property management", "facilities services"],
     offer: "ai_automation",
-    label: "Rekryterar manuell admin-roll → behov av AI-automation",
+    label: "Bransch med tung manuell administration → behov av AI-automation",
   },
   {
-    jobTitles: ["webbutvecklare", "systemutvecklare", "apputvecklare", "mobilutvecklare", "frontend developer", "backend developer", "fullstack developer", "product owner", "produktägare"],
-    keywords: ["software", "technology", "startup", "saas", "ecommerce"],
+    keywords: ["software", "technology", "saas", "ecommerce", "fintech", "startup", "mobile apps"],
     offer: "app_development",
-    label: "Rekryterar digital/tech-roll → skalar och behöver hjälp",
+    label: "Tech/startup-bolag som skalar → behov av apputveckling",
   },
   {
-    jobTitles: ["IT-konsult", "konsultchef", "delivery manager", "account manager"],
-    keywords: ["it services", "consulting", "staffing", "recruitment", "marketing and advertising", "public relations"],
+    keywords: ["information technology", "it services", "consulting", "staffing", "recruitment", "marketing and advertising", "public relations", "management consulting"],
     offer: "agent_platform",
     label: "IT-konsultbolag / digital byrå → prime target för agent_platform",
   },
@@ -162,7 +161,7 @@ export async function searchCompaniesWithSignal(opts: {
   const data = await apolloPost(opts.apiKey, "/mixed_companies/search", {
     organization_locations: ["Sweden"],
     organization_num_employees_ranges: ["10,49", "50,199"],
-    q_organization_job_titles: config.jobTitles,
+    q_organization_keyword_tags: config.keywords,
     per_page: Math.min(opts.limit ?? 15, 100),
     page: 1,
   });
@@ -191,20 +190,16 @@ export async function searchCompaniesWithSignal(opts: {
   }));
 }
 
-// Recently funded Swedish companies → app_development
+// Recently funded — latest_funding_date_range requires paid plan.
+// Replaced with tech/startup keyword search as proxy for growth-stage companies.
 export async function searchRecentlyFundedCompanies(opts: {
   apiKey: string;
   limit?: number;
 }): Promise<ProspectSignal[]> {
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
   const data = await apolloPost(opts.apiKey, "/mixed_companies/search", {
     organization_locations: ["Sweden"],
     organization_num_employees_ranges: ["10,49", "50,199"],
-    latest_funding_date_range: {
-      min: sixMonthsAgo.toISOString().split("T")[0],
-    },
+    q_organization_keyword_tags: ["venture capital", "seed funding", "series a", "startup", "growth", "scaleup"],
     per_page: Math.min(opts.limit ?? 15, 100),
     page: 1,
   });
@@ -215,7 +210,7 @@ export async function searchRecentlyFundedCompanies(opts: {
     source: "funding_news",
     company_name: o.name ?? "",
     signals: [
-      `Nyligen finansierat: ${o.latest_funding_stage ?? "okänd runda"}`,
+      "Startup/scaleup med tillväxtsignal — sannolikt behov av digital produkt",
       `Bransch: ${o.industry ?? "okänd"}`,
       o.city ? `Ort: ${o.city}` : "",
       o.estimated_num_employees ? `Anställda: ~${o.estimated_num_employees}` : "",
@@ -225,11 +220,10 @@ export async function searchRecentlyFundedCompanies(opts: {
       apollo_id: o.id,
       primary_domain: o.primary_domain,
       website_url: o.website_url,
-      funding_stage: o.latest_funding_stage,
-      funding_date: o.latest_funding_round_date,
     },
   }));
 }
+
 
 // ------------------------------------------------------------
 // ENRICHMENT A — Find decision maker name (FREE)
