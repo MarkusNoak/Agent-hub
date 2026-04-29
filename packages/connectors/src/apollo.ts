@@ -22,6 +22,8 @@ async function apolloPost(
   path: string,
   body: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  // Apollo v1 API accepts the key both as header and in the body.
+  // Include it in both places for maximum compatibility.
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: {
@@ -29,7 +31,7 @@ async function apolloPost(
       "X-Api-Key": apiKey,
       "Cache-Control": "no-cache",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ api_key: apiKey, ...body }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
@@ -78,23 +80,12 @@ export async function searchNoWebsiteCompanies(opts: {
   apiKey: string;
   limit?: number;
 }): Promise<ProspectSignal[]> {
-  const industries = [
-    "legal services",
-    "accounting",
-    "construction",
-    "architecture & planning",
-    "real estate",
-    "facilities services",
-    "restaurants",
-    "health, wellness and fitness",
-    "consumer services",
-  ];
-
+  // Broad search — filter website_url=null afterwards.
+  // No keyword tags to avoid over-filtering.
   const data = await apolloPost(opts.apiKey, "/mixed_companies/search", {
     organization_locations: ["Sweden"],
     organization_num_employees_ranges: ["1,9", "10,49"],
-    q_organization_keyword_tags: industries,
-    per_page: Math.min(opts.limit ?? 20, 100),
+    per_page: Math.min((opts.limit ?? 10) * 5, 100), // fetch more, filter down
     page: 1,
   });
 
@@ -172,7 +163,6 @@ export async function searchCompaniesWithSignal(opts: {
     organization_locations: ["Sweden"],
     organization_num_employees_ranges: ["10,49", "50,199"],
     q_organization_job_titles: config.jobTitles,
-    q_organization_keyword_tags: config.keywords,
     per_page: Math.min(opts.limit ?? 15, 100),
     page: 1,
   });
