@@ -413,7 +413,11 @@ export async function fetchAppDevSignals(
     location: string;
   };
 
-  const STAFFING_KEYWORDS = ["adecco", "randstad", "manpower", "poolia", "academicwork", "academic work", "experis", "jeffersonwells"];
+  const STAFFING_KEYWORDS = [
+    "adecco", "randstad", "manpower", "poolia", "academicwork", "academic work",
+    "experis", "jeffersonwells", "jobbusters", "onepartnergroup", "techrytera",
+    "recruitive", "lernia", "perido", "dfind", "wise",
+  ];
   const NON_ICP_APP = ["region ", "landsting", "kommun", "stad ", "sjukhus", "skola", "gymnasium", "högskola", "universitet", "myndighet"];
 
   const ads: JobAd[] = [];
