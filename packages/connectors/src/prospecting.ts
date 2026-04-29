@@ -80,7 +80,7 @@ function sleep(ms: number) {
 async function fetchWithRetry(
   url: string,
   opts: RequestInit = {},
-  retries = 1,           // max 1 retry (2 attempts total) — avoids long stalls
+  retries = 0,           // no retries — fail fast to avoid blocking the whole run
 ): Promise<Response> {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -90,7 +90,7 @@ async function fetchWithRetry(
           "User-Agent": "AgentHub-SalesAgent/1.0 (+https://weknowit.se)",
           ...(opts.headers ?? {}),
         },
-        signal: AbortSignal.timeout(8000),   // 8 s hard cap per attempt
+        signal: AbortSignal.timeout(5000),   // 5 s hard cap — fail fast if site is blocked/down
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res;

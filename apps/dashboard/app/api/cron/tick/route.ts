@@ -79,6 +79,19 @@ export async function POST(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const now = new Date();
 
+  // Clean up stuck runs: any run still "running" after 12 minutes is orphaned
+  // (lambda was killed, server crashed, etc.). Mark them failed so the UI clears.
+  const stuckCutoff = new Date(now.getTime() - 12 * 60 * 1000).toISOString();
+  await admin
+    .from("agent_runs")
+    .update({
+      status: "failed",
+      error: "Run timed out — process was killed before completion. Try running the agent again.",
+      finished_at: now.toISOString(),
+    })
+    .eq("status", "running")
+    .lt("started_at", stuckCutoff);
+
   const { data: rows, error } = await admin
     .from("agents")
     .select(
