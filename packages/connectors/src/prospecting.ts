@@ -823,6 +823,23 @@ function inferDomain(companyName: string): string {
   );
 }
 
+// Generic/catchall email prefixes — these should NEVER end up in contact_emails.
+// If only these exist on a page, the agent falls through to email_candidates (generated
+// from VD name) or the info@ fallback. This is intentional: info@ gets [VERIFIERA ADRESS].
+const GENERIC_PREFIXES = [
+  "info", "kontakt", "contact", "hej", "hello", "noreply", "no-reply",
+  "support", "admin", "reception", "hallo", "service", "mail", "post",
+  "kontor", "kundtjanst", "kundservice", "order", "bokning", "booking",
+  "webb", "web", "press", "media", "hr", "jobb", "jobs", "career", "careers",
+];
+
+function isGenericEmail(email: string): boolean {
+  const local = (email.split("@")[0] ?? "").toLowerCase();
+  return GENERIC_PREFIXES.some(
+    (p) => local === p || local.startsWith(p + ".") || local.startsWith(p + "-") || local.startsWith(p + "_"),
+  );
+}
+
 function extractEmails(html: string, preferredDomain: string): string[] {
   const NOISE = ["example.", "sentry.", "w3.org", "schema.org", "apple.com", "microsoft.com"];
   const all = [...html.matchAll(EMAIL_RE)]
@@ -832,14 +849,15 @@ function extractEmails(html: string, preferredDomain: string): string[] {
       const parts = e.split("@");
       const d = parts[1] ?? "";
       if (NOISE.some((n) => d.includes(n))) return false;
-      // Skip image/asset false positives
       if (/\.(png|jpg|gif|svg|webp|ico|css|js)$/.test(e)) return false;
       return true;
     });
-  // Prefer emails on the company's own domain
-  const onDomain = all.filter((e) => e.includes(preferredDomain));
-  const others = all.filter((e) => !e.includes(preferredDomain));
-  return [...new Set([...onDomain, ...others])].slice(0, 5);
+  // Only return personal emails (non-generic) on the company's own domain.
+  // Generic addresses (info@, kontakt@, etc.) are excluded so the agent falls
+  // through to personalized email_candidates generated from VD name.
+  const personal = all.filter((e) => e.includes(preferredDomain) && !isGenericEmail(e));
+  const personalOther = all.filter((e) => !e.includes(preferredDomain) && !isGenericEmail(e));
+  return [...new Set([...personal, ...personalOther])].slice(0, 5);
 }
 
 function extractContactNames(html: string): string[] {
