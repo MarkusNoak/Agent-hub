@@ -1,6 +1,7 @@
 "use server";
 
-import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { upsertIntegration } from "@/lib/upsert-integration";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -38,22 +39,18 @@ export async function saveSlack(formData: FormData): Promise<ActionResult> {
     return { ok: false, error: `Webhook-test misslyckades (HTTP ${testRes.status}). Kontrollera URL:en.` };
   }
 
-  const admin = createSupabaseAdminClient();
   const credentials: Record<string, string> = { notification_webhook: webhookUrl };
   if (botToken) credentials.bot_token = botToken;
 
-  const { error } = await admin.from("integrations").upsert(
-    {
-      tenant_id: tenantId,
-      kind: "slack",
-      label: "Slack",
-      status: "active",
-      credentials,
-      config: {},
-      last_synced_at: new Date().toISOString(),
-    },
-    { onConflict: "tenant_id,kind,label" },
-  );
+  const { error } = await upsertIntegration({
+    tenant_id: tenantId,
+    kind: "slack",
+    label: "Slack",
+    status: "active",
+    credentials,
+    config: {},
+    last_synced_at: new Date().toISOString(),
+  });
   if (error) return { ok: false, error: `Kunde inte spara: ${error.message}` };
 
   return { ok: true };

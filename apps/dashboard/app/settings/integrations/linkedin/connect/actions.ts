@@ -1,6 +1,7 @@
 "use server";
 
-import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { upsertIntegration } from "@/lib/upsert-integration";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -52,19 +53,15 @@ export async function saveLinkedIn(formData: FormData): Promise<ActionResult> {
     label = fullName ? `LinkedIn (${fullName})` : "LinkedIn";
   }
 
-  const admin = createSupabaseAdminClient();
-  const { error } = await admin.from("integrations").upsert(
-    {
-      tenant_id: tenantId,
-      kind: "linkedin",
-      label,
-      status: "active",
-      credentials: { access_token, author_urn },
-      config: {},
-      last_synced_at: new Date().toISOString(),
-    },
-    { onConflict: "tenant_id,kind,label" },
-  );
+  const { error } = await upsertIntegration({
+    tenant_id: tenantId,
+    kind: "linkedin",
+    label,
+    status: "active",
+    credentials: { access_token, author_urn },
+    config: {},
+    last_synced_at: new Date().toISOString(),
+  });
   if (error) return { ok: false, error: `Kunde inte spara integration: ${error.message}` };
 
   return { ok: true };

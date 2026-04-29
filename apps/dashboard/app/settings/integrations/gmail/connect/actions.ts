@@ -1,7 +1,8 @@
 "use server";
 
 import nodemailer from "nodemailer";
-import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { upsertIntegration } from "@/lib/upsert-integration";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -37,7 +38,6 @@ export async function saveGmailSmtp(formData: FormData): Promise<ActionResult> {
     return { ok: false, error: "Bara owner eller admin kan koppla integrations." };
   }
 
-  // Verify SMTP credentials before saving.
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 587,
@@ -57,34 +57,30 @@ export async function saveGmailSmtp(formData: FormData): Promise<ActionResult> {
     return { ok: false, error: `SMTP-verifiering misslyckades: ${raw}.${hint}` };
   }
 
-  const admin = createSupabaseAdminClient();
-  const { error: upsertErr } = await admin
-    .from("integrations")
-    .upsert(
-      {
-        tenant_id: tenantId,
-        kind: "gmail",
-        label: `Gmail (${from})`,
-        status: "active",
-        credentials: { from, password },
-        config: { transport: "smtp", host: "smtp.gmail.com", port: 587 },
-        last_synced_at: new Date().toISOString(),
-      },
-      { onConflict: "tenant_id,kind,label" },
-    );
+  // Gmail supports multiple accounts per tenant (one per email address)
+  const { error } = await upsertIntegration(
+    {
+      tenant_id: tenantId,
+      kind: "gmail",
+      label: `Gmail (${from})`,
+      status: "active",
+      credentials: { from, password },
+      config: { transport: "smtp", host: "smtp.gmail.com", port: 587 },
+      last_synced_at: new Date().toISOString(),
+    },
+    { multiAccount: true },
+  );
 
-  if (upsertErr) {
-    return { ok: false, error: `Kunde inte spara integration: ${upsertErr.message}` };
-  }
+  if (error) return { ok: false, error: `Kunde inte spara integration: ${error.message}` };
 
-  await admin.from("audit_log").insert({
+  await supa.from("audit_log").insert({
     tenant_id: tenantId,
     actor: `user:${auth.user.id}`,
     action: "integration.connected",
     subject_type: "integrations",
     subject_id: null,
     metadata: { kind: "gmail", transport: "smtp", from },
-  });
+  }).then(() => {});
 
   return { ok: true };
 }

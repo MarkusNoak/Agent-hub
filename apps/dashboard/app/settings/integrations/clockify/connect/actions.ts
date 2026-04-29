@@ -1,6 +1,7 @@
 "use server";
 
-import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase-server";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { upsertIntegration } from "@/lib/upsert-integration";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -41,19 +42,15 @@ export async function saveClockify(formData: FormData): Promise<ActionResult> {
   }
   const workspace = await testRes.json() as { name?: string };
 
-  const admin = createSupabaseAdminClient();
-  const { error } = await admin.from("integrations").upsert(
-    {
-      tenant_id: tenantId,
-      kind: "clockify",
-      label: `Clockify (${workspace.name ?? workspaceId})`,
-      status: "active",
-      credentials: { api_key: apiKey, workspace_id: workspaceId },
-      config: { workspace_id: workspaceId },
-      last_synced_at: new Date().toISOString(),
-    },
-    { onConflict: "tenant_id,kind,label" },
-  );
+  const { error } = await upsertIntegration({
+    tenant_id: tenantId,
+    kind: "clockify",
+    label: `Clockify (${workspace.name ?? workspaceId})`,
+    status: "active",
+    credentials: { api_key: apiKey, workspace_id: workspaceId },
+    config: { workspace_id: workspaceId },
+    last_synced_at: new Date().toISOString(),
+  });
   if (error) return { ok: false, error: `Kunde inte spara: ${error.message}` };
 
   return { ok: true };
