@@ -167,7 +167,10 @@ export async function executeAgent<O = unknown>(
         content: resp.content,
       });
 
-      messages.push({ role: "assistant", content: resp.content });
+      const assistantContent = resp.content.filter(
+        (b) => !(b.type === "text" && !b.text?.trim()),
+      );
+      messages.push({ role: "assistant", content: assistantContent });
 
       if (resp.stop_reason === "end_turn") {
         finalOutput = extractFinalJson(resp.content);
@@ -217,7 +220,7 @@ export async function executeAgent<O = unknown>(
           toolResults.push({
             type: "tool_result",
             tool_use_id: block.id,
-            content: asText,
+            content: asText.trim() || "(empty)",
           });
           await logStep(supabase, tenant.tenantId, runId, iterations, "tool_result", {
             name: block.name,
