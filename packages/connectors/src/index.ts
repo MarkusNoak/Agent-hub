@@ -8,5 +8,5 @@ export * from "./slack.js";
 export * from "./prospecting.js";
 export * from "./google-ads.js";
 export * from "./apollo.js";
-export * from "./google-places.js";
+export * from "./overpass.js";
 export * from "./registry.js";

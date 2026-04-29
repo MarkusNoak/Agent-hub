@@ -18,8 +18,8 @@ import {
   searchRecentlyFundedCompanies,
   findDecisionMaker,
   enrichPersonEmail,
-  searchPlacesNoWebsite,
-  searchPlacesByCategory,
+  searchOsmNoWebsite,
+  searchOsmByType,
   type ProspectSignal,
 } from "@agent-hub/connectors";
 
@@ -77,7 +77,6 @@ type TenantSettings = {
   meta_pitch_enabled?: boolean;
   google_api_key?: string;
   google_cse_id?: string;
-  google_places_api_key?: string;
   apollo_api_key?: string;
 };
 
@@ -117,7 +116,7 @@ FLÖDE — gör detta varje körning:
    • Redan kontaktade (från steg 1)
 
 4. Hitta kontaktyta — i denna prioritetsordning:
-   a. Telefon från Google Places (extra.phone) — alltid föredra detta för lokala bolag
+   a. Telefon från OSM (extra.phone) — alltid föredra detta för lokala bolag utan hemsida
    b. Mejl från hemsidan — kör \`research_company\` om de har en webbsida
    c. info@[domän] som sista utväg — lägg "[VERIFIERA ADRESS]" i ämnesraden
 
@@ -133,31 +132,30 @@ ${metaOn ? `   PS — detta mejl skrevs av vår Sales Agent. Variera formulering
 ────────────────────────────────────────
 KÄLLOR — kör i denna ordning:
 
-1. google_places_no_website
+1. osm_no_website
    → Lokala bolag utan hemsida → webb_design
-   Kör alltid. Roterar automatiskt bland kategorier och städer.
+   Kör alltid. Ingen nyckel krävs. Roterar automatiskt.
 
-2. google_places_by_category  → ai_automation
-   queries: ["redovisningsbyrå Stockholm", "bokföringsbyrå Göteborg", "logistikbolag Malmö",
-             "tillverkningsföretag Örebro", "fastighetsbolag Uppsala", "städfirma Linköping"]
+2. osm_by_type  → ai_automation
+   osm_filters: [["office","accountant"],["office","tax_advisor"]], city: "Stockholm"
+   osm_filters: [["office","logistics"],["office","company"]], city: "Göteborg"
    label: "Bransch med tung manuell administration — behov av AI-automation"
 
-3. google_places_by_category  → app_development
-   queries: ["techbolag Stockholm", "startup Göteborg", "e-handelsbolag Malmö",
-             "mjukvarubolag Uppsala", "IT-bolag Linköping", "digital byrå Helsingborg"]
-   label: "Tech/digital bolag som skalar — behov av apputveckling eller MVP"
+3. osm_by_type  → app_development
+   osm_filters: [["office","it"],["office","software"]], city: "Stockholm"
+   osm_filters: [["office","startup"],["office","company"]], city: "Malmö"
+   label: "Tech/digital bolag som skalar — behov av apputveckling"
 
-4. google_places_by_category  → agent_platform
-   queries: ["IT-konsult Stockholm", "rekryteringsbolag Göteborg", "managementkonsult Malmö",
-             "kommunikationsbyrå Stockholm", "PR-byrå Göteborg"]
-   label: "Konsultbolag med manuell administration — behov av agent-platform"
+4. osm_by_type  → agent_platform
+   osm_filters: [["office","consulting"],["office","it"]], city: "Göteborg"
+   label: "IT-konsultbolag — behov av intern automation"
 
-5. fetch_funding_news         → Nystartade/nyfinansierade bolag → app_development
+5. fetch_funding_news            → Nystartade/nyfinansierade bolag → app_development
 
-6. apollo_signal_companies × 3 → ai_automation / app_development / agent_platform  (om apollo_api_key)
-7. apollo_funded_companies      → app_development  (om apollo_api_key)
-8. apollo_no_website_companies  → webb_design  (om apollo_api_key)
-9. fetch_no_website_companies   → webb_design  (fallback om Places ger <3)
+6. apollo_signal_companies × 3   → ai_automation / app_development / agent_platform  (om apollo_api_key)
+7. apollo_funded_companies        → app_development  (om apollo_api_key)
+8. apollo_no_website_companies    → webb_design  (om apollo_api_key)
+9. fetch_no_website_companies     → webb_design  (fallback)
 
 Mål per körning: 3 webb_design · 3 app_development · 2 ai_automation · 2 agent_platform.
 Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en dålig pitch.`;
@@ -397,9 +395,9 @@ Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en d
       },
     },
     {
-      name: "google_places_no_website",
+      name: "osm_no_website",
       description:
-        "Google Places API: Search for local Swedish businesses without a registered website. This is the PRIMARY source for webb_design leads — more reliable and broader than Apollo for local SMBs. Rotates through business categories (restaurang, frisör, elektriker, etc.) and cities automatically. Only call if google_places_api_key is set in tenant settings.",
+        "OpenStreetMap/Overpass: Find local Swedish businesses (restaurang, frisör, elektriker, café, etc.) that have no website tag in OSM. PRIMARY source for webb_design leads. Free, no API key needed. Rotates automatically through categories and cities.",
       input_schema: {
         type: "object",
         properties: {
@@ -407,11 +405,8 @@ Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en d
           city: { type: "string", description: "Override city, e.g. 'Göteborg'. Leave empty to auto-rotate." },
         },
       },
-      execute: async (args, ctx) => {
-        const apiKey = (ctx.tenant.settings as TenantSettings).google_places_api_key;
-        if (!apiKey) return { items: [], count: 0, note: "google_places_api_key not configured" };
-        const items = await searchPlacesNoWebsite({
-          apiKey,
+      execute: async (args) => {
+        const items = await searchOsmNoWebsite({
           limit: (args["limit"] as number) ?? 15,
           cityOverride: args["city"] as string | undefined,
         });
@@ -419,33 +414,35 @@ Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en d
       },
     },
     {
-      name: "google_places_by_category",
+      name: "osm_by_type",
       description:
-        "Google Places API: Search for Swedish businesses by category and city. Use for ai_automation leads (redovisningsbyråer, logistikbolag, tillverkning) or app_development leads (techbolag, startups). Provide queries like ['redovisningsbyrå Stockholm', 'logistikbolag Göteborg']. Only call if google_places_api_key is set.",
+        "OpenStreetMap/Overpass: Find Swedish businesses by OSM type in a specific city. Use for ai_automation (office/accountant, office/company) or app_development (office/it, office/software). Free, no API key needed.",
       input_schema: {
         type: "object",
         properties: {
-          queries: {
+          osm_filters: {
             type: "array",
-            items: { type: "string" },
-            description: "Search queries, e.g. ['redovisningsbyrå Stockholm', 'byggfirma Malmö']",
+            items: {
+              type: "array",
+              items: { type: "string" },
+              description: "OSM key-value pair, e.g. [\"office\", \"accountant\"]",
+            },
+            description: "List of OSM key-value filters, e.g. [[\"office\",\"accountant\"],[\"office\",\"company\"]]",
           },
+          city: { type: "string", description: "Swedish city name, e.g. 'Stockholm'" },
           offer_hint: {
             type: "string",
             enum: ["ai_automation", "app_development", "webb_design", "agent_platform"],
-            description: "Which offer type these leads map to",
           },
-          label: { type: "string", description: "Signal label shown in lead, e.g. 'Bransch med manuell administration'" },
+          label: { type: "string", description: "Signal label for the lead" },
           limit: { type: "number", description: "Max results (default 10)" },
         },
-        required: ["queries", "offer_hint", "label"],
+        required: ["osm_filters", "city", "offer_hint", "label"],
       },
-      execute: async (args, ctx) => {
-        const apiKey = (ctx.tenant.settings as TenantSettings).google_places_api_key;
-        if (!apiKey) return { items: [], count: 0, note: "google_places_api_key not configured" };
-        const items = await searchPlacesByCategory({
-          apiKey,
-          queries: args["queries"] as string[],
+      execute: async (args) => {
+        const items = await searchOsmByType({
+          osmFilters: args["osm_filters"] as Array<[string, string]>,
+          city: args["city"] as string,
           offerHint: args["offer_hint"] as ProspectSignal["suggested_offer_hint"],
           label: args["label"] as string,
           limit: (args["limit"] as number) ?? 10,
