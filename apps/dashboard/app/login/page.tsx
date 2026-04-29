@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { Target, Mail, BarChart3, CheckCircle2, ArrowLeft } from "lucide-react";
+import { Bot, ShieldCheck, BarChart3, CheckCircle2, ArrowLeft } from "lucide-react";
 
 const features = [
-  { Icon: Target,   label: "Sales agent — leads på autopilot" },
-  { Icon: Mail,     label: "Outreach godkänns av dig innan sändning" },
-  { Icon: BarChart3, label: "Full insyn i varje körning och kostnad" },
+  { Icon: Bot,         label: "Flera AI-agenter — sälj, faktura, projekt, support" },
+  { Icon: ShieldCheck, label: "Alla åtgärder godkänns av dig innan de körs" },
+  { Icon: BarChart3,   label: "Full insyn i varje körning och kostnad" },
 ];
 
 export default function LoginPage() {
@@ -64,11 +64,11 @@ export default function LoginPage() {
           </div>
 
           <h2 className="text-white text-[36px] font-bold tracking-[-0.03em] leading-[1.1]">
-            Din AI-sälj&shy;avdelning.<br />
-            <span style={{ color: "rgb(232 160 32 / 0.9)" }}>Alltid aktiv.</span>
+            Ditt AI-team.<br />
+            <span style={{ color: "rgb(232 160 32 / 0.9)" }}>Alltid aktivt.</span>
           </h2>
           <p className="mt-5 leading-relaxed max-w-[300px]" style={{ fontSize: 14, color: "rgb(255 255 255 / 0.38)" }}>
-            Agent Hub hittar leads, skriver outreach och håller kunder uppdaterade — medan du fokuserar på det som skapar affärer.
+            Agent Hub samlar dina AI-agenter på ett ställe — de sköter sälj, fakturering, projektuppföljning och support medan du fokuserar på affärerna.
           </p>
         </div>
 
