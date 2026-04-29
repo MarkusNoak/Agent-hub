@@ -13,6 +13,11 @@ import {
   researchCompany,
   validateEmailDomain,
   fetchNoWebsiteCompanies,
+  searchNoWebsiteCompanies,
+  searchCompaniesWithSignal,
+  searchRecentlyFundedCompanies,
+  findDecisionMaker,
+  enrichPersonEmail,
 } from "@agent-hub/connectors";
 
 const OfferTypeEnum = z.enum([
@@ -69,13 +74,14 @@ type TenantSettings = {
   meta_pitch_enabled?: boolean;
   google_api_key?: string;
   google_cse_id?: string;
+  apollo_api_key?: string;
 };
 
 export const salesAgent: AgentDefinition = {
   kind: "sales",
   displayName: "Sales Agent",
   description:
-    "Pulls prospects from 7 free sources (Breakit/DI RSS, Allabolag, Arbetsförmedlingen AI-roles, Arbetsförmedlingen growth-roles, Google CSE, Visma upsell, Allabolag DNS-check), matches each to the right revenue line (webb / app / ai-auto / agent_platform / upsell), and drafts personalized outreach.",
+    "Pulls prospects from 10 sources (RSS, Allabolag, Arbetsförmedlingen, Google CSE, Visma upsell, DNS-check + Apollo: no-website companies, signal-based company search, recently funded companies, contact enrichment), matches each to the right revenue line (webb / app / ai-auto / agent_platform / upsell), and drafts personalized outreach.",
   requiresApproval: true,
   defaultCron: "0 8 * * *",
   inputSchema: InputSchema,
@@ -99,8 +105,8 @@ REVENUE LINES & WKIT OFFERINGS (ACTIVE)
 • ai_automation    — Bounded AI integrations (invoice handling, customer service bots, admin automation). Target: companies with 10–150 employees hiring manual admin roles. CTA: "gratis 30-min AI-audit".
 
 Core ICP: ${coreIcp.industries?.join(", ") ?? "B2B, professional services, tech, real estate, construction"} · ${coreIcp.company_size ?? "10–200 anställda"} · ${coreIcp.geography?.join(", ") ?? "SE/NO/DK/FI"}
-Platform ICP: ${platformIcp.industries?.join(", ") ?? "agencies, consulting, recruitment, professional services"} · ${platformIcp.company_size ?? "5–100 anställda"}
-Platform pain signals (gold): ${(platformIcp.pains ?? ["manual invoice chasing", "weekly status reports by hand", "founder-led outreach", "manual timereporting"]).join("; ")}
+Platform ICP: ${platformIcp.industries?.join(", ") ?? "IT-konsultbolag, rekrytering, kommunikationsbyråer, digital marknadsföring, managementkonsulter, PR-byråer"} · ${platformIcp.company_size ?? "5–100 anställda"}
+Platform pain signals (gold): ${(platformIcp.pains ?? ["manual invoice chasing", "weekly status reports by hand", "founder-led outreach", "manual timereporting", "konsultbolag med manuell timrapportering", "IT-bolag utan intern automation", "digital byrå med manuell kundrapportering"]).join("; ")}
 
 ${metaOn ? `META-PITCH RULE (for offer_type=agent_platform):
 The outreach MUST include a short PS revealing this email was written by the Sales Agent itself. Vary wording. Example:
@@ -128,7 +134,7 @@ SKIP RULES — always skip these, regardless of score:
 • Staffing/bemanning (hiring for others): Adecco, Randstad, Manpower, Poolia, Academic Work, etc.
   EXCEPTION: staffing companies ARE valid prospects for agent_platform.
 • Extremt stora bolag: >500 anställda (for webb_design/app_dev) or >200 (for ai_automation) — de har egna IT-avdelningar.
-• IT-bolag/webbbyråer: systhutvecklingsbolag, webbbyråer, IT-konsultfirmor — de är konkurrenter.
+• IT-bolag/webbbyråer för webb_design/app_development: systemutvecklingsbolag och webbbyråer ska INTE pitchas webb_design eller app_development (de gör det själva). MEN — IT-konsultbolag, digitala byråer och kommunikationsbyråer är PRIME TARGETS för agent_platform (de har manuell kundrapportering, timrapportering, offerthantering, intern admin). Matcha offer_type noggrant: webb/app → ej IT-bolag. agent_platform → IT-konsulter och digitala byråer är guldleads.
 ────────────────────────────────────────
 DEDUP RULE (MANDATORY — do this FIRST):
 1. Call \`list_recent_outreach\` ONCE at the start of every run.
@@ -137,22 +143,33 @@ DEDUP RULE (MANDATORY — do this FIRST):
 4. Within the same run, also skip a company the SECOND time it appears.
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
-DATA SOURCES — MANDATORY: CALL ALL 6 EVERY RUN
+DATA SOURCES — MANDATORY: CALL ALL SOURCES EVERY RUN
 You MUST call every tool below. Do NOT skip any source. Even if one source returns 0 results, call it anyway so all signal types are covered. Distribute max_drafts across sources — never use all slots on a single source.
 
 SOURCE → OFFER TYPE MAPPING:
-1. fetch_no_website_companies    Allabolag + DNS. No website → webb_design (HIGHEST priority — strongest buying signal).
-2. search_weak_digital_presence  Google CSE (proff.se, hitta.se, allabolag.se, linkedin.se).
-3. fetch_funding_news            Breakit/DI/NyTeknik RSS. Funding → app_development.
-4. scrape_allabolag              ICP SNI filter 10–99 anst → ai_automation or webb_design.
-5. fetch_ai_replaceable_jobs     Arbetsförmedlingen admin roles → ai_automation.
-6. fetch_app_dev_signals         Arbetsförmedlingen digital roles → app_development.
+── Allabolag + DNS (free scraping) ───────────────────────────────────
+1. fetch_no_website_companies    Allabolag + DNS check. No website → webb_design (HIGHEST priority).
+2. scrape_allabolag              SNI filter 10–99 anst → ai_automation / agent_platform.
+── Arbetsförmedlingen (free API) ─────────────────────────────────────
+3. fetch_ai_replaceable_jobs     Admin roles → ai_automation.
+4. fetch_app_dev_signals         Digital/tech roles → app_development.
+── Media RSS (free) ──────────────────────────────────────────────────
+5. fetch_funding_news            Breakit/DI/NyTeknik → app_development.
+── Google CSE (free, if configured) ─────────────────────────────────
+6. search_weak_digital_presence  Google CSE queries → webb_design / app_development / agent_platform.
+── Apollo.io (call if apollo_api_key is set in settings) ────────────
+7. apollo_no_website_companies   Apollo: SE companies with no website in DB → webb_design. Stronger signal than DNS.
+8. apollo_signal_companies       Apollo: SE companies actively hiring ICP roles → ai_automation / app_development / agent_platform.
+9. apollo_funded_companies       Apollo: Recently funded SE companies → app_development.
+── Visma upsell (existing customers) ────────────────────────────────
+10. fetch_visma_upsell_candidates Warm leads 14-60 days post-delivery → upsell.
 
 TARGET DISTRIBUTION per run (max_drafts=10 example):
-  webb_design      4 (from fetch_no_website_companies + search_weak_digital_presence + scrape_allabolag)
-  app_development  3 (from fetch_funding_news + fetch_app_dev_signals)
-  ai_automation    3 (from fetch_ai_replaceable_jobs + scrape_allabolag)
-Adjust proportions if one source returns 0 results, but always aim for variety across all three offer types.
+  webb_design      3 (fetch_no_website_companies + apollo_no_website_companies)
+  app_development  3 (fetch_funding_news + fetch_app_dev_signals + apollo_funded_companies)
+  ai_automation    2 (fetch_ai_replaceable_jobs + apollo_signal_companies)
+  agent_platform   2 (scrape_allabolag + apollo_signal_companies)
+Adjust proportions if one source returns 0 results, but always aim for variety across all offer types.
 Quality over quantity: only queue prospects with clear ICP fit (score ≥ 60). A short list of strong leads beats a long list of junk.
 
 ────────────────────────────────────────
@@ -171,21 +188,25 @@ ENRICHMENT TOOLS (use after scoring, before upsert_lead):
 ────────────────────────────────────────
 DECISION FLOW:
 1. Call \`list_recent_outreach\` first.
-2. Call all 6 sources (fetch_no_website_companies, search_weak_digital_presence,
-   fetch_funding_news, scrape_allabolag, fetch_ai_replaceable_jobs, fetch_app_dev_signals).
+2. Call ALL sources (fetch_no_website_companies, search_weak_digital_presence,
+   fetch_funding_news, scrape_allabolag, fetch_ai_replaceable_jobs, fetch_app_dev_signals,
+   and if apollo_api_key is set: apollo_no_website_companies, apollo_signal_companies, apollo_funded_companies).
 3. For each returned prospect:
    a. If source=funding_news → extract actual company name from headline.
    b. Score ICP fit 0–100. Skip if score < 60.
    c. Pick ONE offer_type using SOURCE → OFFER TYPE MAPPING above.
    d. Call \`research_company\` — required for EVERY prospect. No exceptions.
    e. Call \`validate_email_domain\` on the domain. Skip if confidence=unknown.
-   f. Select to_email using TO-EMAIL SELECTION RULE above (steps 1→2→3).
-   g. \`upsert_lead\` with all signals + enriched contact data. DO NOT invent lead_id.
-   h. \`draft_outreach_approval\` with ≤130-word Swedish email.
-      • Use the to_email and greeting from steps f and GREETING RULE.
+   f. If research_company returned no contact_emails AND no email_candidates (no VD name found):
+      → Call \`apollo_find_decision_maker\` (FREE) to get the VD/founder name.
+      → If still no email: call \`apollo_enrich_contact\` (1 credit) ONLY for score ≥ 80 leads.
+   g. Select to_email using TO-EMAIL SELECTION RULE above (steps 1→2→3).
+   h. \`upsert_lead\` with all signals + enriched contact data. DO NOT invent lead_id.
+   i. \`draft_outreach_approval\` with ≤130-word Swedish email.
+      • Use the to_email and greeting from steps g and GREETING RULE.
       • Personalise body using key_facts (employees, revenue, what the company does).
       • Add "[VERIFIERA ADRESS]" to subject ONLY when using email_candidates or info@ fallback.
-4. Respect input.max_drafts across all sources. Distribute across all three offer types.
+4. Respect input.max_drafts across all sources. Distribute across all offer types.
 5. NEVER send — everything queues via draft_outreach_approval.
 Offers available: ${offers.join(", ")}.`;
   },
@@ -275,7 +296,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "scrape_allabolag",
       description:
-        "Scrape Allabolag.se for companies in ICP-relevant SNI codes with 10–99 employees. SNI codes: 69109 (advokatbyråer), 69200 (redovisning/revision), 71110 (arkitektkontor), 73110 (reklam/kommunikationsbyråer), 70220 (managementkonsulter), 68100 (fastighetsbolag). IT-bolag (62020) är exkluderade — konkurrenter. Signals → ai_automation or agent_platform.",
+        "Scrape Allabolag.se for companies in ICP-relevant SNI codes with 10–99 employees. SNI codes: 69109 (advokatbyråer), 69200 (redovisning/revision), 71110 (arkitektkontor), 73110 (reklam/kommunikationsbyråer), 70220 (managementkonsulter), 68100 (fastighetsbolag), 62020 (IT-konsultbolag → agent_platform), 73200 (digital marknadsföring/marknadsundersökning → agent_platform), 74909 (övriga konsulter → agent_platform). IT-konsultbolag (62020) är INTE konkurrenter — de är prime targets för agent_platform eftersom de saknar intern automation. Signals → ai_automation or agent_platform.",
       input_schema: {
         type: "object",
         properties: {
@@ -305,7 +326,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "fetch_app_dev_signals",
       description:
-        "Fetch job ads for growth/scaling roles (produktägare, digital projektledare, systemutvecklare, webbutvecklare). Companies hiring these roles are scaling and need app_development help. Staffing firms are excluded.",
+        "Fetch job ads for digital/tech hiring roles (produktägare, digital projektledare, systemutvecklare, webbutvecklare, apputvecklare, mobilutvecklare, frontend-utvecklare, backend-utvecklare, fullstack-utvecklare, iOS/Android-utvecklare, digital marknadsföring, performance marketing). Companies hiring these roles are scaling their digital capability and need app_development help. Staffing firms are excluded.",
       input_schema: {
         type: "object",
         properties: {
@@ -404,6 +425,116 @@ Offers available: ${offers.join(", ")}.`;
       execute: async (args) => {
         const items = await fetchNoWebsiteCompanies({ limit: (args["limit"] as number) ?? 8 });
         return { items, count: items.length };
+      },
+    },
+    {
+      name: "apollo_no_website_companies",
+      description:
+        "Apollo.io: Search for Swedish companies (10–200 employees) that have no website registered in Apollo's database. Returns verified company data with industry, size, location. FREE — no credits used. Only call if apollo_api_key is set in tenant settings.",
+      input_schema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max results (default 10)" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const apiKey = (ctx.tenant.settings as TenantSettings).apollo_api_key;
+        if (!apiKey) return { items: [], count: 0, note: "apollo_api_key not configured" };
+        const items = await searchNoWebsiteCompanies({ apiKey, limit: (args["limit"] as number) ?? 10 });
+        return { items, count: items.length };
+      },
+    },
+    {
+      name: "apollo_signal_companies",
+      description:
+        "Apollo.io: Search for Swedish companies actively hiring roles that signal need for WKIT services. signal_type options: 'ai_automation' (hiring admin roles), 'app_development' (hiring dev/tech roles), 'agent_platform' (IT-konsultbolag & digitala byråer). FREE — no credits used. Only call if apollo_api_key is set.",
+      input_schema: {
+        type: "object",
+        properties: {
+          signal_type: {
+            type: "string",
+            enum: ["ai_automation", "app_development", "agent_platform"],
+            description: "Type of buying signal to search for",
+          },
+          limit: { type: "number", description: "Max results (default 10)" },
+        },
+        required: ["signal_type"],
+      },
+      execute: async (args, ctx) => {
+        const apiKey = (ctx.tenant.settings as TenantSettings).apollo_api_key;
+        if (!apiKey) return { items: [], count: 0, note: "apollo_api_key not configured" };
+        const items = await searchCompaniesWithSignal({
+          apiKey,
+          signalType: args["signal_type"] as "ai_automation" | "app_development" | "agent_platform",
+          limit: (args["limit"] as number) ?? 10,
+        });
+        return { items, count: items.length };
+      },
+    },
+    {
+      name: "apollo_funded_companies",
+      description:
+        "Apollo.io: Search for Swedish companies that received funding in the last 6 months. Strong signal for app_development — they have money and need to build. FREE — no credits used. Only call if apollo_api_key is set.",
+      input_schema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max results (default 8)" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const apiKey = (ctx.tenant.settings as TenantSettings).apollo_api_key;
+        if (!apiKey) return { items: [], count: 0, note: "apollo_api_key not configured" };
+        const items = await searchRecentlyFundedCompanies({ apiKey, limit: (args["limit"] as number) ?? 8 });
+        return { items, count: items.length };
+      },
+    },
+    {
+      name: "apollo_find_decision_maker",
+      description:
+        "Apollo.io: Find the VD/founder/owner at a specific company by domain. Returns name and title — NO email (free, no credits). Use this after research_company when no VD name was found via scraping. Then use the name to generate email_candidates.",
+      input_schema: {
+        type: "object",
+        properties: {
+          domain: { type: "string", description: "Company domain, e.g. bolaget.se" },
+          company_name: { type: "string", description: "Company name for context" },
+        },
+        required: ["domain", "company_name"],
+      },
+      execute: async (args, ctx) => {
+        const apiKey = (ctx.tenant.settings as TenantSettings).apollo_api_key;
+        if (!apiKey) return { found: false, note: "apollo_api_key not configured" };
+        const result = await findDecisionMaker({
+          apiKey,
+          domain: String(args["domain"]),
+          companyName: String(args["company_name"]),
+        });
+        return result ?? { found: false };
+      },
+    },
+    {
+      name: "apollo_enrich_contact",
+      description:
+        "Apollo.io: Reveal verified email for a known person. COSTS 1 CREDIT — only use as last resort when research_company AND apollo_find_decision_maker both failed to produce any email, AND the lead has score ≥ 80. Requires first_name, last_name, and domain.",
+      input_schema: {
+        type: "object",
+        properties: {
+          first_name: { type: "string" },
+          last_name: { type: "string" },
+          domain: { type: "string", description: "Company domain, e.g. bolaget.se" },
+          apollo_id: { type: "string", description: "Apollo person ID if known (from apollo_find_decision_maker)" },
+        },
+        required: ["first_name", "last_name", "domain"],
+      },
+      execute: async (args, ctx) => {
+        const apiKey = (ctx.tenant.settings as TenantSettings).apollo_api_key;
+        if (!apiKey) return { email: null, note: "apollo_api_key not configured" };
+        return enrichPersonEmail({
+          apiKey,
+          firstName: String(args["first_name"]),
+          lastName: String(args["last_name"]),
+          domain: String(args["domain"]),
+          apolloId: args["apollo_id"] ? String(args["apollo_id"]) : undefined,
+        });
       },
     },
     {
