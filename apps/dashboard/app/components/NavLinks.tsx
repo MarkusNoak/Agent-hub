@@ -14,6 +14,17 @@ import {
   MessageCircle,
 } from "lucide-react";
 
+type Role = "owner" | "admin" | "approver" | "viewer";
+
+// Roles that have unrestricted access to all nav items.
+const FULL_ACCESS = new Set<Role>(["owner", "admin"]);
+
+// For restricted roles, only these hrefs are visible.
+const ROLE_ALLOWED: Record<string, Set<string>> = {
+  approver: new Set(["/approvals", "/leads"]),
+  viewer:   new Set(["/analytics", "/leads"]),
+};
+
 const groups = [
   {
     label: "Arbetsyta",
@@ -41,78 +52,85 @@ const groups = [
   },
 ];
 
-export function NavLinks() {
+export function NavLinks({ role = "owner" }: { role?: Role }) {
   const pathname = usePathname();
+  const allowed = FULL_ACCESS.has(role) ? null : (ROLE_ALLOWED[role] ?? new Set<string>());
 
   return (
     <nav className="flex-1 px-3 py-1.5 space-y-5 overflow-y-auto no-scrollbar">
-      {groups.map((group) => (
-        <div key={group.label}>
-          {/* Group label */}
-          <div
-            className="px-3 mb-1"
-            style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgb(255 255 255 / 0.2)" }}
-          >
-            {group.label}
-          </div>
+      {groups.map((group) => {
+        const visibleItems = allowed
+          ? group.items.filter((n) => allowed.has(n.href))
+          : group.items;
 
-          <div className="space-y-px">
-            {group.items.map((n) => {
-              const active =
-                n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
+        if (!visibleItems.length) return null;
 
-              return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  className="group flex items-center gap-2.5 px-3 py-[7px] rounded-[10px] text-[13px] font-medium transition-all duration-100 relative"
-                  style={{
-                    background: active ? "rgb(255 255 255 / 0.09)" : "transparent",
-                    color: active ? "rgb(255 255 255 / 0.95)" : "rgb(255 255 255 / 0.38)",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!active) {
-                      (e.currentTarget as HTMLElement).style.background = "rgb(255 255 255 / 0.05)";
-                      (e.currentTarget as HTMLElement).style.color = "rgb(255 255 255 / 0.72)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!active) {
-                      (e.currentTarget as HTMLElement).style.background = "transparent";
-                      (e.currentTarget as HTMLElement).style.color = "rgb(255 255 255 / 0.38)";
-                    }
-                  }}
-                >
-                  {/* Amber active bar */}
-                  {active && (
-                    <span
-                      className="absolute left-0 top-1/2 -translate-y-1/2 rounded-full"
+        return (
+          <div key={group.label}>
+            <div
+              className="px-3 mb-1"
+              style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgb(255 255 255 / 0.2)" }}
+            >
+              {group.label}
+            </div>
+
+            <div className="space-y-px">
+              {visibleItems.map((n) => {
+                const active =
+                  n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
+
+                return (
+                  <Link
+                    key={n.href}
+                    href={n.href}
+                    className="group flex items-center gap-2.5 px-3 py-[7px] rounded-[10px] text-[13px] font-medium transition-all duration-100 relative"
+                    style={{
+                      background: active ? "rgb(255 255 255 / 0.09)" : "transparent",
+                      color: active ? "rgb(255 255 255 / 0.95)" : "rgb(255 255 255 / 0.38)",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!active) {
+                        (e.currentTarget as HTMLElement).style.background = "rgb(255 255 255 / 0.05)";
+                        (e.currentTarget as HTMLElement).style.color = "rgb(255 255 255 / 0.72)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) {
+                        (e.currentTarget as HTMLElement).style.background = "transparent";
+                        (e.currentTarget as HTMLElement).style.color = "rgb(255 255 255 / 0.38)";
+                      }
+                    }}
+                  >
+                    {active && (
+                      <span
+                        className="absolute left-0 top-1/2 -translate-y-1/2 rounded-full"
+                        style={{
+                          width: 3,
+                          height: 18,
+                          background: "linear-gradient(180deg, #f0b030, #e8960c)",
+                          boxShadow: "0 0 8px rgb(232 160 32 / 0.6)",
+                          borderRadius: 2,
+                        }}
+                      />
+                    )}
+
+                    <n.icon
+                      size={14}
+                      strokeWidth={active ? 2.3 : 1.7}
                       style={{
-                        width: 3,
-                        height: 18,
-                        background: "linear-gradient(180deg, #f0b030, #e8960c)",
-                        boxShadow: "0 0 8px rgb(232 160 32 / 0.6)",
-                        borderRadius: 2,
+                        color: active ? "#f0b030" : "inherit",
+                        flexShrink: 0,
+                        transition: "color 0.1s",
                       }}
                     />
-                  )}
-
-                  <n.icon
-                    size={14}
-                    strokeWidth={active ? 2.3 : 1.7}
-                    style={{
-                      color: active ? "#f0b030" : "inherit",
-                      flexShrink: 0,
-                      transition: "color 0.1s",
-                    }}
-                  />
-                  <span>{n.label}</span>
-                </Link>
-              );
-            })}
+                    <span>{n.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }

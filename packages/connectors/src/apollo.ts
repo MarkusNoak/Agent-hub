@@ -122,27 +122,49 @@ export type ApolloSignalType =
   | "agent_platform"
   | "webb_design";
 
+// Each entry is one keyword group → one Apollo call → at most SLOTS_PER_GROUP results.
+// Splitting by group prevents any single high-density category (e.g. staffing/recruitment)
+// from flooding the full result set.
 const SIGNAL_CONFIGS: Array<{
-  keywords: string[];
+  // Each inner array becomes a separate Apollo call.
+  keywordGroups: string[][];
   offer: ApolloSignalType;
   label: string;
 }> = [
   {
-    keywords: ["accounting", "logistics", "manufacturing", "real estate", "property management", "facilities services"],
+    keywordGroups: [
+      ["accounting", "bookkeeping"],
+      ["logistics", "supply chain", "transportation"],
+      ["manufacturing", "industrial"],
+      ["real estate", "property management", "facilities services"],
+    ],
     offer: "ai_automation",
     label: "Bransch med tung manuell administration → behov av AI-automation",
   },
   {
-    keywords: ["software", "technology", "saas", "ecommerce", "fintech", "startup", "mobile apps"],
+    keywordGroups: [
+      ["software", "saas", "mobile apps"],
+      ["ecommerce", "retail technology"],
+      ["fintech", "payments"],
+      ["startup", "scaleup"],
+    ],
     offer: "app_development",
     label: "Tech/startup-bolag som skalar → behov av apputveckling",
   },
   {
-    keywords: ["information technology", "it services", "consulting", "staffing", "recruitment", "marketing and advertising", "public relations", "management consulting"],
+    keywordGroups: [
+      ["information technology", "it services"],
+      ["consulting", "management consulting"],
+      ["staffing", "recruitment"],
+      ["marketing and advertising", "public relations", "digital marketing"],
+    ],
     offer: "agent_platform",
     label: "IT-konsultbolag / digital byrå → prime target för agent_platform",
   },
 ];
+
+// How many results to take from each keyword group call.
+const SLOTS_PER_GROUP = 3;
 
 export async function searchCompaniesWithSignal(opts: {
   apiKey: string;
@@ -152,36 +174,59 @@ export async function searchCompaniesWithSignal(opts: {
   const config = SIGNAL_CONFIGS.find((c) => c.offer === opts.signalType);
   if (!config) return [];
 
-  const data = await apolloPost(opts.apiKey, "/mixed_companies/search", {
-    organization_locations: ["Sweden"],
-    organization_num_employees_ranges: ["10,49", "50,199"],
-    q_organization_keyword_tags: config.keywords,
-    per_page: Math.min(opts.limit ?? 15, 100),
-    page: 1,
-  });
+  const seen = new Set<string>();
+  const results: ProspectSignal[] = [];
 
-  const orgs = (data["organizations"] ?? []) as ApolloOrg[];
+  for (const keywords of config.keywordGroups) {
+    if (results.length >= (opts.limit ?? 12)) break;
 
-  return orgs.slice(0, opts.limit ?? 10).map((o): ProspectSignal => ({
-    source: "digital_presence",
-    company_name: o.name ?? "",
-    signals: [
-      config.label,
-      `Bransch: ${o.industry ?? "okänd"}`,
-      o.city ? `Ort: ${o.city}` : "",
-      o.estimated_num_employees ? `Anställda: ~${o.estimated_num_employees}` : "",
-      o.short_description ? `Beskrivning: ${o.short_description.slice(0, 120)}` : "",
-    ].filter(Boolean),
-    suggested_offer_hint: config.offer,
-    extra: {
-      apollo_id: o.id,
-      primary_domain: o.primary_domain,
-      website_url: o.website_url,
-      industry: o.industry,
-      employees: o.estimated_num_employees,
-      linkedin_url: o.linkedin_url,
-    },
-  }));
+    let data: Record<string, unknown>;
+    try {
+      data = await apolloPost(opts.apiKey, "/mixed_companies/search", {
+        organization_locations: ["Sweden"],
+        organization_num_employees_ranges: ["10,49", "50,199"],
+        q_organization_keyword_tags: keywords,
+        per_page: SLOTS_PER_GROUP * 3, // fetch a few extra in case of dupes
+        page: 1,
+      });
+    } catch {
+      continue; // skip this group on error, try next
+    }
+
+    const orgs = (data["organizations"] ?? []) as ApolloOrg[];
+    let taken = 0;
+
+    for (const o of orgs) {
+      if (taken >= SLOTS_PER_GROUP) break;
+      const key = o.id ?? o.name ?? "";
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      taken++;
+
+      results.push({
+        source: "digital_presence",
+        company_name: o.name ?? "",
+        signals: [
+          config.label,
+          `Bransch: ${o.industry ?? "okänd"}`,
+          o.city ? `Ort: ${o.city}` : "",
+          o.estimated_num_employees ? `Anställda: ~${o.estimated_num_employees}` : "",
+          o.short_description ? `Beskrivning: ${o.short_description.slice(0, 120)}` : "",
+        ].filter(Boolean),
+        suggested_offer_hint: config.offer,
+        extra: {
+          apollo_id: o.id,
+          primary_domain: o.primary_domain,
+          website_url: o.website_url,
+          industry: o.industry,
+          employees: o.estimated_num_employees,
+          linkedin_url: o.linkedin_url,
+        },
+      });
+    }
+  }
+
+  return results.slice(0, opts.limit ?? 12);
 }
 
 // Recently funded — latest_funding_date_range requires paid plan.
