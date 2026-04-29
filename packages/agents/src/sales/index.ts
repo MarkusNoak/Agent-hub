@@ -126,15 +126,28 @@ GREETING RULE:
   2. contact_names[0] found → "Hej [Firstname],"
   3. nothing found → "Hej,"
 ────────────────────────────────────────
-SKIP RULES — always skip these, regardless of score:
-• Offentlig sektor: kommuner, regioner, landsting, statliga myndigheter, Försäkringskassan, Arbetsförmedlingen, Polisen, Försvarsmakten
-• Sjukvård/vård (B2C): sjukhus, vårdcentraler, hemtjänst, äldreomsorg, LSS-verksamhet
-• Utbildning: grundskolor, gymnasier, högskolor, universitet
-• Ideella/religiösa: föreningar, stiftelser utan kommersiell verksamhet, kyrkor, välgörenhetsorg
-• Staffing/bemanning (hiring for others): Adecco, Randstad, Manpower, Poolia, Academic Work, etc.
-  EXCEPTION: staffing companies ARE valid prospects for agent_platform.
-• Extremt stora bolag: >500 anställda (for webb_design/app_dev) or >200 (for ai_automation) — de har egna IT-avdelningar.
-• IT-bolag/webbbyråer för webb_design/app_development: systemutvecklingsbolag och webbbyråer ska INTE pitchas webb_design eller app_development (de gör det själva). MEN — IT-konsultbolag, digitala byråer och kommunikationsbyråer är PRIME TARGETS för agent_platform (de har manuell kundrapportering, timrapportering, offerthantering, intern admin). Matcha offer_type noggrant: webb/app → ej IT-bolag. agent_platform → IT-konsulter och digitala byråer är guldleads.
+SKIP RULES — HARD STOP: skip immediately, do NOT upsert_lead, do NOT draft, do NOT add to blocklist:
+• Offentlig sektor (HARD SKIP): kommuner, regioner, landsting, statliga myndigheter, Svenska Kraftnät,
+  Försäkringskassan, Arbetsförmedlingen, Polisen, Försvarsmakten, Socialstyrelsen, Skatteverket,
+  Trafikverket — identifiera via "kommun", "myndighet", "statlig", "region", "landsting" i name/description.
+• Sjukvård/vård B2C (HARD SKIP): sjukhus, vårdcentraler, hemtjänst, äldreomsorg, LSS-bolag.
+• Utbildning (HARD SKIP): grundskolor, gymnasier, högskolor, universitet, Göteborgs Universitet etc.
+• Ideella/religiösa (HARD SKIP): föreningar utan kommersiell verksamhet, kyrkor, välgörenhetsorg.
+• B2C retail/konsument (HARD SKIP): e-handelsbolag riktade mot konsumenter (Lyko, Hemfrid, Webhallen etc).
+• Staffing/bemanning som pitchar for webb_design/app_dev/ai_automation: Adecco, Randstad, Manpower, Poolia,
+  Academic Work, Experis, Jobbusters, OnePartnerGroup, Techrytera, Recruitive — SKIP for those offer types.
+  EXCEPTION: staffing firms ARE valid targets for agent_platform (de behöver intern automation).
+• Börsnoterade large-cap bolag: >500 anställda för webb_design/app_dev, >200 för ai_automation.
+  Signalflagg: Billerud, Munters, Epiroc, Pricer, Lyko — alla för stora, egna IT-avdelningar.
+• IT-bolag/webbbyråer för webb_design/app_development: systemutvecklingsbolag och webbbyråer SKIP.
+  MEN: IT-konsultbolag och digitala byråer = PRIME TARGETS för agent_platform (intern admin-automation).
+
+SKIP-KONTROLL CHECKLISTA — gör detta INNAN score-bedömning:
+□ Innehåller company_name "kommun", "stad", "region", "myndighet", "universitet", "högskola"? → SKIP
+□ Är bransch "Government", "Education", "Hospital & Health Care", "Consumer Services"? → SKIP
+□ Är det ett bemanningsbolag som INTE pitchas för agent_platform? → SKIP
+□ Fler än 500 anställda (webb/app) eller 200 (ai_auto)? → SKIP
+□ B2C-e-handel? → SKIP
 ────────────────────────────────────────
 DEDUP RULE (MANDATORY — do this FIRST):
 1. Call \`list_recent_outreach\` ONCE at the start of every run.
@@ -225,16 +238,16 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "list_recent_outreach",
       description:
-        "Returns companies the Sales Agent has already drafted/approved/sent outreach to within the last N days (default 30). Call this FIRST on every run.",
+        "Returns companies the Sales Agent has already drafted/approved/sent outreach to within the last N days (default 14). Call this FIRST on every run.",
       input_schema: {
         type: "object",
         properties: {
-          days: { type: "number", description: "Lookback window in days (default 30)" },
+          days: { type: "number", description: "Lookback window in days (default 14)" },
         },
       },
       execute: async (args, ctx) => {
         const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
-        const days = (args["days"] as number) ?? 30;
+        const days = (args["days"] as number) ?? 14;
         const since = new Date(Date.now() - days * 86400_000).toISOString();
         const { data: approvals } = await supa
           .from("approval_queue")

@@ -243,7 +243,8 @@ export async function findDecisionMaker(opts: {
   domain: string;
   companyName: string;
 }): Promise<DecisionMaker | null> {
-  const data = await apolloPost(opts.apiKey, "/mixed_people/search", {
+  // /mixed_people/search is deprecated — use /mixed_people/api_search instead.
+  const data = await apolloPost(opts.apiKey, "/mixed_people/api_search", {
     q_organization_domains_list: [opts.domain],
     person_seniorities: ["owner", "founder", "c_suite", "partner"],
     person_titles: ["vd", "ceo", "grundare", "ägare", "verkställande direktör", "chief executive"],
