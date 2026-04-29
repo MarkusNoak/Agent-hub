@@ -46,22 +46,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               {/* Logo area */}
               <div className="px-5 pt-6 pb-5">
                 <div className="flex items-center gap-2.5">
-                  {/* Icon mark */}
-                  <div
-                    className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                    style={{
-                      background: "linear-gradient(145deg, #f0b030 0%, #e8960c 100%)",
-                      boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.25), 0 2px 8px rgb(232 160 32 / 0.35)",
-                    }}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-                      <path d="M17 6H11.5C10.1 6 9 7.1 9 8.5C9 9.6 9.7 10.6 10.7 11L16.3 13C17.3 13.4 18 14.4 18 15.5C18 16.9 16.9 18 15.5 18H10" stroke="#111009" strokeWidth="2.5" strokeLinecap="round"/>
-                      <path d="M14 18v3M14 6v-2" stroke="#111009" strokeWidth="2.5" strokeLinecap="round"/>
-                    </svg>
-                  </div>
+                  <svg width="26" height="26" viewBox="0 0 36 36" fill="none" aria-hidden="true" className="shrink-0">
+                    <path d="M20 6L9 18L20 30" stroke="#f0b030" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M29 6L18 18L29 30" stroke="#f0b030" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.5"/>
+                  </svg>
                   <div>
-                    <div className="text-white font-bold text-[13px] tracking-[-0.01em] leading-none">weknowit</div>
-                    <div className="text-[10px] font-medium mt-[3px] tracking-[0.06em]" style={{ color: "rgb(232 160 32 / 0.55)" }}>Agent Hub</div>
+                    <div className="text-white font-bold text-[15px] tracking-[-0.02em] leading-none">weknowit</div>
+                    <div className="text-[10px] font-medium mt-[3px] tracking-[0.06em]" style={{ color: "rgb(232 160 32 / 0.5)" }}>Agent Hub</div>
                   </div>
                 </div>
               </div>

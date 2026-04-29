@@ -67,20 +67,12 @@ export function MobileSidebar({
       >
         {/* Close button */}
         <div className="flex items-center justify-between px-4 pt-4 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-              style={{
-                background: "linear-gradient(145deg, #f0b030 0%, #e8960c 100%)",
-                boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.25)",
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-                <path d="M17 6H11.5C10.1 6 9 7.1 9 8.5C9 9.6 9.7 10.6 10.7 11L16.3 13C17.3 13.4 18 14.4 18 15.5C18 16.9 16.9 18 15.5 18H10" stroke="#111009" strokeWidth="2.5" strokeLinecap="round"/>
-                <path d="M14 18v3M14 6v-2" stroke="#111009" strokeWidth="2.5" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <span className="text-white font-bold text-[13px]">weknowit</span>
+          <div className="flex items-center gap-2">
+            <svg width="22" height="22" viewBox="0 0 36 36" fill="none" aria-hidden="true" className="shrink-0">
+              <path d="M20 6L9 18L20 30" stroke="#f0b030" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M29 6L18 18L29 30" stroke="#f0b030" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.5"/>
+            </svg>
+            <span className="text-white font-bold text-[14px] tracking-[-0.02em]">weknowit</span>
           </div>
           <button
             type="button"

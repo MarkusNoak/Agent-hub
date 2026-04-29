@@ -111,6 +111,26 @@ export default async function Overview() {
   return (
     <div className="space-y-8">
 
+      {/* ── Brand banner ── */}
+      <div
+        className="rounded-2xl px-6 py-5 flex items-center gap-4"
+        style={{
+          background: "linear-gradient(135deg, #151210 0%, #1e1810 100%)",
+          border: "1px solid rgb(255 255 255 / 0.07)",
+        }}
+      >
+        <svg width="38" height="38" viewBox="0 0 36 36" fill="none" aria-hidden="true" className="shrink-0">
+          <path d="M20 6L9 18L20 30" stroke="#f0b030" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M29 6L18 18L29 30" stroke="#f0b030" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.45"/>
+        </svg>
+        <div>
+          <div className="text-white font-bold text-[20px] tracking-[-0.03em] leading-none">weknowit</div>
+          <div className="text-[12px] font-medium mt-[5px]" style={{ color: "rgb(255 255 255 / 0.35)" }}>
+            Din digitala partner för framtidens lösningar.
+          </div>
+        </div>
+      </div>
+
       {/* ── Header ── */}
       <header className="flex items-start justify-between gap-6 pb-2">
         <div>
