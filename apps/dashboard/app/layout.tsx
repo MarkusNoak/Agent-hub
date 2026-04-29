@@ -32,6 +32,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               tenantPlan={tenant.plan}
               tenantInitial={tenant.name.charAt(0).toUpperCase()}
               userEmail={tenant.user.email ?? ""}
+              role={tenant.role}
             />
 
             {/* ── Desktop sidebar ── */}
@@ -98,7 +99,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <div className="mx-5 h-px mb-1" style={{ background: "rgb(255 255 255 / 0.06)" }} />
 
               {/* Nav */}
-              <NavLinks />
+              <NavLinks role={tenant.role} />
 
               {/* Footer */}
               <div className="mx-5 h-px mt-auto mb-3" style={{ background: "rgb(255 255 255 / 0.06)" }} />

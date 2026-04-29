@@ -5,16 +5,20 @@ import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { NavLinks } from "./NavLinks";
 
+type Role = "owner" | "admin" | "approver" | "viewer";
+
 export function MobileSidebar({
   tenantName,
   tenantPlan,
   tenantInitial,
   userEmail,
+  role = "owner",
 }: {
   tenantName: string;
   tenantPlan: string;
   tenantInitial: string;
   userEmail: string;
+  role?: Role;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -116,7 +120,7 @@ export function MobileSidebar({
 
         <div className="mx-5 h-px mb-1" style={{ background: "rgb(255 255 255 / 0.06)" }} />
 
-        <NavLinks />
+        <NavLinks role={role} />
 
         <div className="mx-5 h-px mt-auto mb-3" style={{ background: "rgb(255 255 255 / 0.06)" }} />
         <div className="px-4 pb-5">
