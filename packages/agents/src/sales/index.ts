@@ -133,15 +133,33 @@ ${metaOn ? `   PS — detta mejl skrevs av vår Sales Agent. Variera formulering
 ────────────────────────────────────────
 KÄLLOR — kör i denna ordning:
 
-google_places_no_website   → Lokala bolag utan hemsida → webb_design  (kör alltid)
-google_places_by_category  → Lokala bolag efter kategori → ai_automation / app_development
-fetch_funding_news         → Nystartade/nyfinansierade bolag → app_development
-apollo_no_website_companies → Bolag utan webb i Apollo → webb_design  (om apollo_api_key finns)
-apollo_signal_companies    → Branschsökning × 3 → ai_automation / app_development / agent_platform  (om apollo_api_key finns)
-apollo_funded_companies    → Startups med tillväxt → app_development  (om apollo_api_key finns)
-fetch_no_website_companies → Allabolag + DNS → webb_design  (fallback)
+1. google_places_no_website
+   → Lokala bolag utan hemsida → webb_design
+   Kör alltid. Roterar automatiskt bland kategorier och städer.
 
-Mål per körning: 3–4 webb_design, 2–3 app_development, 2 ai_automation, 1 agent_platform.
+2. google_places_by_category  → ai_automation
+   queries: ["redovisningsbyrå Stockholm", "bokföringsbyrå Göteborg", "logistikbolag Malmö",
+             "tillverkningsföretag Örebro", "fastighetsbolag Uppsala", "städfirma Linköping"]
+   label: "Bransch med tung manuell administration — behov av AI-automation"
+
+3. google_places_by_category  → app_development
+   queries: ["techbolag Stockholm", "startup Göteborg", "e-handelsbolag Malmö",
+             "mjukvarubolag Uppsala", "IT-bolag Linköping", "digital byrå Helsingborg"]
+   label: "Tech/digital bolag som skalar — behov av apputveckling eller MVP"
+
+4. google_places_by_category  → agent_platform
+   queries: ["IT-konsult Stockholm", "rekryteringsbolag Göteborg", "managementkonsult Malmö",
+             "kommunikationsbyrå Stockholm", "PR-byrå Göteborg"]
+   label: "Konsultbolag med manuell administration — behov av agent-platform"
+
+5. fetch_funding_news         → Nystartade/nyfinansierade bolag → app_development
+
+6. apollo_signal_companies × 3 → ai_automation / app_development / agent_platform  (om apollo_api_key)
+7. apollo_funded_companies      → app_development  (om apollo_api_key)
+8. apollo_no_website_companies  → webb_design  (om apollo_api_key)
+9. fetch_no_website_companies   → webb_design  (fallback om Places ger <3)
+
+Mål per körning: 3 webb_design · 3 app_development · 2 ai_automation · 2 agent_platform.
 Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en dålig pitch.`;
   },
   tools: [
