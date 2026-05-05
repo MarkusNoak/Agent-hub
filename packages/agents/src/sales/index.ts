@@ -20,6 +20,7 @@ import {
   enrichPersonEmail,
   searchOsmNoWebsite,
   searchOsmByType,
+  searchBolagsverketBySni,
   type ProspectSignal,
 } from "@agent-hub/connectors";
 
@@ -78,6 +79,8 @@ type TenantSettings = {
   google_api_key?: string;
   google_cse_id?: string;
   apollo_api_key?: string;
+  bolagsverket_client_id?: string;
+  bolagsverket_client_secret?: string;
 };
 
 export const salesAgent: AgentDefinition = {
@@ -150,12 +153,15 @@ KÄLLOR — kör i denna ordning:
    osm_filters: [["office","consulting"],["office","it"]], city: "Göteborg"
    label: "IT-konsultbolag — behov av intern automation"
 
-5. fetch_funding_news            → Nystartade/nyfinansierade bolag → app_development
+5. bolagsverket_by_sni × 3       → ai_automation / app_development / agent_platform  (om bolagsverket-nyckel finns)
+   Kör en gång per offer-typ. Officiellt register — bästa källan för B2B-leads.
 
-6. apollo_signal_companies × 3   → ai_automation / app_development / agent_platform  (om apollo_api_key)
-7. apollo_funded_companies        → app_development  (om apollo_api_key)
-8. apollo_no_website_companies    → webb_design  (om apollo_api_key)
-9. fetch_no_website_companies     → webb_design  (fallback)
+6. fetch_funding_news            → app_development
+
+7. apollo_signal_companies × 3   → ai_automation / app_development / agent_platform  (om apollo_api_key)
+8. apollo_funded_companies        → app_development  (om apollo_api_key)
+9. apollo_no_website_companies    → webb_design  (om apollo_api_key)
+10. fetch_no_website_companies    → webb_design  (fallback)
 
 Mål per körning: 3 webb_design · 3 app_development · 2 ai_automation · 2 agent_platform.
 Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en dålig pitch.`;
@@ -407,10 +413,20 @@ Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en d
       },
       execute: async (args) => {
         const items = await searchOsmNoWebsite({
-          limit: (args["limit"] as number) ?? 15,
+          limit: Math.min((args["limit"] as number) ?? 8, 8),
           cityOverride: args["city"] as string | undefined,
         });
-        return { items, count: items.length };
+        return {
+          count: items.length,
+          items: items.map((i) => ({
+            company_name: i.company_name,
+            offer: i.suggested_offer_hint,
+            phone: (i.extra as Record<string,unknown>)?.["phone"] ?? null,
+            address: (i.extra as Record<string,unknown>)?.["address"] ?? null,
+            city: (i.extra as Record<string,unknown>)?.["city"] ?? null,
+            signal: i.signals[0] ?? "",
+          })),
+        };
       },
     },
     {
@@ -445,9 +461,59 @@ Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en d
           city: args["city"] as string,
           offerHint: args["offer_hint"] as ProspectSignal["suggested_offer_hint"],
           label: args["label"] as string,
+          limit: Math.min((args["limit"] as number) ?? 8, 8),
+        });
+        return {
+          count: items.length,
+          items: items.map((i) => ({
+            company_name: i.company_name,
+            offer: i.suggested_offer_hint,
+            phone: (i.extra as Record<string,unknown>)?.["phone"] ?? null,
+            city: args["city"],
+            signal: i.signals[0] ?? "",
+          })),
+        };
+      },
+    },
+    {
+      name: "bolagsverket_by_sni",
+      description:
+        "Bolagsverket official Swedish company register — search by industry (SNI code). Returns company name, org number, address. PRIMARY source for ai_automation, app_development, agent_platform leads. Requires bolagsverket_client_id and bolagsverket_client_secret in tenant settings.",
+      input_schema: {
+        type: "object",
+        properties: {
+          offer: {
+            type: "string",
+            enum: ["ai_automation", "app_development", "agent_platform"],
+            description: "Which offer type to find leads for — determines which SNI codes are searched",
+          },
+          lan: { type: "string", description: "Swedish county name, e.g. 'Stockholm', 'Västra Götaland'. Optional." },
+          limit: { type: "number", description: "Max results (default 10)" },
+        },
+        required: ["offer"],
+      },
+      execute: async (args, ctx) => {
+        const s = ctx.tenant.settings as TenantSettings;
+        const clientId = s.bolagsverket_client_id;
+        const clientSecret = s.bolagsverket_client_secret;
+        if (!clientId || !clientSecret) return { count: 0, items: [], note: "bolagsverket_client_id/secret not configured" };
+        const items = await searchBolagsverketBySni({
+          clientId,
+          clientSecret,
+          offer: args["offer"] as ProspectSignal["suggested_offer_hint"],
+          lan: args["lan"] as string | undefined,
           limit: (args["limit"] as number) ?? 10,
         });
-        return { items, count: items.length };
+        return {
+          count: items.length,
+          items: items.map((i) => ({
+            company_name: i.company_name,
+            offer: i.suggested_offer_hint,
+            org_number: (i.extra as Record<string,unknown>)?.["org_number"] ?? null,
+            address: (i.extra as Record<string,unknown>)?.["address"] ?? null,
+            signal: i.signals[0] ?? "",
+          })),
+        };
       },
     },
     {
