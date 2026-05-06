@@ -924,6 +924,7 @@ function extractContactNames(html: string): string[] {
   }
 
   // HTML heading followed by role — team/om-oss pages: <h3>Erik Andersson</h3>...<p>VD</p>
+  // Only add when role context confirms it's a person (not a navigation heading like "What We Do")
   const ROLE_RE = /vd|ceo|grundare|direktör|chef|ägare|partner|ansvarig/i;
   for (const m of html.matchAll(
     /<(?:h[2-4]|strong|b)[^>]*>\s*([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)+)\s*<\/(?:h[2-4]|strong|b)>\s*(?:<[^>]+>)*\s*([^<]{1,80})/gi,
@@ -931,7 +932,7 @@ function extractContactNames(html: string): string[] {
     const name = (m[1] ?? "").trim();
     const context = (m[2] ?? "").toLowerCase();
     if (ROLE_RE.test(context)) add(name, true);
-    else add(name);
+    // No else: only add heading names when role context confirms they're a person
   }
 
   // Plain text: "roll: Namn" or "Namn, roll"
@@ -1218,7 +1219,12 @@ export async function researchCompany(opts: {
   }
 
   // --- Generate personalised email candidates from VD name ---
-  const nameForCandidates = result.vd_name ?? result.contact_names[0];
+  // Only use a contact_name fallback if it looks like a real person name (no common function words)
+  const NON_NAME_WORDS = /\b(we|our|the|what|who|how|why|with|your|their|its|and|for|you|this|that|these|those|services|solutions|about|contact|team|more|read|learn|get|do)\b/i;
+  const contactNameFallback = result.contact_names.find(
+    (n) => n.split(" ").length >= 2 && !NON_NAME_WORDS.test(n),
+  );
+  const nameForCandidates = result.vd_name ?? contactNameFallback;
   if (nameForCandidates) {
     result.email_candidates = generateEmailCandidates(nameForCandidates, domain);
     if (result.email_candidates.length > 0) {
