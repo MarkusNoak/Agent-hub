@@ -156,36 +156,55 @@ DEDUP RULE (MANDATORY — do this FIRST):
 4. Within the same run, also skip a company the SECOND time it appears.
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
-DATA SOURCES — PRIMARY (call every run — company-level signals, highest quality):
-You MUST call every PRIMARY source. Call SECONDARY sources if primary sources yield fewer than max_drafts.
+LEAD QUALITY RULE — PROBLEM MUST BE VISIBLE:
+Every lead MUST have a specific, observable problem. "Company is in industry X" is NOT a problem.
+Valid problems:
+  • No website found (DNS/OSM/Allabolag confirms no web presence) → webb_design
+  • Actively hiring for a role AI can replace (job ad exists) → ai_automation
+  • Actively hiring a developer / needs an app built (job ad or funding news) → app_development
+  • Growing consultancy hiring for multiple roles → needs internal automation → agent_platform
+If no specific problem is visible, SKIP the company. Do not upsert leads without a problem.
 
-PRIMARY SOURCES — company signals (not job ads):
-── Apollo.io (call if apollo_api_key is set) — CALL THESE FIRST ────────
-1. apollo_no_website_companies   Apollo: SE companies with no website → webb_design. HIGHEST PRIORITY.
-2. apollo_signal_companies       Apollo: SE companies by industry keyword → ai_automation / app_development / agent_platform.
-   Call 3 times: signal_type=ai_automation, signal_type=app_development, signal_type=agent_platform
-3. apollo_funded_companies       Apollo: Swedish startups/scaleups with growth signals → app_development.
-── Allabolag + DNS (free scraping) ──────────────────────────────────────
-4. fetch_no_website_companies    Allabolag + DNS check. No website → webb_design.
-5. scrape_allabolag              SNI filter 10–99 anst → ai_automation / agent_platform.
-── Media RSS (free) ──────────────────────────────────────────────────────
-6. fetch_funding_news            Breakit/DI/NyTeknik → app_development.
-── Google CSE (free, if configured) ─────────────────────────────────────
-7. search_weak_digital_presence  Google CSE queries → webb_design / app_development / agent_platform.
+────────────────────────────────────────
+DATA SOURCES — ordered by PROBLEM VISIBILITY (clearest problem first):
+
+TIER 1 — Problem is explicit and verifiable (call every run):
+── No-website leads (webb_design) ───────────────────────────────────────
+1. osm_no_website               OSM: local businesses with phone but no website. Problem 100% clear.
+   Call with limit=8. These companies can be cold-called too — include phone in the lead.
+2. fetch_no_website_companies   Allabolag + DNS check. Small service businesses, no domain. webb_design.
+3. apollo_no_website_companies  Apollo: SE companies with no website in their database. webb_design.
+── Job-ad leads (ai_automation + app_development) ───────────────────────
+4. fetch_ai_replaceable_jobs    Swedish job ads for admin roles (ekonomiassistent, fakturahanterare,
+   orderadministratör, hr-administratör, löneadministratör). The company is TELLING you their problem.
+   ALWAYS open the outreach with: "Vi la märke till att ni söker [jobtitel] just nu."
+   Use job title + description to personalize the email body.
+5. fetch_app_dev_signals        Swedish job ads for developer roles. Company needs something built.
+   Open outreach with: "Vi la märke till att ni söker [jobtitel]."
+
+TIER 2 — Problem inferred from growth/funding signal:
+6. fetch_funding_news           Breakit/DI/NyTeknik funding news → app_development.
+7. apollo_funded_companies      Apollo: recently funded Swedish startups → app_development.
+8. apollo_signal_companies      Apollo: SE companies by industry → ai_automation / app_development / agent_platform.
+   Call 3 times: signal_type=ai_automation, signal_type=app_development, signal_type=agent_platform.
+   Only include if the company has >10 employees (ICP) AND is not in a SKIP category.
+
+TIER 3 — Industry-based ICP (use to fill remaining slots only):
+9. scrape_allabolag             SNI filter 10–99 anst → ai_automation / agent_platform.
+── Bolagsverket (if keys configured) ────────────────────────────────────
+10. bolagsverket_by_sni         Swedish company registry by SNI code → ai_automation / app_development / agent_platform.
+── Google CSE (if configured) ───────────────────────────────────────────
+11. search_weak_digital_presence Google CSE queries → webb_design / app_development / agent_platform.
 ── Visma upsell (existing customers) ────────────────────────────────────
-8. fetch_visma_upsell_candidates Warm leads 14-60 days post-delivery → upsell.
-
-SECONDARY SOURCES — job ad signals (only call if primary sources return <5 usable leads):
-   fetch_ai_replaceable_jobs     Admin job ads → ai_automation (weak signal, last resort).
-   fetch_app_dev_signals         Tech job ads → app_development (weak signal, last resort).
+12. fetch_visma_upsell_candidates Warm leads 14-60 days post-delivery → upsell.
 
 TARGET DISTRIBUTION per run (max_drafts=10 example):
-  webb_design      3 (apollo_no_website_companies + fetch_no_website_companies)
-  app_development  3 (fetch_funding_news + apollo_funded_companies)
-  ai_automation    2 (apollo_signal_companies ai_automation + scrape_allabolag)
-  agent_platform   2 (apollo_signal_companies agent_platform + scrape_allabolag)
-Adjust proportions if one source returns 0 results, but always aim for variety across all offer types.
-Quality over quantity: only queue prospects with clear ICP fit (score ≥ 60). A short list of strong leads beats a long list of junk.
+  webb_design      3 (osm_no_website + fetch_no_website_companies)
+  ai_automation    3 (fetch_ai_replaceable_jobs — job ads = clearest signal)
+  app_development  2 (fetch_app_dev_signals + fetch_funding_news)
+  agent_platform   2 (apollo_signal_companies + scrape_allabolag)
+Adjust if a source returns 0. Always aim for variety. Skip Tier 2/3 companies if you already have enough from Tier 1.
+Quality over quantity: a short list of strong leads beats a long list of junk. Only queue score ≥ 60.
 
 ────────────────────────────────────────
 ENRICHMENT TOOLS (use after scoring, before upsert_lead):
