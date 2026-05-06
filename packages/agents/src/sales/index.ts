@@ -156,55 +156,41 @@ DEDUP RULE (MANDATORY — do this FIRST):
 4. Within the same run, also skip a company the SECOND time it appears.
 5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
 ────────────────────────────────────────
-LEAD QUALITY RULE — PROBLEM MUST BE VISIBLE:
-Every lead MUST have a specific, observable problem. "Company is in industry X" is NOT a problem.
-Valid problems:
-  • No website found (DNS/OSM/Allabolag confirms no web presence) → webb_design
-  • Actively hiring for a role AI can replace (job ad exists) → ai_automation
-  • Actively hiring a developer / needs an app built (job ad or funding news) → app_development
-  • Growing consultancy hiring for multiple roles → needs internal automation → agent_platform
-If no specific problem is visible, SKIP the company. Do not upsert leads without a problem.
-
 ────────────────────────────────────────
-DATA SOURCES — ordered by PROBLEM VISIBILITY (clearest problem first):
+DATA SOURCES — call in this order every run:
 
-TIER 1 — Problem is explicit and verifiable (call every run):
-── No-website leads (webb_design) ───────────────────────────────────────
-1. osm_no_website               OSM: local businesses with phone but no website. Problem 100% clear.
-   Call with limit=8. These companies can be cold-called too — include phone in the lead.
-2. fetch_no_website_companies   Allabolag + DNS check. Small service businesses, no domain. webb_design.
-3. apollo_no_website_companies  Apollo: SE companies with no website in their database. webb_design.
-── Job-ad leads (ai_automation + app_development) ───────────────────────
-4. fetch_ai_replaceable_jobs    Swedish job ads for admin roles (ekonomiassistent, fakturahanterare,
-   orderadministratör, hr-administratör, löneadministratör). The company is TELLING you their problem.
-   ALWAYS open the outreach with: "Vi la märke till att ni söker [jobtitel] just nu."
-   Use job title + description to personalize the email body.
-5. fetch_app_dev_signals        Swedish job ads for developer roles. Company needs something built.
-   Open outreach with: "Vi la märke till att ni söker [jobtitel]."
+── Finansiering & tillväxtsignaler (HÖGST PRIORITET) ────────────────────
+1. fetch_funding_news           Breakit/DI/NyTeknik: nyligen finansierade svenska bolag → app_development.
+                                Starkaste signal: de HAR pengar och BEHÖVER bygga något.
+2. apollo_funded_companies      Apollo: svenska startups/scaleups med tillväxtsignal → app_development.
+── Apollo branschsök ────────────────────────────────────────────────────
+3. apollo_signal_companies      Kör 2 gånger: signal_type=app_development, signal_type=agent_platform.
+                                (Skippa ai_automation — vi har ingen quick-fix produkt för det idag.)
+── Inga-hemsida leads ────────────────────────────────────────────────────
+4. fetch_no_website_companies   Allabolag + DNS: tjänsteföretag utan domän → webb_design.
+5. apollo_no_website_companies  Apollo: SE-bolag utan hemsida → webb_design.
+── Allabolag SNI-skrapning ──────────────────────────────────────────────
+6. scrape_allabolag             SNI-filter 10–99 anst → agent_platform (IT-konsulter, managementkonsulter,
+                                rekryteringsbolag, kommunikationsbyråer). Skippa ai_automation här.
+── Bolagsverket (om nycklar finns) ──────────────────────────────────────
+7. bolagsverket_by_sni          Bolagsverkets företagsregister → app_development / agent_platform.
+── Visma upsell ─────────────────────────────────────────────────────────
+8. fetch_visma_upsell_candidates Varma leads 14–60 dagar efter leverans → upsell.
 
-TIER 2 — Problem inferred from growth/funding signal:
-6. fetch_funding_news           Breakit/DI/NyTeknik funding news → app_development.
-7. apollo_funded_companies      Apollo: recently funded Swedish startups → app_development.
-8. apollo_signal_companies      Apollo: SE companies by industry → ai_automation / app_development / agent_platform.
-   Call 3 times: signal_type=ai_automation, signal_type=app_development, signal_type=agent_platform.
-   Only include if the company has >10 employees (ICP) AND is not in a SKIP category.
+JOB AD-REGEL (KRITISK):
+Jobbannonser (fetch_ai_replaceable_jobs, fetch_app_dev_signals) är ABSOLUT SISTA UTVÄG.
+Kör dem BARA om alla ovanstående 8 källor tillsammans ger färre än 4 användbara leads.
+Max 2 leads totalt från jobbannonser per körning, oavsett hur många som returneras.
+Motivering: vi har ingen färdig produkt som ersätter ekonomiassistenter eller liknande idag.
+fetch_app_dev_signals (techjobb) är OK som fallback för app_development om funding-källorna är tomma.
 
-TIER 3 — Industry-based ICP (use to fill remaining slots only):
-9. scrape_allabolag             SNI filter 10–99 anst → ai_automation / agent_platform.
-── Bolagsverket (if keys configured) ────────────────────────────────────
-10. bolagsverket_by_sni         Swedish company registry by SNI code → ai_automation / app_development / agent_platform.
-── Google CSE (if configured) ───────────────────────────────────────────
-11. search_weak_digital_presence Google CSE queries → webb_design / app_development / agent_platform.
-── Visma upsell (existing customers) ────────────────────────────────────
-12. fetch_visma_upsell_candidates Warm leads 14-60 days post-delivery → upsell.
-
-TARGET DISTRIBUTION per run (max_drafts=10 example):
-  webb_design      3 (osm_no_website + fetch_no_website_companies)
-  ai_automation    3 (fetch_ai_replaceable_jobs — job ads = clearest signal)
-  app_development  2 (fetch_app_dev_signals + fetch_funding_news)
-  agent_platform   2 (apollo_signal_companies + scrape_allabolag)
-Adjust if a source returns 0. Always aim for variety. Skip Tier 2/3 companies if you already have enough from Tier 1.
-Quality over quantity: a short list of strong leads beats a long list of junk. Only queue score ≥ 60.
+TARGET DISTRIBUTION per körning (max_drafts=10):
+  app_development  4 (fetch_funding_news + apollo_funded_companies + apollo_signal app_dev)
+  agent_platform   3 (apollo_signal agent_platform + scrape_allabolag)
+  webb_design      2 (fetch_no_website_companies + apollo_no_website_companies)
+  upsell           1 (fetch_visma_upsell_candidates om tillgängligt)
+Justera om en källa returnerar 0. Fyll ALDRIG upp med jobbannonser — lämna hellre färre leads.
+Kvalitet framför kvantitet: kö bara score ≥ 60. 5 starka leads är bättre än 10 svaga.
 
 ────────────────────────────────────────
 ENRICHMENT TOOLS (use after scoring, before upsert_lead):
@@ -227,11 +213,11 @@ ENRICHMENT TOOLS (use after scoring, before upsert_lead):
 ────────────────────────────────────────
 DECISION FLOW:
 1. Call \`list_recent_outreach\` first.
-2. Call PRIMARY sources in order: if apollo_api_key is set → apollo_no_website_companies,
-   apollo_signal_companies (×3: ai_automation / app_development / agent_platform), apollo_funded_companies.
-   Then: fetch_no_website_companies, scrape_allabolag, fetch_funding_news, search_weak_digital_presence,
-   fetch_visma_upsell_candidates.
-   ONLY call fetch_ai_replaceable_jobs or fetch_app_dev_signals if primary sources yield <5 usable leads.
+2. Call sources in order: fetch_funding_news, apollo_funded_companies, apollo_signal_companies (×2:
+   app_development + agent_platform), fetch_no_website_companies, apollo_no_website_companies,
+   scrape_allabolag, bolagsverket_by_sni, fetch_visma_upsell_candidates.
+   ONLY call fetch_app_dev_signals if all above return <4 usable leads AND you still need app_development.
+   NEVER call fetch_ai_replaceable_jobs — we have no ready product for those roles today.
 3. For each returned prospect:
    a. If source=funding_news → extract actual company name from headline.
    b. Score ICP fit 0–100. Skip if score < 60.
