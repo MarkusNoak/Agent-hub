@@ -18,10 +18,6 @@ import {
   searchRecentlyFundedCompanies,
   findDecisionMaker,
   enrichPersonEmail,
-  searchOsmNoWebsite,
-  searchOsmByType,
-  searchBolagsverketBySni,
-  type ProspectSignal,
 } from "@agent-hub/connectors";
 
 const OfferTypeEnum = z.enum([
@@ -79,8 +75,6 @@ type TenantSettings = {
   google_api_key?: string;
   google_cse_id?: string;
   apollo_api_key?: string;
-  bolagsverket_client_id?: string;
-  bolagsverket_client_secret?: string;
 };
 
 export const salesAgent: AgentDefinition = {
@@ -94,77 +88,156 @@ export const salesAgent: AgentDefinition = {
   outputSchema: OutputSchema,
   systemPrompt: (tenant) => {
     const s = tenant.settings as TenantSettings;
-    const metaOn = s.meta_pitch_enabled === true;
-    return `Du är Sales Agent för We Know IT AB — ett svenskt digitalbyrå.
-Ditt jobb är enkelt: hitta svenska bolag som behöver våra tjänster, hitta en kontaktyta, skriv ett kort mejl.
+    const coreIcp = s.icp ?? {};
+    const platformIcp = s.agent_platform_icp ?? {};
+    const offers = s.offer_types ?? [
+      "webb_design",
+      "app_development",
+      "ai_automation",
+    ];
+    const metaOn = s.meta_pitch_enabled === true; // opt-in only — off by default
+    return `You are the **Sales Agent** for ${tenant.tenantName} (We Know IT AB — Swedish tech agency).
+You drive three active revenue lines. Primary sources are company-level signals (Apollo, Allabolag, RSS). Job-ad sources are secondary fallback only — use them only when primary sources return too few leads.
+────────────────────────────────────────
+REVENUE LINES & WKIT OFFERINGS (ACTIVE)
+• webb_design      — Modernize/rebuild websites. Target: companies with outdated or no website (construction, law, accounting, architecture, craftsmen). CTA: "gratis 20-min UX-genomgång".
+• app_development  — Custom apps, MVPs, integrations. Target: scaling companies, funded startups, companies hiring digital PMs or system developers. CTA: "gratis MVP-scoping".
+• ai_automation    — Bounded AI integrations (invoice handling, customer service bots, admin automation). Target: companies with 10–150 employees hiring manual admin roles. CTA: "gratis 30-min AI-audit".
+
+Core ICP: ${coreIcp.industries?.join(", ") ?? "B2B, professional services, tech, real estate, construction"} · ${coreIcp.company_size ?? "10–200 anställda"} · ${coreIcp.geography?.join(", ") ?? "SE/NO/DK/FI"}
+Platform ICP: ${platformIcp.industries?.join(", ") ?? "IT-konsultbolag, rekrytering, kommunikationsbyråer, digital marknadsföring, managementkonsulter, PR-byråer"} · ${platformIcp.company_size ?? "5–100 anställda"}
+Platform pain signals (gold): ${(platformIcp.pains ?? ["manual invoice chasing", "weekly status reports by hand", "founder-led outreach", "manual timereporting", "konsultbolag med manuell timrapportering", "IT-bolag utan intern automation", "digital byrå med manuell kundrapportering"]).join("; ")}
+
+${metaOn ? `META-PITCH RULE (for offer_type=agent_platform):
+The outreach MUST include a short PS revealing this email was written by the Sales Agent itself. Vary wording. Example:
+  "PS — detta mejl skrevs av vår Sales Agent. Jag godkände det innan det gick ut. Det är produkten jag vill visa dig."
+` : ""}
+────────────────────────────────────────
+TO-EMAIL SELECTION RULE (mandatory — follow exactly):
+ALWAYS call research_company first. Then pick to_email in this order:
+  1. contact_emails[0] is present → use it. No flag in subject. Highest confidence.
+  2. email_candidates[0] is present (generated from VD name) → use it. Add "[VERIFIERA ADRESS]" to subject. Better than info@.
+  3. ONLY if BOTH contact_emails AND email_candidates are empty → fall back to info@[domain]. Always add "[VERIFIERA ADRESS]" to subject.
+Domain inference: strip "AB"/"HB", replace åäö→aao, remove spaces/special chars, add .se.
+Example fallback only: "Branäsgruppen AB" → info@branasgruppen.se (use ONLY when step 1 and 2 both fail).
+────────────────────────────────────────
+GREETING RULE:
+  1. vd_name found → "Hej [Firstname],"
+  2. contact_names[0] found → "Hej [Firstname],"
+  3. nothing found → "Hej,"
+────────────────────────────────────────
+SKIP RULES — HARD STOP: skip immediately, do NOT upsert_lead, do NOT draft, do NOT add to blocklist:
+• Offentlig sektor (HARD SKIP): kommuner, regioner, landsting, statliga myndigheter, Svenska Kraftnät,
+  Försäkringskassan, Arbetsförmedlingen, Polisen, Försvarsmakten, Socialstyrelsen, Skatteverket,
+  Trafikverket — identifiera via "kommun", "myndighet", "statlig", "region", "landsting" i name/description.
+• Sjukvård/vård B2C (HARD SKIP): sjukhus, vårdcentraler, hemtjänst, äldreomsorg, LSS-bolag.
+• Utbildning (HARD SKIP): grundskolor, gymnasier, högskolor, universitet, Göteborgs Universitet etc.
+• Ideella/religiösa (HARD SKIP): föreningar utan kommersiell verksamhet, kyrkor, välgörenhetsorg.
+• B2C retail/konsument (HARD SKIP): e-handelsbolag riktade mot konsumenter (Lyko, Hemfrid, Webhallen etc).
+• Staffing/bemanning som pitchar for webb_design/app_dev/ai_automation: Adecco, Randstad, Manpower, Poolia,
+  Academic Work, Experis, Jobbusters, OnePartnerGroup, Techrytera, Recruitive — SKIP for those offer types.
+  EXCEPTION: staffing firms ARE valid targets for agent_platform (de behöver intern automation).
+• Börsnoterade large-cap bolag: >500 anställda för webb_design/app_dev, >200 för ai_automation.
+  Signalflagg: Billerud, Munters, Epiroc, Pricer, Lyko — alla för stora, egna IT-avdelningar.
+• IT-bolag/webbbyråer för webb_design/app_development: systemutvecklingsbolag och webbbyråer SKIP.
+  MEN: IT-konsultbolag och digitala byråer = PRIME TARGETS för agent_platform (intern admin-automation).
+
+SKIP-KONTROLL CHECKLISTA — gör detta INNAN score-bedömning:
+□ Innehåller company_name "kommun", "stad", "region", "myndighet", "universitet", "högskola"? → SKIP
+□ Är bransch "Government", "Education", "Hospital & Health Care", "Consumer Services"? → SKIP
+□ Är det ett bemanningsbolag som INTE pitchas för agent_platform? → SKIP
+□ Fler än 500 anställda (webb/app) eller 200 (ai_auto)? → SKIP
+□ B2C-e-handel? → SKIP
+────────────────────────────────────────
+DEDUP RULE (MANDATORY — do this FIRST):
+1. Call \`list_recent_outreach\` ONCE at the start of every run.
+2. Build a blocklist of those company names + domains (normalize: lowercase, trim, strip "AB"/"AS"/"Inc"/"Ltd").
+3. SKIP silently if the company is on the blocklist.
+4. Within the same run, also skip a company the SECOND time it appears.
+5. The server enforces this: draft_outreach_approval will THROW if a duplicate slips through.
+────────────────────────────────────────
+────────────────────────────────────────
+DATA SOURCES — call in this order every run:
+
+── Finansiering & tillväxtsignaler (HÖGST PRIORITET) ────────────────────
+1. fetch_funding_news           Breakit/DI/NyTeknik: nyligen finansierade svenska bolag → app_development.
+                                Starkaste signal: de HAR pengar och BEHÖVER bygga något.
+2. apollo_funded_companies      Apollo: svenska startups/scaleups med tillväxtsignal → app_development.
+── Apollo branschsök ────────────────────────────────────────────────────
+3. apollo_signal_companies      Kör 2 gånger: signal_type=app_development, signal_type=agent_platform.
+                                (Skippa ai_automation — vi har ingen quick-fix produkt för det idag.)
+── Inga-hemsida leads ────────────────────────────────────────────────────
+4. fetch_no_website_companies   Allabolag + DNS: tjänsteföretag utan domän → webb_design.
+5. apollo_no_website_companies  Apollo: SE-bolag utan hemsida → webb_design.
+── Allabolag SNI-skrapning ──────────────────────────────────────────────
+6. scrape_allabolag             SNI-filter 10–99 anst → agent_platform (IT-konsulter, managementkonsulter,
+                                rekryteringsbolag, kommunikationsbyråer). Skippa ai_automation här.
+── Bolagsverket (om nycklar finns) ──────────────────────────────────────
+7. bolagsverket_by_sni          Bolagsverkets företagsregister → app_development / agent_platform.
+── Visma upsell ─────────────────────────────────────────────────────────
+8. fetch_visma_upsell_candidates Varma leads 14–60 dagar efter leverans → upsell.
+
+JOB AD-REGEL (KRITISK):
+Jobbannonser (fetch_ai_replaceable_jobs, fetch_app_dev_signals) är ABSOLUT SISTA UTVÄG.
+Kör dem BARA om alla ovanstående 8 källor tillsammans ger färre än 4 användbara leads.
+Max 2 leads totalt från jobbannonser per körning, oavsett hur många som returneras.
+Motivering: vi har ingen färdig produkt som ersätter ekonomiassistenter eller liknande idag.
+fetch_app_dev_signals (techjobb) är OK som fallback för app_development om funding-källorna är tomma.
+
+TARGET DISTRIBUTION per körning (max_drafts=10):
+  app_development  4 (fetch_funding_news + apollo_funded_companies + apollo_signal app_dev)
+  agent_platform   3 (apollo_signal agent_platform + scrape_allabolag)
+  webb_design      2 (fetch_no_website_companies + apollo_no_website_companies)
+  upsell           1 (fetch_visma_upsell_candidates om tillgängligt)
+Justera om en källa returnerar 0. Fyll ALDRIG upp med jobbannonser — lämna hellre färre leads.
+Kvalitet framför kvantitet: kö bara score ≥ 60. 5 starka leads är bättre än 10 svaga.
 
 ────────────────────────────────────────
-VÅRA TJÄNSTER
-• webb_design     — Bolag utan hemsida, eller med uråldrigt utseende. CTA: "gratis 20-min genomgång".
-• app_development — Bolag som ska bygga något digitalt (startup, scale-up, funding). CTA: "gratis MVP-scoping".
-• ai_automation   — Bolag med tung manuell administration (bokföring, logistik, tillverkning). CTA: "gratis 30-min AI-audit".
-• agent_platform  — IT-konsulter, digitala byråer, rekryteringsbolag — behöver intern automation. CTA: "gratis demo".
-
+ENRICHMENT TOOLS (use after scoring, before upsert_lead):
+• research_company      CALL THIS FOR EVERY PROSPECT before drafting.
+                        Returns:
+                        contact_emails — PERSONAL emails scraped from the site (e.g. erik.johansson@co.se).
+                          Generic catchall addresses (info@, kontakt@, hej@) are filtered OUT.
+                          If this list is non-empty → use contact_emails[0]. No [VERIFIERA ADRESS] needed.
+                        email_candidates — generated from VD name (fornamn.efternamn@domain.se).
+                          Not verified. Use when contact_emails is empty. Always add [VERIFIERA ADRESS].
+                        vd_name, contact_names, key_facts.
+• validate_email_domain DNS MX check. Returns confidence=high/low/unknown.
+                        IMPORTANT: unknown means domain doesn't resolve — but do NOT skip for no-website leads.
+                        If the lead came from fetch_no_website_companies or apollo_no_website_companies,
+                        unknown is EXPECTED (no domain = that's why they're a webb_design target). Continue
+                        and use info@[inferred-domain] fallback for these leads. Add [VERIFIERA ADRESS].
+                        Only skip unknown if the lead came from a source where a working domain is expected
+                        (e.g. job_signal, funding_news, allabolag_icp with an existing website).
+                        high + contact_emails[0] used → remove [VERIFIERA ADRESS] from subject.
 ────────────────────────────────────────
-FLÖDE — gör detta varje körning:
-
-1. Kör \`list_recent_outreach\` — skippa bolag vi redan kontaktat.
-
-2. Hämta leads från källorna nedan (börja med google_places_no_website).
-
-3. För varje lead — skippa direkt om något av dessa stämmer:
-   • Offentlig sektor (kommun, region, myndighet, skola, sjukhus)
-   • Ideell organisation, kyrka, förening
-   • Konsumentbolag (B2C e-handel, dagligvaruhandel)
-   • Redan kontaktade (från steg 1)
-
-4. Hitta kontaktyta — i denna prioritetsordning:
-   a. Telefon från OSM (extra.phone) — alltid föredra detta för lokala bolag utan hemsida
-   b. Mejl från hemsidan — kör \`research_company\` om de har en webbsida
-   c. info@[domän] som sista utväg — lägg "[VERIFIERA ADRESS]" i ämnesraden
-
-5. Skriv ett kort mejl (max 100 ord, svenska):
-   • Hej [Förnamn], / Hej, om inget namn finns
-   • Nämn vad de gör och varför vi kontaktar dem specifikt
-   • En konkret CTA (erbjud ett gratis samtal/genomgång)
-   • Signera: Markus Noaksson, We Know IT
-
-${metaOn ? `   PS — detta mejl skrevs av vår Sales Agent. Variera formuleringen.\n` : ""}
-6. Kör \`upsert_lead\` och sedan \`draft_outreach_approval\`.
-
-────────────────────────────────────────
-KÄLLOR — kör i denna ordning:
-
-1. osm_no_website
-   → Lokala bolag utan hemsida → webb_design
-   Kör alltid. Ingen nyckel krävs. Roterar automatiskt.
-
-2. osm_by_type  → ai_automation
-   osm_filters: [["office","accountant"],["office","tax_advisor"]], city: "Stockholm"
-   osm_filters: [["office","logistics"],["office","company"]], city: "Göteborg"
-   label: "Bransch med tung manuell administration — behov av AI-automation"
-
-3. osm_by_type  → app_development
-   osm_filters: [["office","it"],["office","software"]], city: "Stockholm"
-   osm_filters: [["office","startup"],["office","company"]], city: "Malmö"
-   label: "Tech/digital bolag som skalar — behov av apputveckling"
-
-4. osm_by_type  → agent_platform
-   osm_filters: [["office","consulting"],["office","it"]], city: "Göteborg"
-   label: "IT-konsultbolag — behov av intern automation"
-
-5. bolagsverket_by_sni × 3       → ai_automation / app_development / agent_platform  (om bolagsverket-nyckel finns)
-   Kör en gång per offer-typ. Officiellt register — bästa källan för B2B-leads.
-
-6. fetch_funding_news            → app_development
-
-7. apollo_signal_companies × 3   → ai_automation / app_development / agent_platform  (om apollo_api_key)
-8. apollo_funded_companies        → app_development  (om apollo_api_key)
-9. apollo_no_website_companies    → webb_design  (om apollo_api_key)
-10. fetch_no_website_companies    → webb_design  (fallback)
-
-Mål per körning: 3 webb_design · 3 app_development · 2 ai_automation · 2 agent_platform.
-Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en dålig pitch.`;
+DECISION FLOW:
+1. Call \`list_recent_outreach\` first.
+2. Call sources in order: fetch_funding_news, apollo_funded_companies, apollo_signal_companies (×2:
+   app_development + agent_platform), fetch_no_website_companies, apollo_no_website_companies,
+   scrape_allabolag, bolagsverket_by_sni, fetch_visma_upsell_candidates.
+   ONLY call fetch_app_dev_signals if all above return <4 usable leads AND you still need app_development.
+   NEVER call fetch_ai_replaceable_jobs — we have no ready product for those roles today.
+3. For each returned prospect:
+   a. If source=funding_news → extract actual company name from headline.
+   b. Score ICP fit 0–100. Skip if score < 60.
+   c. Pick ONE offer_type using SOURCE → OFFER TYPE MAPPING above.
+   d. Call \`research_company\` — required for EVERY prospect. No exceptions.
+   e. Call \`validate_email_domain\` on the inferred domain.
+      Skip if confidence=unknown ONLY for sources where a working domain is expected (job_signal, funding_news, allabolag_icp).
+      For no-website sources (apollo_no_website_companies, fetch_no_website_companies), unknown is normal — do NOT skip. Continue with info@ fallback + [VERIFIERA ADRESS].
+   f. If research_company returned no contact_emails AND no email_candidates (no VD name found):
+      → Call \`apollo_find_decision_maker\` (FREE) to get the VD/founder name.
+      → If still no email: call \`apollo_enrich_contact\` (1 credit) ONLY for score ≥ 80 leads.
+   g. Select to_email using TO-EMAIL SELECTION RULE above (steps 1→2→3).
+   h. \`upsert_lead\` with all signals + enriched contact data. DO NOT invent lead_id.
+   i. \`draft_outreach_approval\` with ≤130-word Swedish email.
+      • Use the to_email and greeting from steps g and GREETING RULE.
+      • Personalise body using key_facts (employees, revenue, what the company does).
+      • Add "[VERIFIERA ADRESS]" to subject ONLY when using email_candidates or info@ fallback.
+4. Respect input.max_drafts across all sources. Distribute across all offer types.
+5. NEVER send — everything queues via draft_outreach_approval.
+Offers available: ${offers.join(", ")}.`;
   },
   tools: [
     {
@@ -398,122 +471,6 @@ Kvalitet före kvantitet — skippa hellre ett tveksamt lead än att skicka en d
         if (!apiKey) return { items: [], count: 0, note: "apollo_api_key not configured" };
         const items = await searchNoWebsiteCompanies({ apiKey, limit: (args["limit"] as number) ?? 10 });
         return { items, count: items.length };
-      },
-    },
-    {
-      name: "osm_no_website",
-      description:
-        "OpenStreetMap/Overpass: Find local Swedish businesses (restaurang, frisör, elektriker, café, etc.) that have no website tag in OSM. PRIMARY source for webb_design leads. Free, no API key needed. Rotates automatically through categories and cities.",
-      input_schema: {
-        type: "object",
-        properties: {
-          limit: { type: "number", description: "Max results (default 15)" },
-          city: { type: "string", description: "Override city, e.g. 'Göteborg'. Leave empty to auto-rotate." },
-        },
-      },
-      execute: async (args) => {
-        const items = await searchOsmNoWebsite({
-          limit: Math.min((args["limit"] as number) ?? 8, 8),
-          cityOverride: args["city"] as string | undefined,
-        });
-        return {
-          count: items.length,
-          items: items.map((i) => ({
-            company_name: i.company_name,
-            offer: i.suggested_offer_hint,
-            phone: (i.extra as Record<string,unknown>)?.["phone"] ?? null,
-            address: (i.extra as Record<string,unknown>)?.["address"] ?? null,
-            city: (i.extra as Record<string,unknown>)?.["city"] ?? null,
-            signal: i.signals[0] ?? "",
-          })),
-        };
-      },
-    },
-    {
-      name: "osm_by_type",
-      description:
-        "OpenStreetMap/Overpass: Find Swedish businesses by OSM type in a specific city. Use for ai_automation (office/accountant, office/company) or app_development (office/it, office/software). Free, no API key needed.",
-      input_schema: {
-        type: "object",
-        properties: {
-          osm_filters: {
-            type: "array",
-            items: {
-              type: "array",
-              items: { type: "string" },
-              description: "OSM key-value pair, e.g. [\"office\", \"accountant\"]",
-            },
-            description: "List of OSM key-value filters, e.g. [[\"office\",\"accountant\"],[\"office\",\"company\"]]",
-          },
-          city: { type: "string", description: "Swedish city name, e.g. 'Stockholm'" },
-          offer_hint: {
-            type: "string",
-            enum: ["ai_automation", "app_development", "webb_design", "agent_platform"],
-          },
-          label: { type: "string", description: "Signal label for the lead" },
-          limit: { type: "number", description: "Max results (default 10)" },
-        },
-        required: ["osm_filters", "city", "offer_hint", "label"],
-      },
-      execute: async (args) => {
-        const items = await searchOsmByType({
-          osmFilters: args["osm_filters"] as Array<[string, string]>,
-          city: args["city"] as string,
-          offerHint: args["offer_hint"] as ProspectSignal["suggested_offer_hint"],
-          label: args["label"] as string,
-          limit: Math.min((args["limit"] as number) ?? 8, 8),
-        });
-        return {
-          count: items.length,
-          items: items.map((i) => ({
-            company_name: i.company_name,
-            offer: i.suggested_offer_hint,
-            phone: (i.extra as Record<string,unknown>)?.["phone"] ?? null,
-            city: args["city"],
-            signal: i.signals[0] ?? "",
-          })),
-        };
-      },
-    },
-    {
-      name: "bolagsverket_by_sni",
-      description:
-        "Bolagsverket official Swedish company register — search by industry (SNI code). Returns company name, org number, address. PRIMARY source for ai_automation, app_development, agent_platform leads. Requires bolagsverket_client_id and bolagsverket_client_secret in tenant settings.",
-      input_schema: {
-        type: "object",
-        properties: {
-          offer: {
-            type: "string",
-            enum: ["ai_automation", "app_development", "agent_platform"],
-            description: "Which offer type to find leads for — determines which SNI codes are searched",
-          },
-          lan: { type: "string", description: "Swedish county name, e.g. 'Stockholm', 'Västra Götaland'. Optional." },
-          limit: { type: "number", description: "Max results (default 10)" },
-        },
-        required: ["offer"],
-      },
-      execute: async (args, ctx) => {
-        const s = ctx.tenant.settings as TenantSettings;
-        const clientId = s.bolagsverket_client_id;
-        const clientSecret = s.bolagsverket_client_secret;
-        if (!clientId || !clientSecret) return { count: 0, items: [], note: "bolagsverket_client_id/secret not configured" };
-        const items = await searchBolagsverketBySni({
-          clientId,
-          clientSecret,
-          offer: args["offer"] as ProspectSignal["suggested_offer_hint"],
-          lan: args["lan"] as string | undefined,
-          limit: (args["limit"] as number) ?? 10,
-        });
-        return {
-          count: items.length,
-          items: items.map((i) => ({
-            company_name: i.company_name,
-            offer: i.suggested_offer_hint,
-            org_number: (i.extra as Record<string,unknown>)?.["org_number"] ?? null,
-            address: (i.extra as Record<string,unknown>)?.["address"] ?? null,
-            signal: i.signals[0] ?? "",
-          })),
-        };
       },
     },
     {

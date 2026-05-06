@@ -33,16 +33,29 @@ export async function GET(req: Request) {
 
   if (!existing?.length && domain) {
     if (WKIT_DOMAINS.includes(domain)) {
-      // WKIT team member — add to the main weknowit tenant as admin.
+      // WKIT team member — find or create the main weknowit tenant.
+      let wkitTenantId: string | null = null;
       const { data: wkitTenant } = await admin
         .from("tenants")
         .select("id")
         .eq("slug", WKIT_TENANT_SLUG)
-        .single();
+        .maybeSingle();
 
       if (wkitTenant) {
+        wkitTenantId = wkitTenant.id as string;
+      } else {
+        // Tenant missing — create it (e.g. fresh DB or project recreated).
+        const { data: created } = await admin
+          .from("tenants")
+          .insert({ slug: WKIT_TENANT_SLUG, name: "We Know IT", plan: "starter", settings: {} })
+          .select("id")
+          .single();
+        wkitTenantId = created?.id ?? null;
+      }
+
+      if (wkitTenantId) {
         await admin.from("users_tenants").upsert(
-          { user_id: userId, tenant_id: wkitTenant.id, role: "admin" },
+          { user_id: userId, tenant_id: wkitTenantId, role: "owner" },
           { onConflict: "user_id,tenant_id" },
         );
       }
