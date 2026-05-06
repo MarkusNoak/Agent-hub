@@ -25,8 +25,11 @@ export async function middleware(request: NextRequest) {
   );
 
   // Refresh session — must happen on every request so tokens don't expire.
-  // Do NOT add logic between createServerClient and getUser().
-  await supabase.auth.getUser();
+  try {
+    await supabase.auth.getUser();
+  } catch {
+    // Supabase unavailable — let the request through rather than 403-ing.
+  }
 
   return supabaseResponse;
 }
