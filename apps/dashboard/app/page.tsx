@@ -18,8 +18,12 @@ const TIME_SAVED_PER_RUN: Record<string, number> = {
 const HOURLY_COST_SEK = 950;
 
 export default async function Overview() {
+  const supa = createSupabaseServerClient();
+  const { data: { user } } = await supa.auth.getUser();
+  if (!user) redirect("/login");
+
   const tenant = await getActiveTenant();
-  if (!tenant) redirect("/login");
+  if (!tenant) redirect("/no-access");
   const supa = createSupabaseServerClient();
 
   const [agentsRes, approvalsRes, runsRes, leadsRes] = await Promise.all([
