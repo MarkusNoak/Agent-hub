@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import { Bot, ShieldCheck, BarChart3, ArrowLeft } from "lucide-react";
+import { provisionTenant } from "@/app/actions/provision-tenant";
 
 const features = [
   { Icon: Bot,         label: "Flera AI-agenter — sälj, faktura, projekt, support" },
@@ -28,8 +29,7 @@ export default function LoginPage() {
     e.preventDefault();
     setErr(null);
     setLoading(true);
-    // No emailRedirectTo → Supabase sends a 6-digit code instead of a magic link.
-    // This is immune to email security scanners that auto-click links.
+    // No emailRedirectTo → Supabase sends a 6-digit code, immune to email link scanners.
     const { error } = await supa.auth.signInWithOtp({ email });
     setLoading(false);
     if (error) setErr(error.message);
@@ -41,13 +41,16 @@ export default function LoginPage() {
     setErr(null);
     setLoading(true);
     const { error } = await supa.auth.verifyOtp({ email, token: code, type: "email" });
-    setLoading(false);
     if (error) {
+      setLoading(false);
       setErr("Fel kod eller koden har gått ut. Begär en ny.");
-    } else {
-      router.push("/");
-      router.refresh();
+      return;
     }
+    // OTP flow bypasses /auth/callback, so provision tenant here.
+    await provisionTenant();
+    setLoading(false);
+    router.push("/");
+    router.refresh();
   }
 
   return (
@@ -58,7 +61,6 @@ export default function LoginPage() {
       {/* ── Left branding panel ── */}
       <div className="hidden lg:flex flex-col justify-between w-[440px] shrink-0 px-12 py-14">
         <div>
-          {/* Logo */}
           <div className="flex items-center gap-3 mb-14">
             <div
               className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0"
@@ -89,7 +91,6 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Feature list — Lucide icons, no emojis */}
         <div className="space-y-3">
           {features.map(({ Icon, label }) => (
             <div key={label} className="flex items-center gap-3">
