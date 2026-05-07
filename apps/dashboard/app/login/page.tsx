@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { Bot, ShieldCheck, BarChart3, CheckCircle2, ArrowLeft } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bot, ShieldCheck, BarChart3, ArrowLeft } from "lucide-react";
+import { provisionTenant } from "@/app/actions/provision-tenant";
 
 const features = [
   { Icon: Bot,         label: "Flera AI-agenter — sälj, faktura, projekt, support" },
@@ -11,26 +13,44 @@ const features = [
 ];
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail]   = useState("");
-  const [sent, setSent]     = useState(false);
+  const [code, setCode]     = useState("");
+  const [step, setStep]     = useState<"email" | "code">("email");
   const [loading, setLoading] = useState(false);
   const [err, setErr]       = useState<string | null>(null);
 
-  async function signIn(e: React.FormEvent) {
+  const supa = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  );
+
+  async function sendCode(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setLoading(true);
-    const supa = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-    const { error } = await supa.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${location.origin}/auth/callback` },
-    });
+    // No emailRedirectTo → Supabase sends a 6-digit code, immune to email link scanners.
+    const { error } = await supa.auth.signInWithOtp({ email });
     setLoading(false);
     if (error) setErr(error.message);
-    else setSent(true);
+    else setStep("code");
+  }
+
+  async function verifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
+    const { error } = await supa.auth.verifyOtp({ email, token: code, type: "email" });
+    if (error) {
+      setLoading(false);
+      setErr("Fel kod eller koden har gått ut. Begär en ny.");
+      return;
+    }
+    // OTP flow bypasses /auth/callback, so provision tenant here.
+    await provisionTenant();
+    setLoading(false);
+    router.push("/");
+    router.refresh();
   }
 
   return (
@@ -41,7 +61,6 @@ export default function LoginPage() {
       {/* ── Left branding panel ── */}
       <div className="hidden lg:flex flex-col justify-between w-[440px] shrink-0 px-12 py-14">
         <div>
-          {/* Logo */}
           <div className="flex items-center gap-3 mb-14">
             <div
               className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0"
@@ -72,7 +91,6 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Feature list — Lucide icons, no emojis */}
         <div className="space-y-3">
           {features.map(({ Icon, label }) => (
             <div key={label} className="flex items-center gap-3">
@@ -112,40 +130,62 @@ export default function LoginPage() {
             <span className="font-bold text-ink-900 tracking-tight">weknowit · Agent Hub</span>
           </div>
 
-          {sent ? (
-            <div className="space-y-5">
-              <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                style={{ background: "linear-gradient(145deg, #f0fdf4, #dcfce7)", border: "1px solid #86efac" }}
-              >
-                <CheckCircle2 size={26} strokeWidth={1.75} className="text-emerald-600" />
-              </div>
+          {step === "code" ? (
+            <form onSubmit={verifyCode} className="space-y-6">
               <div>
                 <h1 className="text-[26px] font-bold tracking-[-0.02em] text-ink-900 leading-tight">
-                  Kolla din inbox
+                  Ange koden
                 </h1>
                 <p className="text-ink-400 text-sm mt-2.5 leading-relaxed">
-                  Vi skickade en inloggningslänk till{" "}
+                  Vi skickade en 6-siffrig kod till{" "}
                   <span className="font-semibold text-ink-700">{email}</span>.
-                  Klicka på länken för att logga in.
                 </p>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="section-label mb-2 block">Engångskod</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    required
+                    placeholder="123456"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="input text-center text-2xl tracking-[0.3em]"
+                    autoFocus
+                  />
+                </div>
+                {err && (
+                  <div className="text-sm text-red-700 bg-red-50 border border-red-200/80 rounded-xl px-3.5 py-2.5">
+                    {err}
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={loading || code.length < 6}
+                  className="btn btn-primary w-full justify-center py-3 text-[15px]"
+                >
+                  {loading ? "Verifierar…" : "Logga in"}
+                </button>
               </div>
               <button
                 type="button"
-                onClick={() => { setSent(false); setEmail(""); }}
+                onClick={() => { setStep("email"); setCode(""); setErr(null); }}
                 className="inline-flex items-center gap-1.5 text-sm text-ink-400 hover:text-ink-700 transition-colors"
               >
-                <ArrowLeft size={14} /> Försök med annan e-post
+                <ArrowLeft size={14} /> Byt e-postadress
               </button>
-            </div>
+            </form>
           ) : (
-            <form onSubmit={signIn} className="space-y-6">
+            <form onSubmit={sendCode} className="space-y-6">
               <div>
                 <h1 className="text-[28px] font-bold tracking-[-0.02em] text-ink-900 leading-tight">
                   Logga in
                 </h1>
                 <p className="text-ink-400 text-sm mt-1.5 font-medium">
-                  Vi skickar en magisk länk till din e-post.
+                  Vi skickar en engångskod till din e-post.
                 </p>
               </div>
 
@@ -174,7 +214,7 @@ export default function LoginPage() {
                   disabled={loading || !email}
                   className="btn btn-primary w-full justify-center py-3 text-[15px]"
                 >
-                  {loading ? "Skickar…" : "Skicka inloggningslänk"}
+                  {loading ? "Skickar…" : "Skicka engångskod"}
                 </button>
               </div>
 
