@@ -388,11 +388,9 @@ export async function fetchAiReplaceableJobs(
 export async function fetchAppDevSignals(
   opts: { limit?: number } = {},
 ): Promise<ProspectSignal[]> {
+  // Only strong "we need to build something" signals — not marketing/PM roles
+  // which are weaker proxies. These roles = company actively needs a developer.
   const roles = [
-    "produktägare",
-    "product owner",
-    "digital projektledare",
-    "it-projektledare",
     "systemutvecklare",
     "webbutvecklare",
     "apputvecklare",
@@ -402,8 +400,9 @@ export async function fetchAppDevSignals(
     "fullstack-utvecklare",
     "iOS-utvecklare",
     "Android-utvecklare",
-    "digital marknadsföring",
-    "performance marketing",
+    "mjukvaruutvecklare",
+    "produktägare",
+    "product owner",
   ];
 
   type JobAd = {
@@ -417,13 +416,20 @@ export async function fetchAppDevSignals(
     "adecco", "randstad", "manpower", "poolia", "academicwork", "academic work",
     "experis", "jeffersonwells", "jobbusters", "onepartnergroup", "techrytera",
     "recruitive", "lernia", "perido", "dfind", "wise",
+    // Also skip large tech companies — they have their own devs
+    "spotify", "klarna", "ericsson", "volvo", "scania", "ikea", "h&m", "hm group",
+    "tele2", "telia", "swedbank", "handelsbanken", "nordea", "seb bank",
   ];
-  const NON_ICP_APP = ["region ", "landsting", "kommun", "stad ", "sjukhus", "skola", "gymnasium", "högskola", "universitet", "myndighet"];
+  const NON_ICP_APP = [
+    "region ", "landsting", "kommun", "stad ", "sjukhus", "skola",
+    "gymnasium", "högskola", "universitet", "myndighet", "försäkrings",
+  ];
 
   const ads: JobAd[] = [];
   for (const role of roles) {
     try {
-      const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=8`;
+      // Limit to 5 per role — we only want the top signals, not a firehose
+      const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(role)}&limit=5`;
       const res = await fetchWithRetry(url, { headers: { accept: "application/json" } });
       const data = (await res.json()) as JobtechResponse;
       (data?.hits ?? []).forEach((hit) => {
