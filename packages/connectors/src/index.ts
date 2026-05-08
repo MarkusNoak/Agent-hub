@@ -11,3 +11,4 @@ export * from "./apollo.js";
 export * from "./overpass.js";
 export * from "./bolagsverket.js";
 export * from "./registry.js";
+export * from "./prospect-db.js";

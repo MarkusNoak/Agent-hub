@@ -18,6 +18,9 @@ import {
   searchRecentlyFundedCompanies,
   findDecisionMaker,
   enrichPersonEmail,
+  upsertProspectCompany,
+  storeResearchResult,
+  queryEnrichedCompanies,
 } from "@agent-hub/connectors";
 
 const OfferTypeEnum = z.enum([
@@ -242,7 +245,11 @@ ENRICHMENT TOOLS (use after scoring, before upsert_lead):
                         high + contact_emails[0] used → remove [VERIFIERA ADRESS] from subject.
 ────────────────────────────────────────
 DECISION FLOW:
-1. Call \`list_recent_outreach\` first — builds blocklist.
+0. Call \`query_prospect_db\` FIRST — returns pre-enriched companies from previous runs.
+   Pass exclude_domains from the upcoming list_recent_outreach call (call list_recent_outreach first, then query_prospect_db).
+   If count > 0: use these companies as primary candidates — contacts already found, no research_company needed.
+   If count = 0: proceed to live signal sources as normal.
+1. Call \`list_recent_outreach\` — builds blocklist.
 2. Call \`get_historical_patterns\` second — returns what's worked before.
    READ the patterns carefully:
    - If an offer_type has verdict=WEAK (many drafted, none sent) → require score ≥ 75 for that type this run.
@@ -357,6 +364,42 @@ Offers available: ${offers.join(", ")}.`;
       },
     },
     {
+      name: "query_prospect_db",
+      description:
+        "Query pre-enriched companies from the prospect database — companies discovered and research-enriched in previous runs. Returns companies with verified contacts ready for outreach. Call this FIRST (step 0) before any live signal sources. Faster and higher quality than live scraping. Excludes companies already in the outreach blocklist.",
+      input_schema: {
+        type: "object",
+        properties: {
+          offer: {
+            type: "string",
+            enum: ["webb_design", "app_development", "agent_platform"],
+            description: "Filter by suggested offer type (optional — omit to get all types)",
+          },
+          limit: { type: "number", description: "Max results (default 20)" },
+          exclude_domains: {
+            type: "array",
+            items: { type: "string" },
+            description: "Domains already in the blocklist — pass blocked_domains from list_recent_outreach",
+          },
+        },
+      },
+      execute: async (args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
+        const prospects = await queryEnrichedCompanies(supa, ctx.tenant.tenantId, {
+          offer: args["offer"] as string | undefined,
+          limit: (args["limit"] as number) ?? 20,
+          excludeDomains: (args["exclude_domains"] as string[] | undefined) ?? [],
+        });
+        return {
+          prospects,
+          count: prospects.length,
+          instruction: prospects.length > 0
+            ? "Use these pre-enriched companies as primary candidates. Each has contacts already found — skip research_company for these, use the stored contact directly."
+            : "No enriched prospects in DB yet. Proceed with live signal sources.",
+        };
+      },
+    },
+    {
       name: "fetch_funding_news",
       description:
         "Fetch recent Swedish funding/growth news from Breakit and ComputerSweden RSS. Returns ProspectSignals where company_name='extract_from_headline' — use the signal text to identify the actual company name. Signals → app_development.",
@@ -366,8 +409,12 @@ Offers available: ${offers.join(", ")}.`;
           limit: { type: "number", description: "Max items (default 8)" },
         },
       },
-      execute: async (args) => {
+      execute: async (args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
         const items = await fetchFundingNews({ limit: (args["limit"] as number) ?? 8 });
+        for (const item of items) {
+          try { await upsertProspectCompany(supa, ctx.tenant.tenantId, item); } catch { /* non-fatal */ }
+        }
         return { items, count: items.length };
       },
     },
@@ -381,8 +428,12 @@ Offers available: ${offers.join(", ")}.`;
           limit: { type: "number" },
         },
       },
-      execute: async (args) => {
+      execute: async (args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
         const items = await scrapeAllabolag({ limit: (args["limit"] as number) ?? 6 });
+        for (const item of items) {
+          try { await upsertProspectCompany(supa, ctx.tenant.tenantId, item); } catch { /* non-fatal */ }
+        }
         return { items, count: items.length };
       },
     },
@@ -411,8 +462,12 @@ Offers available: ${offers.join(", ")}.`;
           limit: { type: "number" },
         },
       },
-      execute: async (args) => {
+      execute: async (args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
         const items = await fetchAppDevSignals({ limit: (args["limit"] as number) ?? 8 });
+        for (const item of items) {
+          try { await upsertProspectCompany(supa, ctx.tenant.tenantId, item); } catch { /* non-fatal */ }
+        }
         return { items, count: items.length };
       },
     },
@@ -556,11 +611,26 @@ Offers available: ${offers.join(", ")}.`;
         },
         required: ["company_name"],
       },
-      execute: async (args) => {
+      execute: async (args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
         const result = await researchCompany({
           companyName: String(args["company_name"]),
           companyDomain: args["company_domain"] ? String(args["company_domain"]) : undefined,
         });
+        // Persist enrichment results if we can find the company in the prospect DB
+        if (result.company_domain) {
+          try {
+            const { data: existing } = await supa
+              .from("prospect_companies")
+              .select("id")
+              .eq("tenant_id", ctx.tenant.tenantId)
+              .eq("domain", result.company_domain.toLowerCase())
+              .maybeSingle();
+            if (existing) {
+              await storeResearchResult(supa, ctx.tenant.tenantId, (existing as { id: string }).id, result);
+            }
+          } catch { /* non-fatal */ }
+        }
         return result;
       },
     },
@@ -574,8 +644,12 @@ Offers available: ${offers.join(", ")}.`;
           limit: { type: "number", description: "Max prospects to return (default 8)" },
         },
       },
-      execute: async (args) => {
+      execute: async (args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
         const items = await fetchNoWebsiteCompanies({ limit: (args["limit"] as number) ?? 8 });
+        for (const item of items) {
+          try { await upsertProspectCompany(supa, ctx.tenant.tenantId, item); } catch { /* non-fatal */ }
+        }
         return { items, count: items.length };
       },
     },
@@ -593,6 +667,10 @@ Offers available: ${offers.join(", ")}.`;
         const apiKey = (ctx.tenant.settings as TenantSettings).apollo_api_key;
         if (!apiKey) return { items: [], count: 0, note: "apollo_api_key not configured" };
         const items = await searchNoWebsiteCompanies({ apiKey, limit: (args["limit"] as number) ?? 10 });
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
+        for (const item of items) {
+          try { await upsertProspectCompany(supa, ctx.tenant.tenantId, item); } catch { /* non-fatal */ }
+        }
         return { items, count: items.length };
       },
     },
@@ -620,6 +698,10 @@ Offers available: ${offers.join(", ")}.`;
           signalType: args["signal_type"] as "ai_automation" | "app_development" | "agent_platform",
           limit: (args["limit"] as number) ?? 10,
         });
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
+        for (const item of items) {
+          try { await upsertProspectCompany(supa, ctx.tenant.tenantId, item); } catch { /* non-fatal */ }
+        }
         return { items, count: items.length };
       },
     },
@@ -637,6 +719,10 @@ Offers available: ${offers.join(", ")}.`;
         const apiKey = (ctx.tenant.settings as TenantSettings).apollo_api_key;
         if (!apiKey) return { items: [], count: 0, note: "apollo_api_key not configured" };
         const items = await searchRecentlyFundedCompanies({ apiKey, limit: (args["limit"] as number) ?? 8 });
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
+        for (const item of items) {
+          try { await upsertProspectCompany(supa, ctx.tenant.tenantId, item); } catch { /* non-fatal */ }
+        }
         return { items, count: items.length };
       },
     },
