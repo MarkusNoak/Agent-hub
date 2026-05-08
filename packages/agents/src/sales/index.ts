@@ -153,7 +153,11 @@ GREETING RULE:
   3. nothing found → "Hej,"
 ────────────────────────────────────────
 SKIP RULES — HARD STOP: skip immediately, do NOT upsert_lead, do NOT draft, do NOT add to blocklist:
-• Offentlig sektor (HARD SKIP): kommuner, regioner, landsting, statliga myndigheter, Svenska Kraftnät,
+• Offentlig sektor (HARD SKIP): landsting, statliga myndigheter, Svenska Kraftnät,
+  EXCEPTION kommuner: en kommun som aktivt bygger en digital produkt / öppen data-plattform / app
+  kan vara ett giltigt app_development-lead. Kräv tydlig digital signal i annonsen/beskrivningen och score ≥ 75.
+  Exempel på OK: "Göteborgs stad söker produktägare för öppen stadsdata". Exempel på SKIP: "Skurups kommun söker ekonomiassistent".
+  Kommuner,
   Försäkringskassan, Arbetsförmedlingen, Polisen, Försvarsmakten, Socialstyrelsen, Skatteverket,
   Trafikverket — identifiera via "kommun", "myndighet", "statlig", "region", "landsting" i name/description.
 • Sjukvård/vård B2C (HARD SKIP): sjukhus, vårdcentraler, hemtjänst, äldreomsorg, LSS-bolag.
@@ -810,21 +814,24 @@ Offers available: ${offers.join(", ")}.`;
           );
         }
 
-        // Guard: reject public sector, healthcare, education — never WKIT ICP
-        const PUBLIC_SECTOR_SIGNALS = [
-          "kommun", "municipality", "landsting", "region ", "regionen",
-          "myndighet", "statlig", "försvarsmakten", "polisen", "riksdag",
+        // Guard: reject hard public sector / healthcare / education
+        // NOTE: kommuner are NOT hard-blocked — some run digital product projects
+        // (e.g. "öppen stad", open data platforms) and can be valid app_development targets.
+        // The agent's scoring and system prompt handle that distinction.
+        const HARD_PUBLIC_SECTOR = [
+          "landsting", "myndighet", "statlig",
+          "försvarsmakten", "polisen", "riksdag",
           "försäkringskassan", "arbetsförmedlingen", "skatteverket",
           "trafikverket", "länsstyrelsen", "migrationsverket",
-          "svenska kraftnät", "kraftnät",
+          "svenska kraftnät",
           "sjukhus", "vårdcentral", "hemtjänst", "äldreomsorg", "omsorg ab",
-          "lss-bolag", "socialtjänst",
-          "skola", "gymnasium", "högskola", "universitet", "akademi",
-          "kyrka", "kyrkan", "stiftelsen",
+          "lss ", "socialtjänst",
+          "grundskola", "gymnasium", "högskola", "universitet", "akademi",
+          "kyrka", "kyrkan",
         ];
-        if (PUBLIC_SECTOR_SIGNALS.some((s) => companyRaw.includes(s))) {
+        if (HARD_PUBLIC_SECTOR.some((s) => companyRaw.includes(s))) {
           throw new Error(
-            `draft_outreach_approval: "${args["company_name"]}" is public sector / healthcare / education — hard skip.`,
+            `draft_outreach_approval: "${args["company_name"]}" is hard-blocked public sector / healthcare / education.`,
           );
         }
 
