@@ -160,6 +160,8 @@ SKIP RULES — HARD STOP: skip immediately, do NOT upsert_lead, do NOT draft, do
 • Utbildning (HARD SKIP): grundskolor, gymnasier, högskolor, universitet, Göteborgs Universitet etc.
 • Ideella/religiösa (HARD SKIP): föreningar utan kommersiell verksamhet, kyrkor, välgörenhetsorg.
 • B2C retail/konsument (HARD SKIP): e-handelsbolag riktade mot konsumenter (Lyko, Hemfrid, Webhallen etc).
+• Kända large-cap varumärken (HARD SKIP): Lendo, Klarna, Spotify, iZettle, Volvo, Ericsson, Telia, Tele2,
+  Nordea, Swedbank, SEB, Handelsbanken, Avanza, Hemnet, Blocket, ICA, Coop, IKEA, H&M — egna techteam, inte ICP.
 • Staffing/bemanning som pitchar for webb_design/app_dev/ai_automation: Adecco, Randstad, Manpower, Poolia,
   Academic Work, Experis, Jobbusters, OnePartnerGroup, Techrytera, Recruitive — SKIP for those offer types.
   EXCEPTION: staffing firms ARE valid targets for agent_platform (de behöver intern automation).
@@ -776,6 +778,38 @@ Offers available: ${offers.join(", ")}.`;
       },
       execute: async (args, ctx) => {
         const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
+
+        // Guard: reject placeholder or obviously fake email addresses
+        const toEmail = String(args["to_email"] ?? "").toLowerCase().trim();
+        const PLACEHOLDER_PATTERNS = [
+          /^namn@/, /^name@/, /^your@/, /^email@/, /^test@/, /^example@/,
+          /^förnamn/, /^kontakt@kontakt/, /@adress\./, /@example\./, /@test\./,
+          /^info@info/, /^\s*$/, /namn/, /adress\.se$/,
+        ];
+        if (!toEmail || !toEmail.includes("@") || PLACEHOLDER_PATTERNS.some((p) => p.test(toEmail))) {
+          throw new Error(
+            `draft_outreach_approval: to_email "${toEmail}" looks like a placeholder. Find a real email or skip this company.`,
+          );
+        }
+
+        // Guard: reject well-known large-cap / consumer brands
+        const companyRaw = String(args["company_name"] ?? (args["subject"] ?? "")).toLowerCase();
+        const LARGE_CAP_BRANDS = [
+          "lendo", "klarna", "spotify", "king.com", "mojang", "mojäng",
+          "izettle", "zettle", "bambora", "nets ", "swish", "bankid",
+          "volvo", "scania", "ericsson", "vattenfall", "skanska", "ncc ",
+          "ikea", "h&m", "hennes", "tele2", "telia", "tre.se", "comviq",
+          "handelsbanken", "nordea", "swedbank", "seb ", "länsförsäkringar",
+          "avanza", "nordnet", "collector", "resurs bank", "hoist",
+          "hemnet", "blocket", "tradera", "willys", "ica ", "coop ", "axfood",
+          "lyko", "nelly", "boozt", "webhallen", "komplett",
+        ];
+        if (LARGE_CAP_BRANDS.some((b) => companyRaw.includes(b))) {
+          throw new Error(
+            `draft_outreach_approval: "${args["company_name"]}" is a large-cap/consumer brand — not WKIT ICP. Skip this company.`,
+          );
+        }
+
         const offerType = String(args["offer_type"]);
         const metaPitch = Boolean(args["meta_pitch"]);
         const settings = ctx.tenant.settings as TenantSettings;
