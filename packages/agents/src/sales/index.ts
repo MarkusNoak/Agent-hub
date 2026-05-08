@@ -237,8 +237,13 @@ ENRICHMENT TOOLS (use after scoring, before upsert_lead):
                         high + contact_emails[0] used → remove [VERIFIERA ADRESS] from subject.
 ────────────────────────────────────────
 DECISION FLOW:
-1. Call \`list_recent_outreach\` first.
-2. Call sources in order:
+1. Call \`list_recent_outreach\` first — builds blocklist.
+2. Call \`get_historical_patterns\` second — returns what's worked before.
+   READ the patterns carefully:
+   - If an offer_type has verdict=WEAK (many drafted, none sent) → require score ≥ 75 for that type this run.
+   - If an offer_type has verdict=STRONG → prioritize it, normal threshold (65).
+   - stale_drafts_archived tells you how many old unapproved drafts were cleaned up.
+3. Call sources in order:
    a. fetch_funding_news
    b. apollo_funded_companies
    c. fetch_app_dev_signals        ← call every run, cap at 3 leads
@@ -285,18 +290,26 @@ Offers available: ${offers.join(", ")}.`;
         const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
         const days = (args["days"] as number) ?? 14;
         const since = new Date(Date.now() - days * 86400_000).toISOString();
+        // Drafted-only lookback: 7 days. Sent/active: always blocked (no date filter).
+        const draftSince = new Date(Date.now() - 7 * 86400_000).toISOString();
         const { data: approvals } = await supa
           .from("approval_queue")
           .select("payload, created_at, status")
           .eq("tenant_id", ctx.tenant.tenantId)
           .eq("agent_kind", "sales")
           .gte("created_at", since);
-        const { data: leads } = await supa
+        const { data: sentLeads } = await supa
           .from("leads")
           .select("company_name, company_domain, stage, updated_at")
           .eq("tenant_id", ctx.tenant.tenantId)
-          .in("stage", ["outreach_drafted", "outreach_sent", "in_conversation"])
-          .gte("updated_at", since);
+          .in("stage", ["outreach_sent", "in_conversation", "qualified", "won"]);
+        const { data: draftedLeads } = await supa
+          .from("leads")
+          .select("company_name, company_domain, stage, updated_at")
+          .eq("tenant_id", ctx.tenant.tenantId)
+          .eq("stage", "outreach_drafted")
+          .gte("updated_at", draftSince);
+        const leads = [...(sentLeads ?? []), ...(draftedLeads ?? [])];
         const norm = (s: unknown) =>
           String(s ?? "")
             .toLowerCase()
@@ -450,6 +463,80 @@ Offers available: ${offers.join(", ")}.`;
         const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
         await markVismaUpsellContacted(supa, ctx.tenant.tenantId, String(args["project_id"]));
         return { marked: true };
+      },
+    },
+    {
+      name: "get_historical_patterns",
+      description:
+        "Returns what has worked and what hasn't from previous runs. Call this SECOND, right after list_recent_outreach. Use the data to adjust scoring: downweight offer_type+industry combos with high skip rates, upweight combos that reached outreach_sent.",
+      input_schema: { type: "object", properties: {} },
+      execute: async (_args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
+        const ninetyDaysAgo = new Date(Date.now() - 90 * 86400_000).toISOString();
+
+        const { data: leads } = await supa
+          .from("leads")
+          .select("offer_type, stage, score, signal_type, created_at")
+          .eq("tenant_id", ctx.tenant.tenantId)
+          .gte("created_at", ninetyDaysAgo);
+
+        if (!leads?.length) return { message: "No historical data yet.", patterns: [] };
+
+        type OfferKey = string;
+        const stats: Record<OfferKey, { drafted: number; sent: number; lost: number; avg_score: number; scores: number[] }> = {};
+
+        for (const l of leads) {
+          const key = String(l.offer_type ?? "unknown");
+          if (!stats[key]) stats[key] = { drafted: 0, sent: 0, lost: 0, avg_score: 0, scores: [] };
+          const entry = stats[key]!;
+          if (l.stage === "outreach_drafted") entry.drafted++;
+          if (["outreach_sent", "in_conversation", "qualified", "won"].includes(String(l.stage))) entry.sent++;
+          if (l.stage === "lost") entry.lost++;
+          if (l.score) entry.scores.push(Number(l.score));
+        }
+
+        const patterns = Object.entries(stats).map(([offer_type, s]) => {
+          const avg_score = s.scores.length ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length) : 0;
+          const total = s.drafted + s.sent + s.lost;
+          const send_rate = total > 0 ? Math.round((s.sent / total) * 100) : 0;
+          return {
+            offer_type,
+            total_drafted: s.drafted,
+            total_sent: s.sent,
+            send_rate_pct: send_rate,
+            avg_score,
+            verdict: send_rate === 0 && s.drafted > 3
+              ? "WEAK — many drafted, none sent. Require score ≥ 75 for this offer type."
+              : send_rate >= 20
+              ? "STRONG — good conversion. Prioritize."
+              : "NEUTRAL",
+          };
+        });
+
+        // Stale drafts: drafted >7 days ago and still not sent → mark as skipped
+        const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
+        const { data: stale } = await supa
+          .from("leads")
+          .select("id")
+          .eq("tenant_id", ctx.tenant.tenantId)
+          .eq("stage", "outreach_drafted")
+          .lt("updated_at", sevenDaysAgo);
+
+        let archived = 0;
+        if (stale?.length) {
+          const ids = stale.map((r) => r.id as string);
+          await supa.from("leads").update({ stage: "skipped" }).in("id", ids);
+          archived = ids.length;
+        }
+
+        return {
+          patterns,
+          stale_drafts_archived: archived,
+          insight: patterns
+            .filter((p) => p.verdict.startsWith("WEAK"))
+            .map((p) => `${p.offer_type}: ${p.total_drafted} drafted, ${p.total_sent} sent → raise threshold to 75`)
+            .join("; ") || "No weak patterns detected.",
+        };
       },
     },
     {
