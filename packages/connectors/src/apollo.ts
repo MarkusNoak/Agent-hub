@@ -29,7 +29,6 @@ async function apolloPost(
     headers: {
       "Content-Type": "application/json",
       "X-Api-Key": apiKey,
-      "Cache-Control": "no-cache",
     },
     body: JSON.stringify({ api_key: apiKey, ...body }),
     signal: AbortSignal.timeout(15_000),
