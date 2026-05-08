@@ -24,7 +24,6 @@ export default async function Overview() {
 
   const tenant = await getActiveTenant();
   if (!tenant) redirect("/no-access");
-  const supa = createSupabaseServerClient();
 
   const [agentsRes, approvalsRes, runsRes, leadsRes] = await Promise.all([
     supa.from("agents").select("kind, name, status, last_run_at").eq("tenant_id", tenant.id),
