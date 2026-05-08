@@ -224,10 +224,15 @@ export async function executeAgent<O = unknown>(
             ),
           ]);
           const asText = typeof result === "string" ? result : JSON.stringify(result);
+          // Cap tool results to prevent context explosion and rate limit errors.
+          const MAX_TOOL_RESULT = 6000;
+          const trimmed = asText.length > MAX_TOOL_RESULT
+            ? asText.slice(0, MAX_TOOL_RESULT) + `\n…[truncated ${asText.length - MAX_TOOL_RESULT} chars]`
+            : asText;
           toolResults.push({
             type: "tool_result",
             tool_use_id: block.id,
-            content: asText.trim() || "(empty)",
+            content: trimmed.trim() || "(empty)",
           });
           await logStep(supabase, tenant.tenantId, runId, iterations, "tool_result", {
             name: block.name,

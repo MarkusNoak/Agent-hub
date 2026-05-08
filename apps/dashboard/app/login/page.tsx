@@ -137,7 +137,7 @@ export default function LoginPage() {
                   Ange koden
                 </h1>
                 <p className="text-ink-400 text-sm mt-2.5 leading-relaxed">
-                  Vi skickade en 6-siffrig kod till{" "}
+                  Vi skickade en engångskod till{" "}
                   <span className="font-semibold text-ink-700">{email}</span>.
                 </p>
               </div>
@@ -147,12 +147,12 @@ export default function LoginPage() {
                   <input
                     type="text"
                     inputMode="numeric"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
+                    pattern="[0-9]{6,8}"
+                    maxLength={8}
                     required
-                    placeholder="123456"
+                    placeholder="12345678"
                     value={code}
-                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
                     className="input text-center text-2xl tracking-[0.3em]"
                     autoFocus
                   />

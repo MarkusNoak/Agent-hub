@@ -51,37 +51,6 @@ export async function provisionTenant(): Promise<void> {
         { onConflict: "user_id,tenant_id" },
       );
     }
-  } else {
-    const slug = domain.replace(/\./g, "-");
-    const name =
-      (domain.split(".")[0] ?? domain).charAt(0).toUpperCase() +
-      (domain.split(".")[0] ?? domain).slice(1);
-
-    const { data: existingTenant } = await admin
-      .from("tenants")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
-
-    if (existingTenant) {
-      await admin.from("users_tenants").upsert(
-        { user_id: userId, tenant_id: existingTenant.id, role: "admin" },
-        { onConflict: "user_id,tenant_id" },
-      );
-    } else {
-      const { data: newTenant } = await admin
-        .from("tenants")
-        .insert({ slug, name, plan: "starter", settings: {} })
-        .select("id")
-        .single();
-
-      if (newTenant) {
-        await admin.from("users_tenants").insert({
-          user_id: userId,
-          tenant_id: newTenant.id,
-          role: "owner",
-        });
-      }
-    }
   }
+  // Unknown domain — no tenant provisioned. User will land on /no-access.
 }

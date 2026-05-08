@@ -72,22 +72,16 @@ type ApolloPerson = {
 
 // ------------------------------------------------------------
 // SOURCE A — Companies without websites in Sweden (FREE)
+// Broad search — filter website_url=null afterwards.
 // ------------------------------------------------------------
 export async function searchNoWebsiteCompanies(opts: {
   apiKey: string;
   limit?: number;
 }): Promise<ProspectSignal[]> {
-  // Industries that commonly lack websites — good webb_design targets.
-  // q_organization_keyword_tags works on free tier; q_organization_job_titles does NOT.
   const data = await apolloPost(opts.apiKey, "/mixed_companies/search", {
     organization_locations: ["Sweden"],
     organization_num_employees_ranges: ["1,9", "10,49"],
-    q_organization_keyword_tags: [
-      "construction", "accounting", "legal services",
-      "restaurants", "beauty", "cleaning services",
-      "real estate", "architecture",
-    ],
-    per_page: 100,
+    per_page: Math.min((opts.limit ?? 10) * 5, 100), // fetch more, filter down
     page: 1,
   });
 
@@ -234,23 +228,40 @@ export async function searchCompaniesWithSignal(opts: {
   return results.slice(0, opts.limit ?? 12);
 }
 
-// Recently funded — latest_funding_date_range requires paid plan.
-// Replaced with tech/startup keyword search as proxy for growth-stage companies.
+// Growth-stage companies (not VC firms themselves).
+// Apollo's free plan doesn't support funding date filters, so we use:
+// - Industry exclusions to filter OUT finance/VC firms
+// - Keywords that companies who BUILD products use, not investors
 export async function searchRecentlyFundedCompanies(opts: {
   apiKey: string;
   limit?: number;
 }): Promise<ProspectSignal[]> {
   const data = await apolloPost(opts.apiKey, "/mixed_companies/search", {
     organization_locations: ["Sweden"],
-    organization_num_employees_ranges: ["10,49", "50,199"],
-    q_organization_keyword_tags: ["venture capital", "seed funding", "series a", "startup", "growth", "scaleup"],
+    organization_num_employees_ranges: ["5,49", "50,149"],
+    // Keywords found on company sites that are scaling / building products
+    q_organization_keyword_tags: ["product development", "scaling", "MVP", "growing team", "product launch", "go to market"],
+    // Exclude finance/VC industries — they ARE the investors, not WKIT targets
+    not_organization_industry_tag_ids: [
+      "5567ce9f7369644d39020000", // Venture Capital & Private Equity
+      "5567ceca7369644d39350000", // Investment Banking
+      "5567ce9f7369644d39030000", // Financial Services
+      "5567ceca7369644d39360000", // Capital Markets
+    ],
     per_page: Math.min(opts.limit ?? 15, 100),
     page: 1,
   });
 
   const orgs = (data["organizations"] ?? []) as ApolloOrg[];
 
-  return orgs.slice(0, opts.limit ?? 8).map((o): ProspectSignal => ({
+  // Secondary filter: skip obvious VC/fund names
+  const VC_SIGNALS = ["capital", "ventures", "invest", "fund", "partners", "equity", "vc ", " vc", "accelerator"];
+  const filtered = orgs.filter((o) => {
+    const name = (o.name ?? "").toLowerCase();
+    return !VC_SIGNALS.some((s) => name.includes(s));
+  });
+
+  return filtered.slice(0, opts.limit ?? 8).map((o): ProspectSignal => ({
     source: "funding_news",
     company_name: o.name ?? "",
     signals: [
