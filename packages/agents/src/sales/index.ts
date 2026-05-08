@@ -802,7 +802,7 @@ Offers available: ${offers.join(", ")}.`;
           "handelsbanken", "nordea", "swedbank", "seb ", "länsförsäkringar",
           "avanza", "nordnet", "collector", "resurs bank", "hoist",
           "hemnet", "blocket", "tradera", "willys", "ica ", "coop ", "axfood",
-          "lyko", "nelly", "boozt", "webhallen", "komplett",
+          "lyko", "nelly", "boozt", "webhallen", "komplett", "hemfrid",
         ];
         if (LARGE_CAP_BRANDS.some((b) => companyRaw.includes(b))) {
           throw new Error(
@@ -810,7 +810,37 @@ Offers available: ${offers.join(", ")}.`;
           );
         }
 
+        // Guard: reject public sector, healthcare, education — never WKIT ICP
+        const PUBLIC_SECTOR_SIGNALS = [
+          "kommun", "municipality", "landsting", "region ", "regionen",
+          "myndighet", "statlig", "försvarsmakten", "polisen", "riksdag",
+          "försäkringskassan", "arbetsförmedlingen", "skatteverket",
+          "trafikverket", "länsstyrelsen", "migrationsverket",
+          "svenska kraftnät", "kraftnät",
+          "sjukhus", "vårdcentral", "hemtjänst", "äldreomsorg", "omsorg ab",
+          "lss-bolag", "socialtjänst",
+          "skola", "gymnasium", "högskola", "universitet", "akademi",
+          "kyrka", "kyrkan", "stiftelsen",
+        ];
+        if (PUBLIC_SECTOR_SIGNALS.some((s) => companyRaw.includes(s))) {
+          throw new Error(
+            `draft_outreach_approval: "${args["company_name"]}" is public sector / healthcare / education — hard skip.`,
+          );
+        }
+
+        // Guard: reject staffing/bemanning for non-agent_platform offers
         const offerType = String(args["offer_type"]);
+        const STAFFING_NAMES = [
+          "adecco", "randstad", "manpower", "poolia", "academic work", "academicwork",
+          "experis", "jobbusters", "onepartnergroup", "one partner", "techrytera",
+          "recruitive", "lernia", "perido", "dfind", "sjr in sweden",
+          "retail recruitment", "finance recruitment", "executive recruitment",
+        ];
+        if (offerType !== "agent_platform" && STAFFING_NAMES.some((s) => companyRaw.includes(s))) {
+          throw new Error(
+            `draft_outreach_approval: "${args["company_name"]}" is a staffing firm — only valid target for agent_platform, not ${offerType}.`,
+          );
+        }
         const metaPitch = Boolean(args["meta_pitch"]);
         const settings = ctx.tenant.settings as TenantSettings;
         const metaOn = settings.meta_pitch_enabled !== false;
