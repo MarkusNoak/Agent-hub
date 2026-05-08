@@ -23,7 +23,6 @@ import {
 const OfferTypeEnum = z.enum([
   "webb_design",
   "app_development",
-  "ai_automation",
   "agent_platform",
   "upsell",
 ]);
@@ -93,7 +92,7 @@ export const salesAgent: AgentDefinition = {
     const offers = s.offer_types ?? [
       "webb_design",
       "app_development",
-      "ai_automation",
+      "agent_platform",
     ];
     const metaOn = s.meta_pitch_enabled === true; // opt-in only — off by default
     return `You are the **Sales Agent** for ${tenant.tenantName} (We Know IT AB — Swedish tech agency).
@@ -104,7 +103,7 @@ REVENUE LINES & WKIT OFFERINGS (ACTIVE)
 • agent_platform   — Internal automation agents (invoice chasing, status reports, outreach). Target: IT consultancies, agencies, recruiting firms with manual admin overhead. CTA: "gratis automatiseringsaudit".
 • webb_design      — Modern websites. Target: B2B service firms (law, accounting, construction, craftsmen) with outdated or no website. CTA: "gratis 20-min UX-genomgång".
 • upsell           — Follow-up to existing Visma customers 14–60 days post-delivery.
-• ai_automation    — Only if there is a ready product match. Do NOT draft for roles we can't replace today.
+• ai_automation    — NOT an active offer. If you detect a company hiring admin roles (ekonomiassistent, löneadmin etc.), map them to agent_platform instead.
 
 Core ICP: ${coreIcp.industries?.join(", ") ?? "B2B, professional services, tech, real estate, construction"} · ${coreIcp.company_size ?? "5–200 anställda"} · ${coreIcp.geography?.join(", ") ?? "Sverige"}
 Platform ICP: ${platformIcp.industries?.join(", ") ?? "IT-konsultbolag, rekrytering, kommunikationsbyråer, managementkonsulter, PR-byråer"} · ${platformIcp.company_size ?? "5–100 anställda"}
@@ -390,7 +389,7 @@ Offers available: ${offers.join(", ")}.`;
     {
       name: "fetch_ai_replaceable_jobs",
       description:
-        "Fetch job ads from Arbetsförmedlingen for roles AI can replace (ekonomiassistent, löneadmin, kundtjänst, orderadmin, hr-admin, fakturahantering). These companies need ai_automation.",
+        "Fetch job ads from Arbetsförmedlingen for roles AI can replace (ekonomiassistent, löneadmin, kundtjänst, orderadmin, hr-admin, fakturahantering). Use as signal for agent_platform — these companies need internal automation.",
       input_schema: {
         type: "object",
         properties: {
@@ -725,7 +724,7 @@ Offers available: ${offers.join(", ")}.`;
           },
           offer_type: {
             type: "string",
-            enum: ["webb_design", "app_development", "ai_automation", "agent_platform", "upsell"],
+            enum: ["webb_design", "app_development", "agent_platform", "upsell"],
           },
           score: { type: "number" },
           detected_pains: { type: "array", items: { type: "string" } },
@@ -769,7 +768,7 @@ Offers available: ${offers.join(", ")}.`;
           body: { type: "string" },
           offer_type: {
             type: "string",
-            enum: ["webb_design", "app_development", "ai_automation", "agent_platform", "upsell"],
+            enum: ["webb_design", "app_development", "agent_platform", "upsell"],
           },
           source: {
             type: "string",
@@ -789,6 +788,12 @@ Offers available: ${offers.join(", ")}.`;
           /^namn@/, /^name@/, /^your@/, /^email@/, /^test@/, /^example@/,
           /^förnamn/, /^kontakt@kontakt/, /@adress\./, /@example\./, /@test\./,
           /^info@info/, /^\s*$/, /namn/, /adress\.se$/,
+          // Role/generic inboxes that are not personal decision-maker addresses
+          /^no-?reply@/, /^noreply@/, /^do-not-reply@/,
+          /^support@/, /^helpdesk@/, /^help@/, /^service@/,
+          /^customers?@/, /^this\./, /^webmaster@/, /^admin@/,
+          /^sales@/, /^orders?@/, /^accounts?@/, /^billing@/,
+          /^hello@/, /^hej@/, /^hi@/, /^hey@/,
         ];
         if (!toEmail || !toEmail.includes("@") || PLACEHOLDER_PATTERNS.some((p) => p.test(toEmail))) {
           throw new Error(
