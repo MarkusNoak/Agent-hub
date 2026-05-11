@@ -77,6 +77,37 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Companies that should NEVER appear as leads regardless of signal source.
+// Mirrors the LARGE_CAP_BRANDS list in the sales agent — filtering here means
+// they're removed before they reach the agent at all.
+export const WKIT_COMPANY_BLOCKLIST = [
+  // Fintech / lending
+  "lendo", "klarna", "zettle", "izettle", "bambora", "nets", "swish", "bankid",
+  "avanza", "nordnet", "collector", "resurs bank", "hoist", "svea",
+  // Telecom
+  "tele2", "telia", "tre.se", "comviq", "telenor",
+  // Banking
+  "handelsbanken", "nordea", "swedbank", "seb ", "länsförsäkringar", "folksam",
+  // Tech/consumer
+  "spotify", "king.com", "mojang", "mojäng",
+  "ericsson", "volvo", "scania", "vattenfall", "skanska", "ncc ",
+  // Retail / consumer
+  "ikea", "h&m", "hennes", "willys", "ica ", "coop ", "axfood",
+  "lyko", "nelly", "boozt", "webhallen", "komplett", "hemfrid",
+  // Marketplaces
+  "hemnet", "blocket", "tradera",
+  // Staffing (already filtered separately but keep here for signal-level dedup)
+  "adecco", "randstad", "manpower", "poolia", "academic work", "academicwork",
+  "experis", "jeffersonwells", "jobbusters", "onepartnergroup", "techrytera",
+  "recruitive", "lernia", "perido", "dfind", "wise group",
+];
+
+/** Returns true if the company name matches a known non-ICP brand. */
+export function isBlocklistedCompany(name: string): boolean {
+  const lc = name.toLowerCase();
+  return WKIT_COMPANY_BLOCKLIST.some((b) => lc.includes(b));
+}
+
 async function fetchWithRetry(
   url: string,
   opts: RequestInit = {},
@@ -86,37 +117,72 @@ async function fetchWithRetry(
     try {
       const res = await fetch(url, {
         ...opts,
+        signal: AbortSignal.timeout(8000),
         headers: {
           "User-Agent": "AgentHub-SalesAgent/1.0 (+https://weknowit.se)",
-          ...(opts.headers ?? {}),
+          ...((opts.headers as Record<string, string>) ?? {}),
         },
-        signal: AbortSignal.timeout(5000),   // 5 s hard cap — fail fast if site is blocked/down
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res;
-    } catch (err) {
-      if (i === retries) throw err;
-      await sleep(1200 * (i + 1));
+      if (res.ok) return res;
+      if (res.status < 500) return res;
+    } catch {
+      if (i === retries) throw new Error(`fetch failed: ${url}`);
     }
+    await sleep(800 * (i + 1));
   }
-  throw new Error("unreachable");
+  throw new Error(`fetch exhausted retries: ${url}`);
 }
 
 // ------------------------------------------------------------
-// SOURCE 1 — Breakit / ComputerSweden RSS → app_development
+// RSS helpers
+// ------------------------------------------------------------
+type RssItem = { title: string; desc: string; link: string; source: string };
+
+async function fetchRss(url: string, sourceName: string): Promise<RssItem[]> {
+  try {
+    const res = await fetchWithRetry(url);
+    const text = await res.text();
+    const items: RssItem[] = [];
+    const itemRe = /<item[\s\S]*?<\/item>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = itemRe.exec(text)) !== null) {
+      const block = m[0]!;
+      const title = (/<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i.exec(block) ??
+                    /<title[^>]*>([^<]*)<\/title>/i.exec(block))?.[1]?.trim() ?? "";
+      const desc  = (/<description[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/description>/i.exec(block) ??
+                    /<description[^>]*>([^<]*)<\/description>/i.exec(block))?.[1]?.trim() ?? "";
+      const link  = /<link[^>]*>([^<]*)<\/link>/i.exec(block)?.[1]?.trim() ?? "";
+      if (title) items.push({ title, desc: desc.slice(0, 300), link, source: sourceName });
+    }
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+// ------------------------------------------------------------
+// SOURCE 1 — RSS (Breakit / ComputerSweden) — funding news
 // ------------------------------------------------------------
 const FUNDING_KEYWORDS = [
   "finansiering",
+  "investering",
+  "kapital",
+  "miljon",
   "miljoner",
-  "kapitalrunda",
-  "expansion",
-  "tillväxt",
-  "serie a",
-  "serie b",
   "seed",
+  "series a",
+  "serie a",
+  "series b",
+  "serie b",
+  "venture",
+  "riskkapital",
+  "lanserar",
+  "expansion",
   "förvärv",
-  "nytt kontor",
-  "rekryterar",
+  "uppköp",
+  "börsnotering",
+  "ipo",
+  "tillväxt",
   "anställer",
 ];
 
@@ -147,39 +213,24 @@ export async function fetchFundingNews(opts: { limit?: number } = {}): Promise<
     "https://breakit.se/feed/rss",
     "https://computersweden.idg.se/2.2683/rss.xml",
     "https://www.di.se/rss",
-    "https://www.nyteknik.se/nyheter/rss.xml",
-    "https://www.va.se/rss/",
-    "https://www.idg.se/rss.xml",
   ];
-  const items: { title: string; desc: string; link: string; source: string }[] = [];
+
+  const allItems: RssItem[] = [];
   for (const feed of feeds) {
-    try {
-      const res = await fetchWithRetry(feed);
-      const xml = await res.text();
-      for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
-        const raw = m[1] ?? "";
-        const title = raw.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/)?.[1]?.trim() ?? "";
-        const desc = raw
-          .match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/)?.[1]
-          ?.replace(/<[^>]+>/g, "")
-          .trim()
-          .substring(0, 400) ?? "";
-        const link = raw.match(/<link>(.*?)<\/link>/)?.[1] ?? "";
-        if (title) {
-          items.push({ title, desc, link, source: new URL(feed).hostname });
-        }
-      }
-    } catch (e) {
-      console.warn(`RSS feed failed (${feed}):`, (e as Error).message);
-    }
+    const items = await fetchRss(feed, feed.includes("breakit") ? "Breakit" : feed.includes("di.se") ? "DI" : "ComputerSweden");
+    allItems.push(...items);
+    await sleep(400);
   }
 
-  const relevant = items.filter((i) => {
-    const text = (i.title + " " + i.desc).toLowerCase();
+  // Keywords that indicate a startup signal AND exclusion of large-cap / investor noise
+  const hasStartupSignal = (item: RssItem) => {
+    const text = `${item.title} ${item.desc}`.toLowerCase();
     const hasFundingKeyword = FUNDING_KEYWORDS.some((k) => text.includes(k));
     const isLargeCap = LARGE_CAP_SIGNALS.some((k) => text.includes(k));
     return hasFundingKeyword && !isLargeCap;
-  });
+  };
+
+  const relevant = allItems.filter(hasStartupSignal);
 
   const limit = opts.limit ?? 8;
   return relevant.slice(0, limit).map((item) => ({
@@ -206,104 +257,81 @@ function extractCompanyNamesFromHtml(html: string): string[] {
     const name = raw.trim()
       .replace(/&amp;/g, "&")
       .replace(/&#(\d+);/g, (_, c) => String.fromCharCode(Number(c)))
-      .replace(/\s+/g, " ");
-    if (name.length > 3 && name.length < 90 && !seen.has(name)) {
-      seen.add(name);
-      names.push(name);
-    }
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'");
+    if (name.length < 2 || seen.has(name)) return;
+    seen.add(name);
+    names.push(name);
   };
 
-  // Strategy 1 — org-number-based href links (Allabolag URL: /XXXXXXXXXX/slug or /XXXXXXXXXX)
-  for (const m of html.matchAll(/href="\/\d{6,10}[^"]*"[^>]*>\s*([^<\n]{3,80}?)\s*(?:<\/a>|<\/span>|<\/h[1-6]>)/gi)) {
-    add(m[1] ?? "");
+  // Pattern 1: Allabolag listing — company name in anchor
+  const re1 = /href="\/foretag\/[^"]+"[^>]*>\s*([^<]{2,60})\s*<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re1.exec(html)) !== null) {
+    const raw = m[1]!.replace(/<[^>]+>/g, "").trim();
+    if (raw && !/^(Visa|Se|Mer|Fler|Alla|Sök)/i.test(raw)) add(raw);
   }
 
-  // Strategy 2 — hrefs containing "/foretag/" or "/branschsida/"
-  for (const m of html.matchAll(/href="\/(?:foretag|branschsida)\/[^"]*"[^>]*>\s*([^<\n]{3,80}?)\s*</gi)) {
-    add(m[1] ?? "");
-  }
+  // Pattern 2: og:title or h1 with company name
+  const re2 = /<h[12][^>]*>\s*([^<]{3,60}(?:AB|HB|KB|AB \(publ\)|Aktiebolag))\s*<\/h[12]>/gi;
+  while ((m = re2.exec(html)) !== null) add(m[1]!);
 
-  // Strategy 3 — Swedish company entity suffixes in inline elements (AB, HB, KB, etc.)
-  if (names.length < 3) {
-    for (const m of html.matchAll(/>\s*([A-ZÅÄÖ][^<\n]{1,55}\s+(?:AB|HB|KB|ek\.?för\.?|Ideell\s+förening|Stiftelse)\b[^<\n]{0,15})\s*</g)) {
-      add(m[1] ?? "");
-    }
-  }
-
-  return names;
+  return names.slice(0, 30);
 }
 
 // ------------------------------------------------------------
-// SOURCE 2 — Allabolag.se SNI + size filter → ai_automation
+// SOURCE 2 — Allabolag.se scrape
 // ------------------------------------------------------------
-export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<
-  ProspectSignal[]
-> {
-  // SNI codes chosen for WKIT ICP: companies that need websites, automation, or agent_platform.
-  // 62020 (IT-konsulttjänster) included for agent_platform — they have manual admin processes
-  // and need internal automation even though they build tech themselves.
-  const sniSearches = [
-    "https://www.allabolag.se/bransch/69109?anstallda=10-99",  // Juridiska tjänster (advokatbyråer)
-    "https://www.allabolag.se/bransch/69200?anstallda=10-99",  // Redovisning/revision/bokföring
-    "https://www.allabolag.se/bransch/71110?anstallda=10-99",  // Arkitektkontor
-    "https://www.allabolag.se/bransch/73110?anstallda=10-99",  // Reklam/kommunikationsbyråer
-    "https://www.allabolag.se/bransch/70220?anstallda=10-99",  // Managementkonsulter
-    "https://www.allabolag.se/bransch/68100?anstallda=10-99",  // Fastighetsbolag
-    "https://www.allabolag.se/bransch/62020?anstallda=10-99",  // IT-konsulttjänster → agent_platform
-    "https://www.allabolag.se/bransch/73200?anstallda=10-99",  // Marknadsundersökning/digital mktg
-    "https://www.allabolag.se/bransch/74909?anstallda=10-99",  // Övriga konsulttjänster
+export async function scrapeAllabolag(opts: { limit?: number } = {}): Promise<ProspectSignal[]> {
+  const targets = [
+    { url: "https://www.allabolag.se/bransch/konsultverksamhet-avseende-foretags-och-annan-verksamhetsledning", offer: "agent_platform" as const, label: "Managementkonsult" },
+    { url: "https://www.allabolag.se/bransch/datakonsultverksamhet", offer: "agent_platform" as const, label: "IT-konsultbolag" },
+    { url: "https://www.allabolag.se/bransch/rekrytering-och-urval", offer: "agent_platform" as const, label: "Rekryteringsbolag" },
+    { url: "https://www.allabolag.se/bransch/reklambyraverksamhet", offer: "agent_platform" as const, label: "Kommunikationsbyrå" },
+    { url: "https://www.allabolag.se/bransch/redovisning-och-bokforing", offer: "webb_design" as const, label: "Redovisningsbyrå" },
+    { url: "https://www.allabolag.se/bransch/advokatbyraer-och-juridisk-radgivning", offer: "webb_design" as const, label: "Advokatbyrå" },
   ];
-  const companies: { name: string; sourceUrl: string }[] = [];
-  for (const url of sniSearches) {
+
+  const results: ProspectSignal[] = [];
+
+  for (const t of targets) {
+    if (results.length >= (opts.limit ?? 6)) break;
     try {
-      const res = await fetchWithRetry(url);
+      const res = await fetchWithRetry(t.url);
       const html = await res.text();
+      if (res.status !== 200 || !html.includes("allabolag")) continue;
       const names = extractCompanyNamesFromHtml(html);
-      names.slice(0, 6).forEach((name) => {
-        companies.push({ name, sourceUrl: url });
-      });
-      await sleep(1500);
-    } catch (e) {
-      console.warn("Allabolag scrape failed:", (e as Error).message);
+      for (const name of names.slice(0, 2)) {
+        if (isBlocklistedCompany(name)) continue;
+        results.push({
+          source: "allabolag_icp",
+          company_name: name,
+          signals: [t.label, "Hittad via Allabolag SNI-kategori"],
+          suggested_offer_hint: t.offer,
+          extra: { allabolag_category: t.url },
+        });
+      }
+      await sleep(800);
+    } catch {
+      continue;
     }
   }
-  const unique = [...new Map(companies.map((c) => [c.name, c])).values()];
-  const limit = opts.limit ?? 6;
 
-  const AGENT_PLATFORM_SNIS = ["62020", "73200", "74909"];
-
-  return unique.slice(0, limit).map((c) => {
-    const sniMatch = c.sourceUrl.match(/bransch\/(\d+)/);
-    const sni = sniMatch?.[1] ?? "";
-    const isAgentPlatform = AGENT_PLATFORM_SNIS.includes(sni);
-    return {
-      source: "allabolag_icp" as const,
-      company_name: c.name,
-      signals: [
-        "Listad på Allabolag.se med ICP-relevant SNI-kod",
-        "Storlek: 10–99 anställda (från filter)",
-        isAgentPlatform ? "IT-konsult / digital byrå — prime target för agent_platform" : "",
-      ].filter(Boolean),
-      suggested_offer_hint: isAgentPlatform ? "agent_platform" : "ai_automation",
-      extra: { sourceUrl: c.sourceUrl, sni },
-    };
-  });
+  return results.slice(0, opts.limit ?? 6);
 }
 
 // ------------------------------------------------------------
-// SOURCE 3 — Arbetsförmedlingen Jobs API — AI-replaceable roles
+// SOURCE 3 — Arbetsförmedlingen (AI-replaceable roles)
 // ------------------------------------------------------------
-type JobtechHit = {
-  id?: string;
-  headline?: string;
-  employer?: { name?: string };
-  workplace_address?: { municipality?: string };
-  description?: { text?: string };
-};
-
 type JobtechResponse = {
-  total?: { value?: number };
-  hits?: JobtechHit[];
+  hits: Array<{
+    employer?: { name?: string };
+    headline?: string;
+    description?: { text?: string };
+    workplace_address?: { municipality?: string };
+  }>;
 };
 
 export async function fetchAiReplaceableJobs(
@@ -354,6 +382,7 @@ export async function fetchAiReplaceableJobs(
       (data?.hits ?? []).forEach((hit) => {
         if (!hit.employer?.name) return;
         if (isNonIcpEmployer(hit.employer.name)) return;
+        if (isBlocklistedCompany(hit.employer.name)) return;
         ads.push({
           company: hit.employer.name,
           title: hit.headline ?? role,
@@ -362,28 +391,37 @@ export async function fetchAiReplaceableJobs(
           role,
         });
       });
-      await sleep(600);
-    } catch (e) {
-      console.warn(`Jobs API failed (${role}):`, (e as Error).message);
+      await sleep(500);
+    } catch {
+      continue;
     }
   }
 
-  const limit = opts.limit ?? 10;
-  return ads.slice(0, limit).map((ad) => ({
+  const seen = new Set<string>();
+  const deduped = ads.filter((a) => {
+    const key = a.company.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return deduped.slice(0, opts.limit ?? 10).map((ad) => ({
     source: "job_signal",
     company_name: ad.company,
     signals: [
-      `Söker rollen: "${ad.title}"`,
+      `Rekryterar: "${ad.title}"`,
+      `Roll: ${ad.role}`,
       `Ort: ${ad.location}`,
-      `Rollbeskrivning: ${ad.desc}`,
+      `Signal: Bolaget har manuella admin-processer som kan automatiseras`,
+      `Beskrivning: ${ad.desc}`,
     ],
-    suggested_offer_hint: "ai_automation",
-    extra: { role: ad.role, signal_type: "ai_replaceable" },
+    suggested_offer_hint: "agent_platform",
+    extra: { signal_type: "admin_role_hiring", role: ad.role },
   }));
 }
 
 // ------------------------------------------------------------
-// SOURCE 4 — Arbetsförmedlingen Jobs API — Growth/scaling roles → app_development
+// SOURCE 4 — Arbetsförmedlingen (app_development signals)
 // ------------------------------------------------------------
 export async function fetchAppDevSignals(
   opts: { limit?: number } = {},
@@ -437,6 +475,7 @@ export async function fetchAppDevSignals(
         const name = (hit.employer.name ?? "").toLowerCase();
         if (STAFFING_KEYWORDS.some(s => name.includes(s))) return;
         if (NON_ICP_APP.some(s => name.includes(s))) return;
+        if (isBlocklistedCompany(hit.employer.name)) return;
         ads.push({
           company: hit.employer.name,
           title: hit.headline ?? role,
@@ -445,13 +484,21 @@ export async function fetchAppDevSignals(
         });
       });
       await sleep(600);
-    } catch (e) {
-      console.warn(`App dev jobs API failed (${role}):`, (e as Error).message);
+    } catch {
+      continue;
     }
   }
 
+  const seen = new Set<string>();
+  const deduped = ads.filter((a) => {
+    const key = a.company.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   const limit = opts.limit ?? 8;
-  return ads.slice(0, limit).map((ad) => ({
+  return deduped.slice(0, limit).map((ad) => ({
     source: "job_signal",
     company_name: ad.company,
     signals: [
@@ -468,356 +515,205 @@ export async function fetchAppDevSignals(
 // ------------------------------------------------------------
 // SOURCE 5 — Google Custom Search — per service line
 // ------------------------------------------------------------
+type GoogleSearchItem = {
+  title?: string;
+  snippet?: string;
+  link?: string;
+  displayLink?: string;
+  pagemap?: {
+    metatags?: Array<Record<string, string>>;
+  };
+};
+
+const GOOGLE_QUERIES: Array<{
+  q: string;
+  offer: ProspectSignal["suggested_offer_hint"];
+  label: string;
+}> = [
+  {
+    q: 'site:proff.se advokatbyrå 10-49 anställda',
+    offer: "webb_design",
+    label: "Advokatbyrå funnen på proff.se",
+  },
+  {
+    q: 'site:proff.se redovisningsbyrå revisorer 10-49 anställda',
+    offer: "webb_design",
+    label: "Redovisningsbyrå på proff.se",
+  },
+  {
+    q: 'site:proff.se arkitektkontor ingenjörer 10-49 anställda',
+    offer: "webb_design",
+    label: "Arkitektkontor på proff.se",
+  },
+  {
+    q: 'site:proff.se rekryteringsbolag konsultbolag 10-50 anställda',
+    offer: "agent_platform",
+    label: "Rekryteringsbolag på proff.se",
+  },
+  {
+    q: 'site:proff.se reklambyrå kommunikationsbyrå marknadsbyrå',
+    offer: "agent_platform",
+    label: "Kommunikationsbyrå på proff.se",
+  },
+  {
+    q: 'site:proff.se byggbolag fastighetsbolag anläggning 10-99 anställda',
+    offer: "webb_design",
+    label: "Bygg/fastighetsbolag på proff.se",
+  },
+  {
+    q: 'startup scaleup Sverige söker systemutvecklare apputvecklare 2024 2025',
+    offer: "app_development",
+    label: "Svensk startup/scaleup söker utvecklare",
+  },
+  {
+    q: 'fintech proptech healthtech Sverige produktägare 2024 2025',
+    offer: "app_development",
+    label: "Tech-startup Sverige söker produktägare",
+  },
+];
+
 export async function searchWeakDigitalPresence(opts: {
   googleApiKey?: string;
   googleCseId?: string;
   limit?: number;
-  /** Max CSE queries to fire per call. Default 4 (saves free quota: 100/day ÷ 4 = 25 runs). */
-  queriesPerRun?: number;
 }): Promise<ProspectSignal[]> {
   if (!opts.googleApiKey || !opts.googleCseId) return [];
 
-  const queries: Array<{
-    q: string;
-    hint: ProspectSignal["suggested_offer_hint"];
-    label: string;
-  }> = [
-    // ── WEBB DESIGN — Outdated/no website ────────────────────────────────────
-    {
-      q: 'advokatbyrå Sverige hemsida kontakt "om oss"',
-      hint: "webb_design",
-      label: "Advokatbyrå med enkel hemsida",
-    },
-    {
-      q: 'redovisningsbyrå Sverige hemsida bokföring "kontakta oss"',
-      hint: "webb_design",
-      label: "Redovisningsbyrå utan modern hemsida",
-    },
-    {
-      q: 'byggföretag mark anläggning Sverige hemsida "om företaget"',
-      hint: "webb_design",
-      label: "Bygg/anläggningsföretag med enkel hemsida",
-    },
-    {
-      q: 'tandläkare klinik Sverige hemsida "boka tid" kontakt',
-      hint: "webb_design",
-      label: "Tandläkarmottagning med enkel hemsida",
-    },
-    {
-      q: 'städbolag företagsstädning Sverige hemsida offert',
-      hint: "webb_design",
-      label: "Städbolag B2B utan modern hemsida",
-    },
-    {
-      q: 'fastighetsmäklare mäklarbyrå Sverige hemsida "se våra objekt"',
-      hint: "webb_design",
-      label: "Mäklarbyrå med föråldrad hemsida",
-    },
-    {
-      q: 'hantverksföretag VVS elektriker snickare Sverige hemsida kontakt',
-      hint: "webb_design",
-      label: "Hantverksföretag utan bra hemsida",
-    },
-    // Hitta.se directory listings = high signal for no/weak website
-    {
-      q: "site:hitta.se advokatbyrå stockholm OR göteborg OR malmö",
-      hint: "webb_design",
-      label: "Advokatbyrå listad på hitta.se — troligen utan hemsida",
-    },
-    {
-      q: "site:hitta.se redovisningsbyrå",
-      hint: "webb_design",
-      label: "Redovisningsbyrå listad på hitta.se",
-    },
-    {
-      q: "site:hitta.se byggföretag stockholm OR göteborg OR malmö",
-      hint: "webb_design",
-      label: "Byggföretag listad på hitta.se",
-    },
-    {
-      q: "site:hitta.se städbolag OR städfirma",
-      hint: "webb_design",
-      label: "Städbolag utan hemsida",
-    },
-    {
-      q: "site:hitta.se hantverkare elektriker VVS snickare",
-      hint: "webb_design",
-      label: "Hantverkare listad på hitta.se",
-    },
-    // ── APP DEVELOPMENT — Scaling companies, MVPs, digital transformation ─────
-    {
-      q: 'startup Sverige "vi söker" "product owner" OR "produktägare" 2025',
-      hint: "app_development",
-      label: "Startup som skalar produktteam",
-    },
-    {
-      q: 'scaleup Stockholm Göteborg "digital plattform" OR "ny app" OR "MVP"',
-      hint: "app_development",
-      label: "Scaleup med behov av digital lösning",
-    },
-    {
-      q: 'bolag Sweden "vi bygger" OR "vi utvecklar" "digital" OR "app" startup',
-      hint: "app_development",
-      label: "Bolag med pågående digital produktutveckling",
-    },
-    {
-      q: '"kapitalrunda" OR "investering" Sverige startup tech 2024 OR 2025',
-      hint: "app_development",
-      label: "Nyligen finansierat startup",
-    },
-    {
-      q: 'företag Sverige "integrationer" OR "API" OR "automatisering" system nytt',
-      hint: "app_development",
-      label: "Bolag som behöver systemintegrationer",
-    },
-    // ── AI AUTOMATION — Companies with heavy manual admin ─────────────────────
-    {
-      q: 'fastighetsbolag Sverige administration "ekonomiavdelning" OR "backoffice"',
-      hint: "ai_automation",
-      label: "Fastighetsbolag med tung administration",
-    },
-    {
-      q: 'logistikbolag Sverige "manuell" OR "excel" administration processer',
-      hint: "ai_automation",
-      label: "Logistikbolag med manuella processer",
-    },
-    {
-      q: 'vårdbolag OR hemtjänst Sverige administration "tidrapportering" OR "schema"',
-      hint: "ai_automation",
-      label: "Vårdbolag med manuell schemaläggning",
-    },
-    {
-      q: 'tillverkningsbolag Sverige "order" OR "lager" administration manuellt',
-      hint: "ai_automation",
-      label: "Tillverkningsbolag med manuell orderhantering",
-    },
-    // ── AGENT PLATFORM — Agencies/consultancies with manual internal work ──────
-    {
-      q: 'rekryteringsbolag Sverige 10-50 anställda processer administration manuellt',
-      hint: "agent_platform",
-      label: "Rekryteringsbolag med manuella processer",
-    },
-    {
-      q: 'managementkonsult konsultbolag Sverige "rapportering" OR "offerter" OR "timrapport"',
-      hint: "agent_platform",
-      label: "Konsultbolag med manuell administration",
-    },
-    {
-      q: 'PR-byrå kommunikationsbyrå marknadsbyrå Sverige "administration" OR "processer"',
-      hint: "agent_platform",
-      label: "Kommunikationsbyrå med manuella processer",
-    },
-    {
-      q: 'revisionsbyrå redovisningsbolag Sverige "digitalisering" OR "automatisering"',
-      hint: "agent_platform",
-      label: "Revisionsbyrå med digitaliseringsbehov",
-    },
-    {
-      q: 'site:hitta.se konsultbolag bemanning IT management 10-100 anställda',
-      hint: "agent_platform",
-      label: "Konsultbolag listad på hitta.se",
-    },
-    // ── PROFF.SE — Swedish business directory with financials ──────────────────
-    {
-      q: 'site:proff.se advokatbyrå 10-49 anställda',
-      hint: "webb_design",
-      label: "Advokatbyrå funnen på proff.se",
-    },
-    {
-      q: 'site:proff.se redovisningsbyrå revisorer 10-49 anställda',
-      hint: "ai_automation",
-      label: "Redovisningsbyrå på proff.se",
-    },
-    {
-      q: 'site:proff.se arkitektkontor ingenjörer 10-49 anställda',
-      hint: "webb_design",
-      label: "Arkitektkontor på proff.se",
-    },
-    {
-      q: 'site:proff.se rekryteringsbolag konsultbolag 10-50 anställda',
-      hint: "agent_platform",
-      label: "Rekryteringsbolag på proff.se",
-    },
-    {
-      q: 'site:proff.se reklambyrå kommunikationsbyrå marknadsbyrå',
-      hint: "agent_platform",
-      label: "Kommunikationsbyrå på proff.se",
-    },
-    {
-      q: 'site:proff.se byggbolag fastighetsbolag anläggning 10-99 anställda',
-      hint: "webb_design",
-      label: "Bygg/fastighetsbolag på proff.se",
-    },
-  ];
+  const results: ProspectSignal[] = [];
+  const seen = new Set<string>();
 
-  type Candidate = {
-    title: string;
-    snippet: string;
-    link: string;
-    hint: ProspectSignal["suggested_offer_hint"];
-    label: string;
-  };
-
-  // Run a random subset of 4 queries in parallel (free tier = 100/day; 4 queries/run
-  // = 25 runs before quota). Shuffled so all service lines get coverage over time.
-  const perRun = opts.queriesPerRun ?? 4;
-  const shuffled = [...queries].sort(() => Math.random() - 0.5).slice(0, perRun);
-
-  const results = await Promise.allSettled(
-    shuffled.map(async ({ q, hint, label }) => {
-      const url = `https://www.googleapis.com/customsearch/v1?key=${opts.googleApiKey}&cx=${opts.googleCseId}&q=${encodeURIComponent(q)}&num=3&lr=lang_sv&gl=se`;
+  for (const q of GOOGLE_QUERIES) {
+    if (results.length >= (opts.limit ?? 8)) break;
+    try {
+      const url = `https://www.googleapis.com/customsearch/v1?key=${opts.googleApiKey}&cx=${opts.googleCseId}&q=${encodeURIComponent(q.q)}&num=3`;
       const res = await fetchWithRetry(url);
-      const data = (await res.json()) as {
-        items?: Array<{ title: string; snippet: string; link: string }>;
-      };
-      return (data.items ?? []).map((item) => ({
-        title: item.title, snippet: item.snippet, link: item.link, hint, label,
-      }));
-    }),
-  );
-
-  const candidates: Candidate[] = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") candidates.push(...r.value);
-    else console.warn("Google CSE query failed:", r.reason);
+      if (!res.ok) continue;
+      const data = (await res.json()) as { items?: GoogleSearchItem[] };
+      for (const item of (data.items ?? []).slice(0, 2)) {
+        const domain = item.displayLink?.replace(/^www\./, "") ?? "";
+        if (!domain || seen.has(domain)) continue;
+        const title = item.title ?? "";
+        if (isBlocklistedCompany(title)) continue;
+        seen.add(domain);
+        results.push({
+          source: "digital_presence",
+          company_name: title,
+          signals: [q.label, item.snippet ?? ""].filter(Boolean),
+          suggested_offer_hint: q.offer,
+          extra: { domain, link: item.link },
+        });
+      }
+      await sleep(500);
+    } catch {
+      continue;
+    }
   }
 
-  const limit = opts.limit ?? 8;
-  return candidates
-    .slice(0, limit)
-    .map((c): ProspectSignal | null => {
-      const nameMatch = c.title.match(/^([\wåäöÅÄÖ\s&]+(?:AB|HB|KB)?)/i);
-      const company = nameMatch?.[1]?.trim() ?? c.title.split("|")[0]?.trim() ?? "";
-      if (!company || company.length < 4) return null;
-      return {
-        source: "digital_presence",
-        company_name: company,
-        signals: [
-          c.label,
-          `Snippet: ${c.snippet}`,
-          `URL: ${c.link}`,
-        ],
-        suggested_offer_hint: c.hint,
-        extra: { link: c.link },
-      };
-    })
-    .filter((x): x is ProspectSignal => x !== null);
+  return results.slice(0, opts.limit ?? 8);
 }
 
 // ------------------------------------------------------------
-// SOURCE 6 — Visma upsell (interim table)
+// SOURCE 6 — Visma upsell
 // ------------------------------------------------------------
 export async function fetchVismaUpsellCandidates(
-  supabase: SupabaseClient,
+  supa: SupabaseClient,
   tenantId: string,
   opts: { limit?: number } = {},
 ): Promise<ProspectSignal[]> {
-  const from = new Date();
-  from.setDate(from.getDate() - 60);
-  const to = new Date();
-  to.setDate(to.getDate() - 14);
-  const { data: projects } = await supabase
-    .from("visma_completed_projects")
-    .select("*")
+  const now = new Date();
+  const from = new Date(now.getTime() - 60 * 86400_000).toISOString();
+  const to   = new Date(now.getTime() - 14 * 86400_000).toISOString();
+
+  const { data } = await supa
+    .from("visma_projects")
+    .select("id, company_name, company_domain, contact_email, contact_name, project_type, delivered_at")
     .eq("tenant_id", tenantId)
-    .gte("completed_date", from.toISOString().split("T")[0])
-    .lte("completed_date", to.toISOString().split("T")[0])
-    .eq("upsell_contacted", false)
+    .gte("delivered_at", from)
+    .lte("delivered_at", to)
+    .is("upsell_contacted_at", null)
+    .order("delivered_at", { ascending: false })
     .limit(opts.limit ?? 10);
-  if (!projects?.length) return [];
-  return (projects as Array<Record<string, unknown>>).map((p) => {
-    const completedDate = new Date(p["completed_date"] as string);
-    const days = Math.round((Date.now() - completedDate.getTime()) / 86_400_000);
-    const value = (p["total_value"] as number | null) ?? 0;
-    return {
-      source: "visma_upsell" as const,
-      company_name: p["client_name"] as string,
-      signals: [
-        "Befintlig WKIT-kund — relationen är varm",
-        `Projekt "${p["project_type"]}" avslutades för ${days} dagar sedan`,
-        `Projektvärde: ${value.toLocaleString("sv-SE")} SEK`,
-      ],
-      suggested_offer_hint: "upsell" as const,
-      extra: {
-        project_id: p["id"],
-        contact_name: p["contact_name"] ?? null,
-        project_type: p["project_type"],
-        total_value: value,
-        days_since_completion: days,
-      },
-    };
-  });
+
+  return (data ?? []).map((row) => ({
+    source: "visma_upsell" as const,
+    company_name: String(row.company_name ?? ""),
+    signals: [
+      `Projekt levererat: ${row.project_type ?? "okänd typ"}`,
+      `Leveransdatum: ${row.delivered_at ? new Date(row.delivered_at as string).toLocaleDateString("sv-SE") : "okänt"}`,
+      "Varm lead — befintlig kund",
+    ],
+    suggested_offer_hint: "upsell" as const,
+    extra: {
+      project_id: row.id,
+      company_domain: row.company_domain,
+      contact_email: row.contact_email,
+      contact_name: row.contact_name,
+    },
+  }));
 }
 
-/** Mark a Visma project as "upsell contacted" so it isn't resurfaced. */
 export async function markVismaUpsellContacted(
-  supabase: SupabaseClient,
+  supa: SupabaseClient,
   tenantId: string,
   projectId: string,
 ): Promise<void> {
-  await supabase
-    .from("visma_completed_projects")
-    .update({ upsell_contacted: true })
+  await supa
+    .from("visma_projects")
+    .update({ upsell_contacted_at: new Date().toISOString() })
     .eq("tenant_id", tenantId)
     .eq("id", projectId);
 }
 
 // ------------------------------------------------------------
-// EMAIL DOMAIN VALIDATION — DNS MX lookup (no external API)
+// Email domain validation (DNS MX check)
 // ------------------------------------------------------------
-
 export type EmailDomainResult = {
   domain: string;
   has_mx: boolean;
-  domain_resolves: boolean;
   confidence: "high" | "low" | "unknown";
-  suggested_emails: string[];
+  note?: string;
 };
 
 export async function validateEmailDomain(domain: string): Promise<EmailDomainResult> {
-  const d = domain.toLowerCase().trim().replace(/^@/, "");
+  const clean = domain.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").toLowerCase();
   try {
-    // Dynamic import keeps Edge-runtime compat (scheduler + Server Actions both run Node.js)
-    const { promises: dns } = await import("node:dns");
-    let hasMx = false;
-    let domainResolves = false;
-    try {
-      const mx = await dns.resolveMx(d);
-      hasMx = mx.length > 0;
-      domainResolves = true;
-    } catch {
-      // No MX — try A record as fallback
-      try {
-        await dns.resolve4(d);
-        domainResolves = true;
-      } catch {
-        domainResolves = false;
-      }
-    }
+    // Use a public DNS-over-HTTPS resolver to check MX records
+    const res = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(clean)}&type=MX`,
+      {
+        headers: { Accept: "application/dns-json" },
+        signal: AbortSignal.timeout(4000),
+      },
+    );
+    if (!res.ok) return { domain: clean, has_mx: false, confidence: "unknown", note: `DNS query failed: ${res.status}` };
+    const data = (await res.json()) as { Status: number; Answer?: Array<{ type: number; data: string }> };
+    const hasMx = (data.Answer ?? []).some((a) => a.type === 15);
+    if (hasMx) return { domain: clean, has_mx: true, confidence: "high" };
+    // Fall back to A record check
+    const resA = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(clean)}&type=A`,
+      {
+        headers: { Accept: "application/dns-json" },
+        signal: AbortSignal.timeout(4000),
+      },
+    );
+    if (!resA.ok) return { domain: clean, has_mx: false, confidence: "low" };
+    const dataA = (await resA.json()) as { Status: number; Answer?: Array<{ type: number }> };
+    const hasA = (dataA.Answer ?? []).some((a) => a.type === 1);
     return {
-      domain: d,
-      has_mx: hasMx,
-      domain_resolves: domainResolves,
-      confidence: hasMx ? "high" : domainResolves ? "low" : "unknown",
-      suggested_emails: domainResolves
-        ? [`info@${d}`, `hej@${d}`, `kontakt@${d}`, `hello@${d}`]
-        : [],
+      domain: clean,
+      has_mx: false,
+      confidence: hasA ? "low" : "unknown",
+      note: hasA ? "No MX but has A record — email may still work" : "No DNS records found",
     };
   } catch {
-    return {
-      domain: d,
-      has_mx: false,
-      domain_resolves: false,
-      confidence: "unknown",
-      suggested_emails: [],
-    };
+    return { domain: clean, has_mx: false, confidence: "unknown", note: "DNS lookup timed out" };
   }
 }
 
 // ------------------------------------------------------------
 // COMPANY RESEARCH — website scrape + Allabolag lookup
 // ------------------------------------------------------------
-
 export type CompanyResearch = {
   company_name: string;
   company_domain: string;
@@ -898,138 +794,58 @@ function extractEmails(html: string, preferredDomain: string): string[] {
   // Generic addresses (info@, kontakt@, etc.) are excluded so the agent falls
   // through to personalized email_candidates generated from VD name.
   const personal = all.filter((e) => e.includes(preferredDomain) && !isGenericEmail(e));
-  const personalOther = all.filter((e) => !e.includes(preferredDomain) && !isGenericEmail(e));
-  return [...new Set([...personal, ...personalOther])].slice(0, 5);
+  return [...new Set(personal)].slice(0, 5);
 }
 
 function extractContactNames(html: string): string[] {
   const names: string[] = [];
-  const SWEDISH_NAME = "[A-ZÅÄÖ][a-zåäö]+(?:\\s+[A-ZÅÄÖ][a-zåäö]+)+";
-  const seen = new Set<string>();
-  const add = (n: string, priority = false) => {
-    const clean = n.trim();
-    if (clean.length > 3 && !seen.has(clean)) {
-      seen.add(clean);
-      priority ? names.unshift(clean) : names.push(clean);
+  const patterns = [
+    /<(?:h[1-4]|strong|b)[^>]*>\s*([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+){1,3})\s*<\/(?:h[1-4]|strong|b)>/g,
+    /(?:kontakt(?:a oss)?|contact|team|medarbetare|personal)[^<]{0,200}<(?:h[1-4]|strong|p|span)[^>]*>\s*([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)+)\s*</gi,
+  ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null && names.length < 5) {
+      const n = m[1]!.trim();
+      if (n.split(" ").length >= 2 && n.split(" ").length <= 4) names.push(n);
     }
-  };
-
-  // JSON-LD Person schema — most reliable when present
-  for (const m of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try {
-      const data = JSON.parse(m[1] ?? "{}") as Record<string, unknown>;
-      const items: Record<string, unknown>[] = Array.isArray(data) ? data as Record<string, unknown>[] : [data];
-      for (const item of items) {
-        if (item["@type"] === "Person" && item["name"]) {
-          const role = String(item["jobTitle"] ?? "").toLowerCase();
-          const isDecisionMaker = /vd|ceo|grundare|direktör|chef|ägare|partner/.test(role);
-          add(String(item["name"]), isDecisionMaker);
-        }
-      }
-    } catch { /* malformed JSON-LD */ }
   }
-
-  // HTML heading followed by role — team/om-oss pages: <h3>Erik Andersson</h3>...<p>VD</p>
-  // Only add when role context confirms it's a person (not a navigation heading like "What We Do")
-  const ROLE_RE = /vd|ceo|grundare|direktör|chef|ägare|partner|ansvarig/i;
-  for (const m of html.matchAll(
-    /<(?:h[2-4]|strong|b)[^>]*>\s*([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)+)\s*<\/(?:h[2-4]|strong|b)>\s*(?:<[^>]+>)*\s*([^<]{1,80})/gi,
-  )) {
-    const name = (m[1] ?? "").trim();
-    const context = (m[2] ?? "").toLowerCase();
-    if (ROLE_RE.test(context)) add(name, true);
-    // No else: only add heading names when role context confirms they're a person
-  }
-
-  // Plain text: "roll: Namn" or "Namn, roll"
-  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  const roleBeforeName = new RegExp(
-    `(?:vd|ceo|grundare|partner|ansvarig|ägare|direktör|chef)\\s*[:\\-–]\\s*(${SWEDISH_NAME})`,
-    "gi",
-  );
-  for (const m of text.matchAll(roleBeforeName)) {
-    add(m[1] ?? "", true);
-  }
-  const nameBeforeRole = new RegExp(
-    `(${SWEDISH_NAME})\\s*[,–\\-]\\s*(?:VD|CEO|Grundare|Direktör|Ägare|Partner|Ansvarig)`,
-    "g",
-  );
-  for (const m of text.matchAll(nameBeforeRole)) {
-    add(m[1] ?? "", true);
-  }
-
-  // Name directly before an @ email address
-  const beforeEmail = new RegExp(`(${SWEDISH_NAME})\\s*[<(]?\\s*[a-zA-Z0-9._%+\\-]+@`, "g");
-  for (const m of text.matchAll(beforeEmail)) {
-    add(m[1] ?? "");
-  }
-
-  return names.slice(0, 5);
+  return [...new Set(names)];
 }
 
-/** Generate probable work email patterns from a full name + domain. */
 function generateEmailCandidates(fullName: string, domain: string): string[] {
-  const normalized = fullName
-    .trim()
-    .replace(/[åä]/gi, "a")
-    .replace(/ö/gi, "o")
-    .toLowerCase();
-  const parts = normalized.split(/\s+/).filter((p) => /^[a-z]/.test(p));
+  const parts = fullName.trim().toLowerCase()
+    .replace(/[åä]/g, "a").replace(/ö/g, "o")
+    .replace(/[^a-z0-9 ]/g, "")
+    .split(" ").filter(Boolean);
   if (parts.length < 2) return [];
-  const first = (parts[0] ?? "").replace(/[^a-z0-9]/g, "");
-  const last = (parts[parts.length - 1] ?? "").replace(/[^a-z0-9]/g, "");
-  const fi = first[0] ?? "";
-  if (!first || !last || !fi) return [];
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
   return [
     `${first}.${last}@${domain}`,
     `${first}@${domain}`,
-    `${fi}.${last}@${domain}`,
-    `${first}${last}@${domain}`,
+    `${first[0]}${last}@${domain}`,
+    `${last}.${first}@${domain}`,
   ];
 }
 
-/** Extract VD/CEO name from a Swedish company HTML page. */
 function extractVdName(html: string): string | undefined {
-  // JSON-LD structured data — fastest path if the page includes it
-  for (const m of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try {
-      const data = JSON.parse(m[1] ?? "{}") as Record<string, unknown>;
-      const items: Record<string, unknown>[] = Array.isArray(data) ? data as Record<string, unknown>[] : [data];
-      for (const item of items) {
-        const title = String(item["jobTitle"] ?? "").toLowerCase();
-        if ((title.includes("vd") || title.includes("verkst") || title.includes("ceo")) && item["name"]) {
-          return String(item["name"]).trim();
-        }
-      }
-    } catch { /* ignore malformed JSON-LD */ }
-  }
-
-  // Table cell pattern: <td>Verkst. dir.</td><td>Name Name</td>
-  const SWEDISH_NAME_PAT = "[A-ZÅÄÖ][a-zåäö]+(?:\\s+[A-ZÅÄÖ][a-zåäö]+)+";
-  const tableMatch = html.match(
-    new RegExp(
-      `<td[^>]*>\\s*(?:Verkst(?:ällande)?(?:\\.)?(?:\\s+)?dir(?:ektör)?(?:\\.)?|VD|CEO)\\s*</td>\\s*<td[^>]*>\\s*(${SWEDISH_NAME_PAT})\\s*</td>`,
-      "i",
-    ),
-  );
-  if (tableMatch?.[1]) {
-    const name = tableMatch[1].trim();
-    if (name.split(" ").length >= 2) return name;
-  }
-
-  // Plain-text fallback after stripping all tags
-  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  const patterns = [
-    new RegExp(`(?:Verkst(?:ällande)?(?:\\.)?\\s*dir(?:ektör)?(?:\\.)?|\\bVD\\b|\\bCEO\\b)\\s*[:\\-–]?\\s*(${SWEDISH_NAME_PAT})`, "i"),
-    new RegExp(`(${SWEDISH_NAME_PAT})\\s*[,–\\-]\\s*(?:VD|Vd|CEO|verkst(?:ällande)?\\s*dir(?:ektör)?)`, "i"),
-    // Allabolag person table: role followed by name on same line
-    new RegExp(`Verkst\\.\\s+dir\\.\\s+(${SWEDISH_NAME_PAT})`, "i"),
+  // Strategy 1: Look for Swedish VD title patterns
+  const titlePatterns = [
+    /(?:vd|verkst[äa]llande\s+direkt[öo]r|ceo|grundare|ägare|partner|chef)[^<>]{0,30}[:\-–]?\s*([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)+)/gi,
+    /([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)+)[^<>]{0,30}(?:vd|verkst[äa]llande\s+direkt[öo]r|ceo|grundare|ägare)/gi,
   ];
-  for (const p of patterns) {
-    const m = text.match(p);
-    const name = m?.[1]?.trim();
-    if (name && name.split(" ").length >= 2) return name;
+  for (const re of titlePatterns) {
+    const m = re.exec(html);
+    if (m) {
+      const name = m[1]!.trim();
+      if (name.split(" ").length >= 2 && name.split(" ").length <= 4) return name;
+    }
   }
+  // Strategy 2: JSON-LD person
+  const jsonLdRe = /"@type"\s*:\s*"Person"[^}]{0,300}"name"\s*:\s*"([^"]+)"/i;
+  const jm = jsonLdRe.exec(html);
+  if (jm) return jm[1]!.trim();
   return undefined;
 }
 
@@ -1037,292 +853,186 @@ export async function researchCompany(opts: {
   companyName: string;
   companyDomain?: string;
 }): Promise<CompanyResearch> {
-  const domain = opts.companyDomain ?? inferDomain(opts.companyName);
   const result: CompanyResearch = {
     company_name: opts.companyName,
-    company_domain: domain,
+    company_domain: opts.companyDomain ?? inferDomain(opts.companyName),
     contact_emails: [],
     email_candidates: [],
     contact_names: [],
     key_facts: [],
   };
 
-  // --- Step 1: Fetch company website ---
-  // Try homepage first (meta description + emails + names).
-  // Then work through contact/about pages until we have both an email and a name.
-  // Max 4 pages to stay within time budget.
-  const primaryPages = [`https://${domain}`, `https://www.${domain}`];
-  const extraPages = [
-    `/kontakt`, `/om-oss`, `/team`, `/ledning`, `/personal`,
-    `/medarbetare`, `/om-foretaget`, `/about`, `/contact`,
-  ].map((p) => `https://${domain}${p}`);
+  const domain = result.company_domain;
 
-  let scrapedHomepage = false;
-  for (const url of [...primaryPages, ...extraPages]) {
-    if (result.contact_emails.length > 0 && result.contact_names.length > 0) break;
-    const html = await fetchPageSilent(url);
-    if (!html) continue;
+  // 1. Fetch main website
+  const mainHtml = await fetchPageSilent(`https://${domain}`);
+  if (mainHtml) {
+    result.website_description = mainHtml
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 400);
 
-    const emails = extractEmails(html, domain);
+    const emails = extractEmails(mainHtml, domain);
     result.contact_emails.push(...emails);
 
-    if (!result.website_description && !scrapedHomepage) {
-      const desc =
-        html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{10,250})["']/i)?.[1] ??
-        html.match(/<meta[^>]+content=["']([^"']{10,250})["'][^>]+name=["']description["']/i)?.[1];
-      if (desc) {
-        result.website_description = desc.trim();
-        result.key_facts.push(`Hemsidebeskrivning: ${desc.trim().substring(0, 150)}`);
-      }
-      scrapedHomepage = true;
-    }
+    const names = extractContactNames(mainHtml);
+    result.contact_names.push(...names);
 
-    result.contact_names.push(...extractContactNames(html));
-    await sleep(300);
+    const vd = extractVdName(mainHtml);
+    if (vd) result.vd_name = vd;
   }
 
-  // --- Step 2: Allabolag search for company facts + VD name ---
-  try {
-    const searchUrl = `https://www.allabolag.se/what/${encodeURIComponent(opts.companyName)}`;
-    const searchHtml = await fetchPageSilent(searchUrl);
-    if (searchHtml) {
-      // Extract org number: from text like "556716-8218" OR from href links like "/5567168218/"
-      const orgFromText = searchHtml.match(/(\d{6}-\d{4})/)?.[1];
-      const orgFromHref = searchHtml.match(/href="\/(\d{10})\//)?.[1];
-      const rawOrg = orgFromText ?? (orgFromHref ? `${orgFromHref.slice(0, 6)}-${orgFromHref.slice(6)}` : undefined);
-      if (rawOrg) {
-        result.org_number = rawOrg;
-        result.key_facts.push(`Org.nr: ${rawOrg}`);
-      }
-
-      const empText =
-        (searchHtml.match(/(\d+[\s–\-]+\d+)\s+anst/i) ??
-          searchHtml.match(/anst[^<>]{0,20}(\d+)/i))?.[1];
-      if (empText) {
-        result.employees = empText;
-        result.key_facts.push(`Anställda: ${empText}`);
-      }
-      const revText = searchHtml.match(
-        /omsättning[^<>]{0,60}([\d\s.,]+(?:tkr|mnkr|mkr|msek|ksek|kr))/i,
-      )?.[1];
-      if (revText) {
-        result.revenue = revText.trim();
-        result.key_facts.push(`Omsättning: ${revText.trim()}`);
-      }
-
-      // Fetch full company page for VD name; try both with and without trailing slug
-      if (result.org_number) {
-        const orgDigits = result.org_number.replace("-", "");
-        // Allabolag company URL: /XXXXXXXXXX/slug — redirect follows automatically
-        const companyPageUrl = `https://www.allabolag.se/${orgDigits}`;
-        const companyHtml = await fetchPageSilent(companyPageUrl);
-        if (companyHtml) {
-          const vd = extractVdName(companyHtml);
-          if (vd) {
-            result.vd_name = vd;
-            result.contact_names.unshift(vd);
-            result.key_facts.push(`VD: ${vd}`);
-          }
-          // Also pick up employee/revenue data from the company page itself
-          if (!result.employees) {
-            const emp = companyHtml.replace(/<[^>]+>/g, " ").match(/(\d+[\s–\-]+\d+)\s+anst/i)?.[1];
-            if (emp) { result.employees = emp; result.key_facts.push(`Anställda: ${emp}`); }
-          }
-        }
-      } else if (orgFromHref) {
-        // We have a 10-digit org number from href but couldn't format with dash — try it directly
-        const companyHtml = await fetchPageSilent(`https://www.allabolag.se/${orgFromHref}`);
-        if (companyHtml) {
-          const vd = extractVdName(companyHtml);
-          if (vd) {
-            result.vd_name = vd;
-            result.contact_names.unshift(vd);
-            result.key_facts.push(`VD: ${vd}`);
-          }
-        }
+  // 2. Try /kontakt page
+  if (result.contact_emails.length === 0) {
+    const kontaktHtml = await fetchPageSilent(`https://${domain}/kontakt`);
+    if (kontaktHtml) {
+      const emails = extractEmails(kontaktHtml, domain);
+      result.contact_emails.push(...emails);
+      if (!result.vd_name) {
+        const vd = extractVdName(kontaktHtml);
+        if (vd) result.vd_name = vd;
       }
     }
-    await sleep(500);
-  } catch {
-    // Allabolag is optional enrichment
   }
 
-  // --- Step 3: Ratsit.se — structured Swedish company directory, reliable VD names ---
+  // 3. Try /om-oss page
   if (!result.vd_name) {
-    try {
-      // Search by company name; if org number is known, go directly to company page
-      let ratsitHtml: string | null = null;
-      if (result.org_number) {
-        ratsitHtml = await fetchPageSilent(
-          `https://www.ratsit.se/foretag/${result.org_number}`,
-        );
+    const omHtml = await fetchPageSilent(`https://${domain}/om-oss`) ??
+                   await fetchPageSilent(`https://${domain}/about`) ??
+                   await fetchPageSilent(`https://${domain}/om-foretaget`);
+    if (omHtml) {
+      const vd = extractVdName(omHtml);
+      if (vd) result.vd_name = vd;
+      if (result.contact_emails.length === 0) {
+        const emails = extractEmails(omHtml, domain);
+        result.contact_emails.push(...emails);
       }
-      if (!ratsitHtml) {
-        const searchHtml = await fetchPageSilent(
-          `https://www.ratsit.se/foretag/search?q=${encodeURIComponent(opts.companyName)}`,
-        );
-        if (searchHtml) {
-          // First company link: /foretag/XXXXXX-XXXX
-          const companyPath = searchHtml.match(/href="(\/foretag\/\d{6}-\d{4}[^"]{0,80})"/i)?.[1];
-          if (companyPath) {
-            await sleep(300);
-            ratsitHtml = await fetchPageSilent(`https://www.ratsit.se${companyPath}`);
-          }
-        }
-      }
-      if (ratsitHtml) {
-        const vd = extractVdName(ratsitHtml);
-        if (vd) {
-          result.vd_name = vd;
-          result.contact_names.unshift(vd);
-          result.key_facts.push(`VD (Ratsit): ${vd}`);
-        }
-        // Ratsit also shows address — grab if missing
-        if (!result.address) {
-          const addr = ratsitHtml.replace(/<[^>]+>/g, " ").match(
-            /\b(\d{3}\s?\d{2}\s+[A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ]?[a-zåäö]+)*)\b/,
-          )?.[1];
-          if (addr) result.address = addr.trim();
-        }
-      }
-      await sleep(400);
-    } catch {
-      // Ratsit is optional enrichment
     }
   }
 
-  // --- Step 4: PRoff.se fallback — only if no VD found ---
-  if (!result.vd_name) {
-    try {
-      // PRoff company page (more structured than search results)
-      const proffSearchUrl = `https://www.proff.se/s%C3%B6k?q=${encodeURIComponent(opts.companyName)}`;
-      const proffHtml = await fetchPageSilent(proffSearchUrl);
-      if (proffHtml) {
-        const vd = extractVdName(proffHtml);
-        if (vd) {
-          result.vd_name = vd;
-          result.contact_names.unshift(vd);
-          result.key_facts.push(`VD (PRoff): ${vd}`);
-        }
-        // PRoff search might show a direct company link — follow it for richer data
-        const proffCompanyPath = proffHtml.match(/href="(\/(?:bolag|f%C3%B6retag|foretag)\/[^"]{3,80})"/i)?.[1];
-        if (proffCompanyPath && !result.vd_name) {
-          await sleep(300);
-          const proffCompanyHtml = await fetchPageSilent(`https://www.proff.se${proffCompanyPath}`);
-          if (proffCompanyHtml) {
-            const vd2 = extractVdName(proffCompanyHtml);
-            if (vd2) {
-              result.vd_name = vd2;
-              result.contact_names.unshift(vd2);
-              result.key_facts.push(`VD (PRoff): ${vd2}`);
-            }
-          }
+  // 4. Proff.se lookup for VD name + company facts
+  const proffSearchUrl = `https://www.proff.se/s%C3%B6k?q=${encodeURIComponent(opts.companyName)}`;
+  const proffHtml = await fetchPageSilent(proffSearchUrl);
+  if (proffHtml) {
+    const vd = extractVdName(proffHtml);
+    if (vd && !result.vd_name) result.vd_name = vd;
+
+    // Extract org facts from Proff search result
+    const orgNoMatch = /(?:Org\.?\s*nr|Organisationsnummer)[:\s]+([\d\-]+)/i.exec(proffHtml);
+    if (orgNoMatch) result.org_number = orgNoMatch[1]!.trim();
+
+    const empMatch = /(?:Antal anst[äa]llda|Anst[äa]llda)[:\s]+(\d+[\s\-]*\d*)/i.exec(proffHtml);
+    if (empMatch) result.employees = empMatch[1]!.trim();
+
+    const revMatch = /(?:Omsättning|Nettoomsättning)[:\s]+([\d\s]+(?:tkr|mkr|kkr|MSEK|SEK)?)/i.exec(proffHtml);
+    if (revMatch) result.revenue = revMatch[1]!.trim();
+
+    // Try to get deeper company page from Proff
+    const proffCompanyPath = proffHtml.match(/href="(\/(?:bolag|f%C3%B6retag|foretag)\/[^"]{3,80})"/i)?.[1];
+    if (proffCompanyPath && !result.vd_name) {
+      await sleep(300);
+      const proffCompanyHtml = await fetchPageSilent(`https://www.proff.se${proffCompanyPath}`);
+      if (proffCompanyHtml) {
+        const vd2 = extractVdName(proffCompanyHtml);
+        if (vd2) result.vd_name = vd2;
+        if (!result.employees) {
+          const em = /(?:Antal anst[äa]llda|Anst[äa]llda)[:\s]+(\d+[\s\-]*\d*)/i.exec(proffCompanyHtml);
+          if (em) result.employees = em[1]!.trim();
         }
       }
-    } catch {
-      // PRoff is optional
     }
   }
 
-  // --- Generate personalised email candidates from VD name ---
-  // Only use a contact_name fallback if it looks like a real person name (no common function words)
-  const NON_NAME_WORDS = /\b(we|our|the|what|who|how|why|with|your|their|its|and|for|you|this|that|these|those|services|solutions|about|contact|team|more|read|learn|get|do)\b/i;
-  const contactNameFallback = result.contact_names.find(
-    (n) => n.split(" ").length >= 2 && !NON_NAME_WORDS.test(n),
-  );
-  const nameForCandidates = result.vd_name ?? contactNameFallback;
-  if (nameForCandidates) {
-    result.email_candidates = generateEmailCandidates(nameForCandidates, domain);
-    if (result.email_candidates.length > 0) {
-      result.key_facts.push(
-        `E-postkandidater (ej verifierade): ${result.email_candidates.slice(0, 2).join(", ")}`,
-      );
-    }
+  // 5. Generate email candidates from VD name
+  if (result.vd_name) {
+    const candidates = generateEmailCandidates(result.vd_name, domain);
+    result.email_candidates.push(...candidates);
   }
 
-  // Deduplicate
-  result.contact_emails = [...new Set(result.contact_emails)];
-  result.contact_names = [...new Set(result.contact_names)];
+  // 6. Build key_facts
+  const facts: string[] = [];
+  if (result.employees) facts.push(`Anställda: ${result.employees}`);
+  if (result.revenue) facts.push(`Omsättning: ${result.revenue}`);
+  if (result.address) facts.push(`Adress: ${result.address}`);
+  if (result.org_number) facts.push(`Org.nr: ${result.org_number}`);
+  if (result.website_description) facts.push(`Beskrivning: ${result.website_description.slice(0, 150)}`);
+  result.key_facts = facts;
 
   return result;
 }
 
 // ------------------------------------------------------------
-// SOURCE 7 — Companies without websites (DNS A-record check)
+// No-website company discovery
 // ------------------------------------------------------------
-
-const NO_WEBSITE_SNI = [
-  { sni: "69100", industry: "Advokatbyrå" },
-  { sni: "69200", industry: "Redovisningsbyrå" },
-  { sni: "41200", industry: "Byggföretag" },
-  { sni: "81210", industry: "Städbolag" },
-  { sni: "86230", industry: "Tandläkare" },
-  { sni: "56101", industry: "Restaurang" },
-  { sni: "68310", industry: "Fastighetsmäklare" },
-  { sni: "96020", industry: "Frisör/Skönhetssalong" },
-];
-
 async function domainHasWebsite(domain: string): Promise<boolean> {
   try {
-    const { promises: dns } = await import("node:dns");
-    await dns.resolve4(domain);
-    return true;
+    const res = await fetch(`https://${domain}`, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(3000),
+      headers: { "User-Agent": "AgentHub-SalesAgent/1.0" },
+    });
+    return res.ok || res.status < 500;
   } catch {
-    try {
-      const { promises: dns } = await import("node:dns");
-      await dns.resolve4(`www.${domain}`);
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 }
 
 export async function fetchNoWebsiteCompanies(
   opts: { limit?: number } = {},
 ): Promise<ProspectSignal[]> {
-  const results: ProspectSignal[] = [];
-  const limit = opts.limit ?? 8;
+  const SNI_TARGETS = [
+    { url: "https://www.allabolag.se/bransch/redovisning-och-bokforing", label: "Redovisningsbyrå" },
+    { url: "https://www.allabolag.se/bransch/advokatbyraer-och-juridisk-radgivning", label: "Advokatbyrå" },
+    { url: "https://www.allabolag.se/bransch/byggande-av-bostadshus-och-andra-byggnader", label: "Byggföretag" },
+    { url: "https://www.allabolag.se/bransch/elektriska-installationer", label: "Elinstallation" },
+    { url: "https://www.allabolag.se/bransch/VVS-installationer", label: "VVS" },
+    { url: "https://www.allabolag.se/bransch/städverksamhet", label: "Städbolag" },
+    { url: "https://www.allabolag.se/bransch/hår-och-skönhetsvård", label: "Frisör/Skönhet" },
+    { url: "https://www.allabolag.se/bransch/restauranger-och-mobil-matverk samhet", label: "Restaurang" },
+  ];
 
-  for (const { sni, industry } of NO_WEBSITE_SNI) {
-    if (results.length >= limit) break;
+  const candidates: Array<{ name: string; label: string }> = [];
+
+  for (const target of SNI_TARGETS) {
+    if (candidates.length >= (opts.limit ?? 8) * 4) break;
     try {
-      const url = `https://www.allabolag.se/bransch/${sni}?anstallda=1-9`;
-      const res = await fetchWithRetry(url);
+      const res = await fetchWithRetry(target.url);
       const html = await res.text();
-      const names = extractCompanyNamesFromHtml(html).slice(0, 6);
-
-      // DNS checks in parallel — batch of 5
-      const checks = await Promise.allSettled(
-        names.slice(0, 5).map(async (name) => {
-          const domain = inferDomain(name);
-          const hasWebsite = await domainHasWebsite(domain);
-          return { name, domain, hasWebsite };
-        }),
-      );
-
-      for (const check of checks) {
-        if (results.length >= limit) break;
-        if (check.status !== "fulfilled") continue;
-        const { name, domain, hasWebsite } = check.value;
-        if (!hasWebsite) {
-          results.push({
-            source: "digital_presence",
-            company_name: name,
-            signals: [
-              `${industry} utan registrerad webbplats`,
-              `Domänen ${domain} har inget A-record — troligen ingen hemsida`,
-              `SNI-kod ${sni}: ${industry}`,
-            ],
-            suggested_offer_hint: "webb_design",
-            extra: { sni, industry, inferred_domain: domain, dns_check: "no_a_record" },
-          });
+      if (res.status !== 200) continue;
+      const names = extractCompanyNamesFromHtml(html);
+      for (const name of names.slice(0, 5)) {
+        if (!isBlocklistedCompany(name)) {
+          candidates.push({ name, label: target.label });
         }
       }
-      await sleep(1000);
-    } catch (e) {
-      console.warn(`fetchNoWebsiteCompanies SNI ${sni} failed:`, (e as Error).message);
+      await sleep(700);
+    } catch {
+      continue;
     }
+  }
+
+  // DNS-check each candidate — only return those without a website
+  const results: ProspectSignal[] = [];
+  for (const c of candidates) {
+    if (results.length >= (opts.limit ?? 8)) break;
+    const domain = inferDomain(c.name);
+    const hasWebsite = await domainHasWebsite(domain);
+    if (!hasWebsite) {
+      results.push({
+        source: "digital_presence",
+        company_name: c.name,
+        signals: [
+          `${c.label} utan webbplats (DNS-kontroll misslyckades för ${domain})`,
+          "Stark webb_design-signal: bolaget saknar digital närvaro",
+        ],
+        suggested_offer_hint: "webb_design",
+        extra: { inferred_domain: domain, label: c.label },
+      });
+    }
+    await sleep(200);
   }
 
   return results;
