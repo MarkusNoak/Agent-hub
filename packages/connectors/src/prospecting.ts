@@ -24,7 +24,8 @@ export type ProspectSignal = {
     | "app_development"
     | "webb_design"
     | "agent_platform"
-    | "upsell";
+    | "upsell"
+    | "konsult_uthyrning";
   extra?: Record<string, unknown>;
 };
 
@@ -1041,6 +1042,131 @@ export async function researchCompany(opts: {
   result.key_facts = facts;
 
   return result;
+}
+
+// ------------------------------------------------------------
+// SOURCE 7 — IT consultant assignments (konsultuppdrag)
+// Targets companies actively looking for IT consultants so we can
+// pitch WKIT's own consultants (konsult_uthyrning offer type).
+// ------------------------------------------------------------
+const KONSULT_QUERIES = [
+  "systemutvecklare konsultuppdrag",
+  "frontend-utvecklare konsultuppdrag",
+  "fullstack konsultuppdrag",
+  "iOS-utvecklare konsultuppdrag",
+  "Android-utvecklare konsultuppdrag",
+  "data analyst konsultuppdrag",
+  "backend-utvecklare konsultuppdrag",
+];
+
+// Known broker names — if the employer is a broker the actual end client is
+// hidden, but the signal (active demand) is still useful. We flag these so the
+// agent can decide whether to pitch the broker as a partner instead.
+const KONSULT_BROKER_NAMES = [
+  "ework", "nexer", "kvadrat", "knightec", "dfind", "wise", "experis",
+  "tng ", " tng", "brainville", "adecco", "randstad", "manpower", "poolia",
+  "academicwork", "academic work", "lernia", "perido", "jobbusters",
+];
+
+const NON_ICP_KONSULT = [
+  "region ", "landsting", "kommun", "stad ", "sjukhus", "skola",
+  "gymnasium", "högskola", "universitet", "myndighet", "försäkrings",
+];
+
+export async function fetchKonsultUppdrag(
+  opts: { limit?: number } = {},
+): Promise<ProspectSignal[]> {
+  type JobAd = {
+    company: string;
+    title: string;
+    desc: string;
+    location: string;
+    role: string;
+    isBroker: boolean;
+  };
+
+  const ads: JobAd[] = [];
+
+  for (const query of KONSULT_QUERIES) {
+    try {
+      const url = `https://jobsearch.api.jobtechdev.se/search?q=${encodeURIComponent(query)}&limit=5`;
+      const res = await fetchWithRetry(url, { headers: { accept: "application/json" } });
+      const data = (await res.json()) as JobtechResponse;
+      (data?.hits ?? []).forEach((hit) => {
+        if (!hit.employer?.name) return;
+        const name = (hit.employer.name ?? "").toLowerCase();
+        if (NON_ICP_KONSULT.some((s) => name.includes(s))) return;
+        if (isBlocklistedCompany(hit.employer.name)) return;
+        const isBroker = KONSULT_BROKER_NAMES.some((b) => name.includes(b));
+        ads.push({
+          company: hit.employer.name,
+          title: hit.headline ?? query,
+          desc: hit.description?.text?.substring(0, 300) ?? "",
+          location: hit.workplace_address?.municipality ?? "Sverige",
+          role: query,
+          isBroker,
+        });
+      });
+      await sleep(500);
+    } catch {
+      continue;
+    }
+  }
+
+  // Try uppdragshittaren.se as supplementary source (server-rendered)
+  try {
+    const html = await fetchPageSilent("https://www.uppdragshittaren.se/uppdrag/");
+    if (html && html.includes("uppdrag")) {
+      // Extract company/uppdrag names from listings
+      const re = /href="[^"]*\/uppdrag\/[^"]*"[^>]*>\s*([^<]{5,80})\s*</gi;
+      let m: RegExpExecArray | null;
+      const seen = new Set<string>();
+      while ((m = re.exec(html)) !== null) {
+        const title = m[1]!.trim();
+        if (title.length < 5 || seen.has(title)) continue;
+        seen.add(title);
+        // uppdragshittaren lists assignment titles, not company names —
+        // use as signal text, company_name is set to a placeholder for the agent to infer
+        ads.push({
+          company: "extract_from_assignment",
+          title,
+          desc: `Uppdrag listat på Uppdragshittaren.se: "${title}"`,
+          location: "Sverige",
+          role: "IT-konsultuppdrag",
+          isBroker: true,
+        });
+        if (seen.size >= 5) break;
+      }
+    }
+  } catch { /* silent — supplementary source */ }
+
+  const seenCompanies = new Set<string>();
+  const deduped = ads.filter((a) => {
+    const key = a.company.toLowerCase();
+    if (seenCompanies.has(key)) return false;
+    seenCompanies.add(key);
+    return true;
+  });
+
+  const limit = opts.limit ?? 10;
+  return deduped.slice(0, limit).map((ad) => ({
+    source: "job_signal" as const,
+    company_name: ad.company,
+    signals: [
+      ad.isBroker
+        ? `Konsultmäklare söker: "${ad.title}" — kontakta mäklaren för partnerskap`
+        : `Företag söker direkt: "${ad.title}" — pitcha WKIT-konsult`,
+      `Ort: ${ad.location}`,
+      `Signal: Aktiv efterfrågan på IT-konsult → konsult_uthyrning`,
+      ad.desc ? `Beskrivning: ${ad.desc}` : "",
+    ].filter(Boolean),
+    suggested_offer_hint: "konsult_uthyrning" as const,
+    extra: {
+      signal_type: "konsult_uppdrag",
+      role: ad.role,
+      is_broker_posting: ad.isBroker,
+    },
+  }));
 }
 
 // ------------------------------------------------------------
