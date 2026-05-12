@@ -21,6 +21,7 @@ import {
   queryEnrichedCompanies,
   isBlocklistedCompany,
   searchSwedishDecisionMakers,
+  fetchKonsultUppdrag,
 } from "@agent-hub/connectors";
 
 const OfferTypeEnum = z.enum([
@@ -28,6 +29,7 @@ const OfferTypeEnum = z.enum([
   "app_development",
   "agent_platform",
   "upsell",
+  "konsult_uthyrning",
 ]);
 const ProspectSourceEnum = z.enum([
   "funding_news",
@@ -105,7 +107,8 @@ REVENUE LINES & WKIT OFFERINGS (ACTIVE)
 • app_development  — Custom apps, MVPs, integrations. Target: funded startups, scaleups, companies actively recruiting developers (they need to build something — we build it faster & cheaper than hiring). CTA: "gratis MVP-scoping".
 • agent_platform   — Internal automation agents (invoice chasing, status reports, outreach). Target: IT consultancies, agencies, recruiting firms with manual admin overhead. CTA: "gratis automatiseringsaudit".
 • webb_design      — Modern websites. Target: B2B service firms (law, accounting, construction, craftsmen) with outdated or no website. CTA: "gratis 20-min UX-genomgång".
-• upsell           — Follow-up to existing Visma customers 14–60 days post-delivery.
+• upsell             — Follow-up to existing Visma customers 14–60 days post-delivery.
+• konsult_uthyrning  — IT-konsult uthyrning. Target: tech-bolag, fintech, retail, media, tillverkning med aktiv efterfrågan på IT-specialister. Roller WKIT levererar: systemutvecklare (backend), frontend-utvecklare, fullstack, iOS/Android, data analyst. CTA: "Vi hittar rätt konsult på 48h — gratis matchning".
 • ai_automation    — NOT an active offer. If you detect a company hiring admin roles (ekonomiassistent, löneadmin etc.), map them to agent_platform instead.
 
 Core ICP: ${coreIcp.industries?.join(", ") ?? "B2B, professional services, tech, real estate, construction"} · ${coreIcp.company_size ?? "5–200 anställda"} · ${coreIcp.geography?.join(", ") ?? "Sverige"}
@@ -119,7 +122,8 @@ OFFER MATCHING — use signals to pick ONE offer_type per company:
   ingen hemsida / föråldrad hemsida   → webb_design  (om tjänsteföretag)
   IT-konsult / digital byrå / rekryteringsbolag → agent_platform
   befintlig Visma-kund 14–60 dagar    → upsell
-  Om flera signaler: välj den starkaste. Prioritet: funding > tech_hiring > agent_platform > webb_design.
+  konsultuppdrag-annons / "vi söker IT-konsult" / mäklarannons → konsult_uthyrning (pitcha WKIT-konsult, ej bygg-tjänst)
+  Om flera signaler: välj den starkaste. Prioritet: funding > konsult_uthyrning > tech_hiring > agent_platform > webb_design.
 ────────────────────────────────────────
 ICP SCORING GUIDE (0–100 — kö bara score ≥ 65):
   +25  Nyligen finansierad (funding_news, VCt-nyckelord i Apollo)
@@ -135,6 +139,14 @@ ICP SCORING GUIDE (0–100 — kö bara score ≥ 65):
   −30  >200 anställda
   −50  Offentlig sektor / vård / utbildning (borde redan ha skippats)
   −100 Staffing/bemanning (för webb/app/ai — agent_platform OK)
+
+konsult_uthyrning SCORING (separat skala):
+  +30  Annons explicit om konsultuppdrag/inhyrning (ej fast anställning)
+  +20  Företaget är i tech/fintech/media/retail — hög IT-mognad
+  +15  10–500 anställda (stora nog att anlita extern konsult)
+  +10  Ort: Stockholm/Göteborg/Malmö (flest tillgängliga uppdrag)
+  −20  Kommunal/statlig verksamhet (upphandlingskrav, lång process)
+  −40  Annonsör är konsultmäklare (inte slutklient) — notera som broker_posting=true
 
 ${metaOn ? `META-PITCH RULE (for offer_type=agent_platform):
 The outreach MUST include a short PS revealing this email was written by the Sales Agent itself. Vary wording. Example:
@@ -220,16 +232,21 @@ DATA SOURCES — call in this order every run:
    fetch_no_website_companies   Allabolag + DNS fallback → webb_design.
 ── 6. Visma upsell ──────────────────────────────────────────────────
    fetch_visma_upsell_candidates Varma leads 14–60 dagar efter leverans → upsell.
+── 7. Konsultuppdrag ────────────────────────────────────────────────
+   fetch_konsult_uppdrag        Arbetsförmedlingen: bolag som annonserar IT-konsultuppdrag
+                                (systemutvecklare, frontend, fullstack, iOS/Android, data analyst).
+                                Returnerar uppdragsgivare → konsult_uthyrning. Kör alltid.
 
 FÖRBUDSREGEL:
 NEVER call fetch_ai_replaceable_jobs — vi har ingen färdig produkt för ekonomiassistenter, löneadmin etc.
 NEVER call apollo_signal_companies — returnerar enterprises och blocklistade bolag, inte SMBs.
 
 TARGET DISTRIBUTION per körning (max_drafts=15):
-  app_development  5–6 (apollo_discover app_dev + funding_news + tech_hiring)
-  agent_platform   4–5 (apollo_discover agent_platform)
-  webb_design      3–4 (apollo_discover webb_design + no_website sources)
-  upsell           0–1 (visma_upsell om tillgängligt)
+  app_development    4–5 (apollo_discover app_dev + funding_news + tech_hiring)
+  agent_platform     3–4 (apollo_discover agent_platform)
+  konsult_uthyrning  3–4 (fetch_konsult_uppdrag)
+  webb_design        2–3 (apollo_discover webb_design + no_website sources)
+  upsell             0–1 (visma_upsell om tillgängligt)
 Stopp vid 15 totalt. Kö alla leads med score ≥ 60.
 
 ────────────────────────────────────────
@@ -273,6 +290,7 @@ DECISION FLOW:
    h. apollo_no_website_companies
    i. fetch_no_website_companies
    j. fetch_visma_upsell_candidates
+   k. fetch_konsult_uppdrag          ← call every run, 3–4 leads
    NEVER call fetch_ai_replaceable_jobs or apollo_signal_companies.
 3. For each returned prospect:
    a. If source=funding_news → extract actual company name from headline.
@@ -571,6 +589,25 @@ Offers available: ${offers.join(", ")}.`;
       },
     },
     {
+      name: "fetch_konsult_uppdrag",
+      description:
+        "Hämtar aktiva IT-konsultuppdrag från Arbetsförmedlingen och Uppdragshittaren.se. Returnerar bolag som söker systemutvecklare, frontend, fullstack, iOS/Android eller data analyst via konsultuppdrag — prime targets för konsult_uthyrning. is_broker_posting=true means the poster is a broker (pitch partnership), false means direct end client (pitch WKIT consultant directly).",
+      input_schema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max results (default 10)" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const supa = (ctx.supabase as { raw: () => SupabaseClient }).raw();
+        const items = await fetchKonsultUppdrag({ limit: (args["limit"] as number) ?? 12 });
+        for (const item of items) {
+          try { await upsertProspectCompany(supa, ctx.tenant.tenantId, item); } catch { /* non-fatal */ }
+        }
+        return { items, count: items.length };
+      },
+    },
+    {
       name: "mark_visma_upsell_contacted",
       description: "Mark a Visma project as 'upsell contacted' so it isn't resurfaced.",
       input_schema: {
@@ -819,7 +856,7 @@ Offers available: ${offers.join(", ")}.`;
           },
           offer_type: {
             type: "string",
-            enum: ["webb_design", "app_development", "agent_platform", "upsell"],
+            enum: ["webb_design", "app_development", "agent_platform", "upsell", "konsult_uthyrning"],
           },
           score: { type: "number" },
           detected_pains: { type: "array", items: { type: "string" } },
@@ -863,7 +900,7 @@ Offers available: ${offers.join(", ")}.`;
           body: { type: "string" },
           offer_type: {
             type: "string",
-            enum: ["webb_design", "app_development", "agent_platform", "upsell"],
+            enum: ["webb_design", "app_development", "agent_platform", "upsell", "konsult_uthyrning"],
           },
           source: {
             type: "string",
