@@ -35,6 +35,22 @@ VANTAGE is not a chat-only advisor. It has live tools:
 - `list_leads` / `update_lead` — pipeline review and stage management
   (new → qualified → contacted → meeting → won/lost).
 
+**Free public enrichment** (no credentials, `backend/enrichment/`):
+
+| Tool | Source | Gives you |
+|---|---|---|
+| `lookup_company_registry` | Brønnøysundregistrene (NO), CVR/cvrapi.dk (DK), PRH/YTJ (FI), Companies House (GB, free key) | Authoritative legal name, org number, active/dissolved/bankrupt status, legal form, official industry code, address, registration date |
+| `analyze_website` | The company's own site | Tech stack (Shopify, HubSpot, WordPress, …), social profiles, public contact emails, positioning, language |
+| `find_company_news` | Google News RSS (en/sv/no/da/fi) | Timing signals: funding, expansion, hires, launches |
+| `check_email_domain` | DNS-over-HTTPS (MX records) | Whether a domain accepts email + provider (Google Workspace / Microsoft 365 / …) |
+
+VANTAGE layers these in its workflow: verify the company in a registry,
+mine the website for fit and contacts, scan local-language news for an
+outreach hook, and validate the email domain before a lead is saved —
+each signal cited in the lead's score rationale. Sweden has no free public
+registry API (Bolagsverket is paywalled), so Swedish prospects rely on the
+lead provider plus website/news/DNS enrichment.
+
 Leads land in the **LEADS** view: sortable pipeline, status changes,
 outreach-draft copy button, CSV export. New data sources can be added by
 implementing `LeadProvider` in `backend/leadgen/providers.py`.
@@ -96,6 +112,7 @@ backend/
   database.py           tenant-scoped SQLite persistence (Postgres-portable SQL)
   agent_tools.py        tool framework + VANTAGE lead tools
   leadgen/providers.py  Apollo.io provider + demo provider (LeadProvider ABC)
+  enrichment/           free public sources: registries, website, news, DNS
   agents/               13 agents; base_agent.py runs the tool-use loop
   routers/              auth, account/billing, leads CRM, public API v1
 frontend/               vanilla JS SPA: auth, chat, leads, dashboard, settings

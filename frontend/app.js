@@ -605,12 +605,16 @@ function setConnStatus(status) {
 
 // ── WebSocket message handler ──────────────────────────
 const TOOL_LABELS = {
-  search_companies: 'SEARCHING COMPANIES',
-  search_people:    'FINDING DECISION-MAKERS',
-  enrich_company:   'ENRICHING COMPANY DATA',
-  save_lead:        'SAVING LEAD TO PIPELINE',
-  list_leads:       'READING PIPELINE',
-  update_lead:      'UPDATING LEAD',
+  search_companies:        'SEARCHING COMPANIES',
+  search_people:           'FINDING DECISION-MAKERS',
+  enrich_company:          'ENRICHING COMPANY DATA',
+  lookup_company_registry: 'CHECKING OFFICIAL REGISTRY',
+  analyze_website:         'ANALYZING WEBSITE',
+  find_company_news:       'SCANNING NEWS SIGNALS',
+  check_email_domain:      'VERIFYING EMAIL DOMAIN',
+  save_lead:               'SAVING LEAD TO PIPELINE',
+  list_leads:              'READING PIPELINE',
+  update_lead:             'UPDATING LEAD',
 };
 
 function handleWsMsg(data, agentId) {

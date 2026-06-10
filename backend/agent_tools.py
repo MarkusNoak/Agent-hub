@@ -10,6 +10,13 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 import database as db
+from enrichment import (
+    analyze_website,
+    check_email_domain,
+    find_company_news,
+    lookup_registry,
+)
+from enrichment.registries import SUPPORTED_COUNTRIES
 from leadgen import get_provider
 from plans import get_plan, within_quota
 
@@ -152,6 +159,49 @@ async def _update_lead(inp: dict, ctx: ToolContext) -> str:
     return _json({"ok": True, "lead_id": lead_id})
 
 
+# ── Free public enrichment tools ──────────────────────────────────────────────
+
+
+async def _lookup_registry(inp: dict, ctx: ToolContext) -> str:
+    try:
+        results = await lookup_registry(inp["query"], inp["country"])
+    except LookupError as e:
+        return _json({"error": str(e)})
+    except Exception as e:
+        return _json({"error": f"Registry lookup failed: {e}"})
+    if not results:
+        return _json({"error": f"No registry match for '{inp['query']}' "
+                               f"in {inp['country']}"})
+    return _json({"count": len(results), "companies": results})
+
+
+async def _analyze_website(inp: dict, ctx: ToolContext) -> str:
+    try:
+        return _json(await analyze_website(inp["domain"]))
+    except Exception as e:
+        return _json({"error": f"Website analysis failed: {e}"})
+
+
+async def _find_company_news(inp: dict, ctx: ToolContext) -> str:
+    try:
+        items = await find_company_news(
+            inp["company_name"], language=inp.get("language", "en")
+        )
+    except Exception as e:
+        return _json({"error": f"News search failed: {e}"})
+    if not items:
+        return _json({"company": inp["company_name"], "news": [],
+                      "note": "No recent news found."})
+    return _json({"company": inp["company_name"], "news": items})
+
+
+async def _check_email_domain(inp: dict, ctx: ToolContext) -> str:
+    try:
+        return _json(await check_email_domain(inp["domain"]))
+    except Exception as e:
+        return _json({"error": f"Email domain check failed: {e}"})
+
+
 SEARCH_COMPANIES = Tool(
     name="search_companies",
     description=(
@@ -271,7 +321,87 @@ UPDATE_LEAD = Tool(
     handler=_update_lead,
 )
 
+LOOKUP_REGISTRY = Tool(
+    name="lookup_company_registry",
+    description=(
+        "Look up a company in an OFFICIAL government company registry — free, "
+        f"public, authoritative data. Supported: {SUPPORTED_COUNTRIES}. "
+        "Returns legal name, org/VAT number, status (active/dissolved/"
+        "bankrupt), legal form, official industry classification, employees "
+        "(NO), registered address, and registration date. Use it to verify "
+        "that a prospect is a real, active company and to fill firmographic "
+        "gaps. Accepts a company name or an org number as the query."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Company name or organization number"},
+            "country": {"type": "string", "description": "ISO country code: NO, DK, FI, or GB"},
+        },
+        "required": ["query", "country"],
+    },
+    handler=_lookup_registry,
+)
+
+ANALYZE_WEBSITE = Tool(
+    name="analyze_website",
+    description=(
+        "Fetch and analyze a company's website (free, no key). Returns title, "
+        "meta description, site language, detected technology stack "
+        "(CMS, CRM, analytics, e-commerce, chat widgets), social profiles "
+        "(LinkedIn etc.), and publicly listed contact emails. Great for: "
+        "product-fit signals (e.g. they run Shopify, they lack a CRM), "
+        "finding a contact channel, and personalizing outreach."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "domain": {"type": "string", "description": "Company domain or URL, e.g. 'acme.se'"},
+        },
+        "required": ["domain"],
+    },
+    handler=_analyze_website,
+)
+
+FIND_COMPANY_NEWS = Tool(
+    name="find_company_news",
+    description=(
+        "Search recent news about a company via Google News (free, no key). "
+        "Surfaces timing signals: funding rounds, expansion, new offices, "
+        "leadership changes, product launches, layoffs. Use these to score "
+        "timing and to personalize the outreach draft with a relevant hook."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "company_name": {"type": "string"},
+            "language": {"type": "string", "description": "News language: en, sv, no, da, or fi (default en)"},
+        },
+        "required": ["company_name"],
+    },
+    handler=_find_company_news,
+)
+
+CHECK_EMAIL_DOMAIN = Tool(
+    name="check_email_domain",
+    description=(
+        "Check a domain's MX records via DNS (free, no key). Tells you whether "
+        "the domain can receive email at all and which email provider it uses "
+        "(Google Workspace, Microsoft 365, ...). Run this before saving a lead "
+        "with a contact_email to avoid storing addresses that will bounce."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "domain": {"type": "string", "description": "Domain or full email address"},
+        },
+        "required": ["domain"],
+    },
+    handler=_check_email_domain,
+)
+
 LEAD_TOOLS = [
     SEARCH_COMPANIES, SEARCH_PEOPLE, ENRICH_COMPANY,
+    LOOKUP_REGISTRY, ANALYZE_WEBSITE, FIND_COMPANY_NEWS, CHECK_EMAIL_DOMAIN,
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
 ]
