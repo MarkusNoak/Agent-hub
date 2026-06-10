@@ -1,4 +1,4 @@
-"""SQLite persistence layer.
+"""Persistence layer — Postgres (Supabase) or SQLite via dbdriver.
 
 Multi-tenant schema: every row that belongs to a customer carries org_id.
 SQLite keeps the stack dependency-free for development and small deployments;
@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiosqlite
+
+import dbdriver
 
 DB_PATH = Path(__file__).parent / "agent_hub.db"
 
@@ -26,8 +28,185 @@ def month_key(dt: datetime | None = None) -> str:
     return dt.strftime("%Y-%m")
 
 
+
+# ── Postgres schema (Supabase) — lives in dedicated schema "v2" ──────────────
+
+PG_SCHEMA = """
+CREATE SCHEMA IF NOT EXISTS v2;
+SET search_path TO v2, public;
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    plan        TEXT NOT NULL DEFAULT 'free',
+    settings    TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id            TEXT PRIMARY KEY,
+    org_id        TEXT NOT NULL REFERENCES organizations(id),
+    email         TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'member',
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id           TEXT PRIMARY KEY,
+    org_id       TEXT NOT NULL REFERENCES organizations(id),
+    name         TEXT NOT NULL,
+    prefix       TEXT NOT NULL,
+    key_hash     TEXT NOT NULL,
+    created_at   TIMESTAMPTZ DEFAULT now(),
+    last_used_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    org_id      TEXT NOT NULL,
+    user_id     TEXT,
+    agent_id    TEXT NOT NULL,
+    session_id  TEXT NOT NULL,
+    role        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_conv_lookup
+    ON conversations (org_id, agent_id, session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS usage_events (
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    org_id        TEXT NOT NULL,
+    user_id       TEXT,
+    agent_id      TEXT NOT NULL,
+    month         TEXT NOT NULL,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_usage_org_month ON usage_events (org_id, month);
+
+CREATE TABLE IF NOT EXISTS leads (
+    id               TEXT PRIMARY KEY,
+    org_id           TEXT NOT NULL,
+    month            TEXT NOT NULL,
+    company_name     TEXT NOT NULL,
+    domain           TEXT,
+    org_number       TEXT,
+    industry         TEXT,
+    company_size     TEXT,
+    location         TEXT,
+    contact_name     TEXT,
+    contact_title    TEXT,
+    contact_email    TEXT,
+    contact_linkedin TEXT,
+    source           TEXT NOT NULL DEFAULT 'manual',
+    score            INTEGER,
+    score_reason     TEXT,
+    status           TEXT NOT NULL DEFAULT 'new',
+    notes            TEXT,
+    outreach_draft   TEXT,
+    created_by       TEXT,
+    created_at       TIMESTAMPTZ DEFAULT now(),
+    updated_at       TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_leads_org ON leads (org_id, status, created_at);
+
+CREATE TABLE IF NOT EXISTS lead_activities (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    org_id      TEXT NOT NULL,
+    lead_id     TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_lead_activities
+    ON lead_activities (org_id, lead_id, created_at);
+
+CREATE TABLE IF NOT EXISTS enrichment_cache (
+    source      TEXT NOT NULL,
+    cache_key   TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    fetched_at  TEXT NOT NULL,
+    PRIMARY KEY (source, cache_key)
+);
+
+CREATE TABLE IF NOT EXISTS icp_profiles (
+    id              TEXT PRIMARY KEY,
+    org_id          TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    what_we_sell    TEXT,
+    target_roles    TEXT,
+    regions         TEXT,
+    include_new_companies INTEGER NOT NULL DEFAULT 0,
+    auto_run        INTEGER NOT NULL DEFAULT 0,
+    min_score       INTEGER DEFAULT 0,
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sequence_steps (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    org_id      TEXT NOT NULL,
+    lead_id     TEXT NOT NULL,
+    step        INTEGER NOT NULL,
+    subject     TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    send_at     TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    sent_at     TEXT,
+    hook_type   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_seq_due ON sequence_steps (status, send_at);
+CREATE INDEX IF NOT EXISTS idx_seq_lead ON sequence_steps (org_id, lead_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+    id          TEXT PRIMARY KEY,
+    org_id      TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'other',
+    title       TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_org ON knowledge_entries (org_id, kind);
+
+CREATE TABLE IF NOT EXISTS company_blocklist (
+    org_id      TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    reason      TEXT,
+    until       TEXT NOT NULL,
+    PRIMARY KEY (org_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS suppression_list (
+    org_id      TEXT NOT NULL,
+    email       TEXT NOT NULL,
+    reason      TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (org_id, email)
+);
+
+CREATE TABLE IF NOT EXISTS prospecting_runs (
+    id                  TEXT PRIMARY KEY,
+    org_id              TEXT NOT NULL,
+    icp_id              TEXT,
+    trigger             TEXT NOT NULL,
+    signals_found       INTEGER NOT NULL DEFAULT 0,
+    leads_created       INTEGER NOT NULL DEFAULT 0,
+    duplicates_skipped  INTEGER NOT NULL DEFAULT 0,
+    digest              TEXT,
+    created_at          TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_runs_org ON prospecting_runs (org_id, created_at);
+"""
+
 async def init_db() -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
+        if dbdriver.IS_POSTGRES:
+            await db.executescript(PG_SCHEMA)
+            await db.commit()
+            return
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS organizations (
                 id          TEXT PRIMARY KEY,
@@ -205,6 +384,8 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_runs_org
                 ON prospecting_runs (org_id, created_at);
         """)
+        if dbdriver.IS_POSTGRES:
+            return
         # Migration: org_number added after the initial leads schema
         async with db.execute("PRAGMA table_info(leads)") as cur:
             cols = [r[1] for r in await cur.fetchall()]
@@ -240,7 +421,7 @@ async def create_knowledge(org_id: str, kind: str, title: str,
     entry_id = new_id()
     if kind not in KNOWLEDGE_KINDS:
         kind = "other"
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO knowledge_entries (id, org_id, kind, title, content) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -265,14 +446,14 @@ async def list_knowledge(org_id: str, kind: str | None = None,
         params += [like, like]
     sql += " ORDER BY created_at DESC LIMIT ?"
     params.append(limit)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(sql, params) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
 
 async def delete_knowledge(org_id: str, entry_id: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "DELETE FROM knowledge_entries WHERE id = ? AND org_id = ?",
             (entry_id, org_id),
@@ -296,7 +477,7 @@ async def get_org_settings(org_id: str) -> dict:
 async def update_org_settings(org_id: str, patch: dict) -> dict:
     settings = await get_org_settings(org_id)
     settings.update({k: v for k, v in patch.items() if v is not None})
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "UPDATE organizations SET settings = ? WHERE id = ?",
             (json.dumps(settings, ensure_ascii=False), org_id),
@@ -306,7 +487,7 @@ async def update_org_settings(org_id: str, patch: dict) -> dict:
 
 
 async def create_sequence(org_id: str, lead_id: str, steps: list[dict]) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         for i, step in enumerate(steps, 1):
             await db.execute(
                 "INSERT INTO sequence_steps "
@@ -320,7 +501,7 @@ async def create_sequence(org_id: str, lead_id: str, steps: list[dict]) -> int:
 
 
 async def get_sequence(org_id: str, lead_id: str) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id, step, subject, body, send_at, status, sent_at "
@@ -332,7 +513,7 @@ async def get_sequence(org_id: str, lead_id: str) -> list[dict]:
 
 
 async def has_active_sequence(org_id: str, lead_id: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT COUNT(*) FROM sequence_steps "
             "WHERE org_id = ? AND lead_id = ? AND status = 'pending'",
@@ -342,7 +523,7 @@ async def has_active_sequence(org_id: str, lead_id: str) -> bool:
 
 
 async def cancel_sequence(org_id: str, lead_id: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         cur = await db.execute(
             "UPDATE sequence_steps SET status = 'cancelled' "
             "WHERE org_id = ? AND lead_id = ? AND status = 'pending'",
@@ -353,7 +534,7 @@ async def cancel_sequence(org_id: str, lead_id: str) -> int:
 
 
 async def due_sequence_steps(now_iso: str, limit: int = 50) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM sequence_steps "
@@ -365,7 +546,7 @@ async def due_sequence_steps(now_iso: str, limit: int = 50) -> list[dict]:
 
 
 async def mark_step(step_id: int, status: str, sent_at: str | None = None) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "UPDATE sequence_steps SET status = ?, sent_at = ? WHERE id = ?",
             (status, sent_at, step_id),
@@ -374,7 +555,7 @@ async def mark_step(step_id: int, status: str, sent_at: str | None = None) -> No
 
 
 async def count_sends_today(org_id: str, today_prefix: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT COUNT(*) FROM sequence_steps "
             "WHERE org_id = ? AND status = 'sent' AND sent_at LIKE ?",
@@ -392,7 +573,7 @@ async def block_company(org_id: str, company_name: str | None,
     if not keys:
         return
     until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         for key in keys:
             await db.execute(
                 "INSERT INTO company_blocklist (org_id, key, reason, until) "
@@ -412,7 +593,7 @@ async def is_company_blocked(org_id: str, company_name: str | None,
     if not keys:
         return None
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             f"SELECT * FROM company_blocklist WHERE org_id = ? "
@@ -424,7 +605,7 @@ async def is_company_blocked(org_id: str, company_name: str | None,
 
 
 async def is_suppressed(org_id: str, email: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT 1 FROM suppression_list WHERE org_id = ? AND email = ?",
             (org_id, email.strip().lower()),
@@ -433,10 +614,10 @@ async def is_suppressed(org_id: str, email: str) -> bool:
 
 
 async def suppress_email(org_id: str, email: str, reason: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
-            "INSERT OR IGNORE INTO suppression_list (org_id, email, reason) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO suppression_list (org_id, email, reason) "
+            "VALUES (?, ?, ?) ON CONFLICT (org_id, email) DO NOTHING",
             (org_id, email.strip().lower(), reason),
         )
         await db.commit()
@@ -452,7 +633,7 @@ async def find_lead_by_contact_email(org_id_or_none: str | None,
         query += " AND org_id = ?"
         params.append(org_id_or_none)
     query += " ORDER BY created_at DESC LIMIT 1"
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(query, params) as cur:
             row = await cur.fetchone()
@@ -464,7 +645,7 @@ async def find_lead_by_contact_email(org_id_or_none: str | None,
 
 async def create_icp(org_id: str, data: dict) -> str:
     icp_id = new_id()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO icp_profiles (id, org_id, name, what_we_sell, "
             "target_roles, regions, include_new_companies, auto_run) "
@@ -492,7 +673,7 @@ def _parse_icp(row: dict) -> dict:
 
 
 async def list_icps(org_id: str) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM icp_profiles WHERE org_id = ? ORDER BY created_at",
@@ -502,7 +683,7 @@ async def list_icps(org_id: str) -> list[dict]:
 
 
 async def get_icp(org_id: str, icp_id: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM icp_profiles WHERE id = ? AND org_id = ?",
@@ -528,7 +709,7 @@ async def update_icp(org_id: str, icp_id: str, data: dict) -> bool:
             params.append(int(bool(data[key])))
     if not sets:
         return False
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         cur = await db.execute(
             f"UPDATE icp_profiles SET {', '.join(sets)} "
             "WHERE id = ? AND org_id = ?",
@@ -539,7 +720,7 @@ async def update_icp(org_id: str, icp_id: str, data: dict) -> bool:
 
 
 async def delete_icp(org_id: str, icp_id: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "DELETE FROM icp_profiles WHERE id = ? AND org_id = ?",
             (icp_id, org_id),
@@ -549,7 +730,7 @@ async def delete_icp(org_id: str, icp_id: str) -> None:
 
 async def list_auto_run_icps() -> list[dict]:
     """All auto-run ICPs across tenants — used by the scheduler."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM icp_profiles WHERE auto_run = 1"
@@ -560,7 +741,7 @@ async def list_auto_run_icps() -> list[dict]:
 async def save_prospecting_run(org_id: str, icp_id: str | None, trigger: str,
                                stats: dict, digest: str) -> str:
     run_id = new_id()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO prospecting_runs (id, org_id, icp_id, trigger, "
             "signals_found, leads_created, duplicates_skipped, digest) "
@@ -574,7 +755,7 @@ async def save_prospecting_run(org_id: str, icp_id: str | None, trigger: str,
 
 
 async def list_prospecting_runs(org_id: str, limit: int = 20) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM prospecting_runs WHERE org_id = ? "
@@ -585,9 +766,9 @@ async def list_prospecting_runs(org_id: str, limit: int = 20) -> list[dict]:
 
 
 async def last_scheduled_run_at(org_id: str) -> str | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
-            "SELECT MAX(created_at) FROM prospecting_runs "
+            "SELECT CAST(MAX(created_at) AS TEXT) FROM prospecting_runs "
             "WHERE org_id = ? AND trigger = 'scheduled'",
             (org_id,),
         ) as cur:
@@ -600,7 +781,7 @@ async def last_scheduled_run_at(org_id: str) -> str | None:
 
 async def create_organization(name: str, plan: str = "free") -> str:
     org_id = new_id()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO organizations (id, name, plan) VALUES (?, ?, ?)",
             (org_id, name, plan),
@@ -610,7 +791,7 @@ async def create_organization(name: str, plan: str = "free") -> str:
 
 
 async def get_organization(org_id: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM organizations WHERE id = ?", (org_id,)
@@ -620,7 +801,7 @@ async def get_organization(org_id: str) -> dict | None:
 
 
 async def set_organization_plan(org_id: str, plan: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "UPDATE organizations SET plan = ? WHERE id = ?", (plan, org_id)
         )
@@ -628,7 +809,7 @@ async def set_organization_plan(org_id: str, plan: str) -> None:
 
 
 async def update_organization_name(org_id: str, name: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "UPDATE organizations SET name = ? WHERE id = ?", (name, org_id)
         )
@@ -639,7 +820,7 @@ async def create_user(
     org_id: str, email: str, password_hash: str, name: str, role: str = "member"
 ) -> str:
     user_id = new_id()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO users (id, org_id, email, password_hash, name, role) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -650,7 +831,7 @@ async def create_user(
 
 
 async def get_user_by_email(email: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM users WHERE email = ?", (email.lower(),)
@@ -660,7 +841,7 @@ async def get_user_by_email(email: str) -> dict | None:
 
 
 async def get_user(user_id: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM users WHERE id = ?", (user_id,)
@@ -670,7 +851,7 @@ async def get_user(user_id: str) -> dict | None:
 
 
 async def list_users(org_id: str) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id, email, name, role, created_at FROM users "
@@ -681,7 +862,7 @@ async def list_users(org_id: str) -> list[dict]:
 
 
 async def count_users(org_id: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT COUNT(*) FROM users WHERE org_id = ?", (org_id,)
         ) as cur:
@@ -695,7 +876,7 @@ async def create_api_key(
     org_id: str, name: str, prefix: str, key_hash: str
 ) -> str:
     key_id = new_id()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO api_keys (id, org_id, name, prefix, key_hash) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -706,7 +887,7 @@ async def create_api_key(
 
 
 async def list_api_keys(org_id: str) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id, name, prefix, created_at, last_used_at FROM api_keys "
@@ -717,7 +898,7 @@ async def list_api_keys(org_id: str) -> list[dict]:
 
 
 async def get_api_key_by_hash(key_hash: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM api_keys WHERE key_hash = ?", (key_hash,)
@@ -733,7 +914,7 @@ async def get_api_key_by_hash(key_hash: str) -> dict | None:
 
 
 async def delete_api_key(org_id: str, key_id: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "DELETE FROM api_keys WHERE id = ? AND org_id = ?", (key_id, org_id)
         )
@@ -751,7 +932,7 @@ async def save_message(
     role: str,
     content: str,
 ) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO conversations "
             "(org_id, user_id, agent_id, session_id, role, content) "
@@ -764,7 +945,7 @@ async def save_message(
 async def get_history(
     org_id: str, agent_id: str, session_id: str, limit: int = 20
 ) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
             """
             SELECT role, content
@@ -784,7 +965,7 @@ async def get_history(
 
 
 async def clear_history(org_id: str, agent_id: str, session_id: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "DELETE FROM conversations "
             "WHERE org_id = ? AND agent_id = ? AND session_id = ?",
@@ -803,7 +984,7 @@ async def record_usage(
     input_tokens: int,
     output_tokens: int,
 ) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO usage_events "
             "(org_id, user_id, agent_id, month, input_tokens, output_tokens) "
@@ -815,7 +996,7 @@ async def record_usage(
 
 async def get_monthly_usage(org_id: str, month: str | None = None) -> dict:
     month = month or month_key()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT COUNT(*), COALESCE(SUM(input_tokens),0), "
             "COALESCE(SUM(output_tokens),0) "
@@ -906,7 +1087,7 @@ async def find_duplicate_lead(
         + " OR ".join(conditions)
         + ") LIMIT 1"
     )
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(query, [org_id, *params]) as cur:
             row = await cur.fetchone()
@@ -915,7 +1096,7 @@ async def find_duplicate_lead(
 
 async def create_lead(org_id: str, created_by: str | None, data: dict) -> str:
     lead_id = new_id()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             """
             INSERT INTO leads (
@@ -953,7 +1134,7 @@ async def create_lead(org_id: str, created_by: str | None, data: dict) -> str:
 
 
 async def get_lead(org_id: str, lead_id: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM leads WHERE id = ? AND org_id = ?", (lead_id, org_id)
@@ -972,7 +1153,7 @@ async def list_leads(
         params.append(status)
     query += " ORDER BY created_at DESC LIMIT ?"
     params.append(limit)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(query, params) as cur:
             return [dict(r) for r in await cur.fetchall()]
@@ -989,7 +1170,7 @@ async def update_lead(org_id: str, lead_id: str, fields: dict) -> bool:
     if not updates:
         return False
     sets = ", ".join(f"{k} = ?" for k in updates)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         cur = await db.execute(
             f"UPDATE leads SET {sets}, updated_at = CURRENT_TIMESTAMP "
             "WHERE id = ? AND org_id = ?",
@@ -1000,7 +1181,7 @@ async def update_lead(org_id: str, lead_id: str, fields: dict) -> bool:
 
 
 async def delete_lead(org_id: str, lead_id: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "DELETE FROM lead_activities WHERE lead_id = ? AND org_id = ?",
             (lead_id, org_id),
@@ -1012,7 +1193,7 @@ async def delete_lead(org_id: str, lead_id: str) -> None:
 
 
 async def count_leads_this_month(org_id: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT COUNT(*) FROM leads WHERE org_id = ? AND month = ?",
             (org_id, month_key()),
@@ -1023,7 +1204,7 @@ async def count_leads_this_month(org_id: str) -> int:
 async def add_lead_activity(
     org_id: str, lead_id: str, kind: str, content: str
 ) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO lead_activities (org_id, lead_id, kind, content) "
             "VALUES (?, ?, ?, ?)",
@@ -1033,7 +1214,7 @@ async def add_lead_activity(
 
 
 async def list_lead_activities(org_id: str, lead_id: str) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT kind, content, created_at FROM lead_activities "
