@@ -1,19 +1,35 @@
+from .beacon import BeaconAgent
+from .counsel import CounselAgent
+from .forge import ForgeAgent
+from .haven import HavenAgent
+from .herald import HeraldAgent
+from .ledger import LedgerAgent
+from .lens import LensAgent
+from .mentor import MentorAgent
 from .nexus import NexusAgent
 from .oracle import OracleAgent
-from .forge import ForgeAgent
+from .pulse import PulseAgent
 from .scroll import ScrollAgent
-from .lens import LensAgent
 from .shield import ShieldAgent
-from .herald import HeraldAgent
+from .talent import TalentAgent
+from .vantage import VantageAgent
 
 AGENTS: dict = {
     "nexus": NexusAgent(),
-    "oracle": OracleAgent(),
+    "vantage": VantageAgent(),
+    "beacon": BeaconAgent(),
     "forge": ForgeAgent(),
+    "pulse": PulseAgent(),
+    "oracle": OracleAgent(),
     "scroll": ScrollAgent(),
     "lens": LensAgent(),
-    "shield": ShieldAgent(),
+    "haven": HavenAgent(),
     "herald": HeraldAgent(),
+    "mentor": MentorAgent(),
+    "ledger": LedgerAgent(),
+    "talent": TalentAgent(),
+    "shield": ShieldAgent(),
+    "counsel": CounselAgent(),
 }
 
 __all__ = ["AGENTS"]
