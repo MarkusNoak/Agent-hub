@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS icp_profiles (
     target_roles    TEXT,
     regions         TEXT,
     include_new_companies INTEGER NOT NULL DEFAULT 0,
+    include_funding INTEGER NOT NULL DEFAULT 0,
+    include_tenders INTEGER NOT NULL DEFAULT 0,
     auto_run        INTEGER NOT NULL DEFAULT 0,
     min_score       INTEGER DEFAULT 0,
     created_at      TIMESTAMPTZ DEFAULT now()
@@ -332,6 +334,8 @@ async def init_db() -> None:
                 target_roles    TEXT,   -- JSON list of occupation keywords
                 regions         TEXT,   -- JSON list of regions/municipalities
                 include_new_companies INTEGER NOT NULL DEFAULT 0,
+                include_funding INTEGER NOT NULL DEFAULT 0,
+                include_tenders INTEGER NOT NULL DEFAULT 0,
                 auto_run        INTEGER NOT NULL DEFAULT 0,
                 created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -416,6 +420,13 @@ async def init_db() -> None:
         if "min_score" not in icp_cols:
             await db.execute(
                 "ALTER TABLE icp_profiles ADD COLUMN min_score INTEGER DEFAULT 0"
+            )
+        if "include_funding" not in icp_cols:
+            await db.execute(
+                "ALTER TABLE icp_profiles ADD COLUMN include_funding INTEGER DEFAULT 0"
+            )
+            await db.execute(
+                "ALTER TABLE icp_profiles ADD COLUMN include_tenders INTEGER DEFAULT 0"
             )
         # Migration: outreach hook-type for A/B learning
         async with db.execute("PRAGMA table_info(sequence_steps)") as cur:
@@ -725,12 +736,15 @@ async def create_icp(org_id: str, data: dict) -> str:
     async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO icp_profiles (id, org_id, name, what_we_sell, "
-            "target_roles, regions, include_new_companies, auto_run) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "target_roles, regions, include_new_companies, include_funding, "
+            "include_tenders, auto_run) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (icp_id, org_id, data["name"], data.get("what_we_sell"),
              json.dumps(data.get("target_roles") or [], ensure_ascii=False),
              json.dumps(data.get("regions") or [], ensure_ascii=False),
              int(bool(data.get("include_new_companies"))),
+             int(bool(data.get("include_funding"))),
+             int(bool(data.get("include_tenders"))),
              int(bool(data.get("auto_run")))),
         )
         await db.commit()
@@ -745,6 +759,8 @@ def _parse_icp(row: dict) -> dict:
         except json.JSONDecodeError:
             row[key] = []
     row["include_new_companies"] = bool(row["include_new_companies"])
+    row["include_funding"] = bool(row.get("include_funding"))
+    row["include_tenders"] = bool(row.get("include_tenders"))
     row["auto_run"] = bool(row["auto_run"])
     return row
 
@@ -780,7 +796,8 @@ async def update_icp(org_id: str, icp_id: str, data: dict) -> bool:
         if key in data:
             sets.append(f"{key} = ?")
             params.append(json.dumps(data[key] or [], ensure_ascii=False))
-    for key in ("include_new_companies", "auto_run"):
+    for key in ("include_new_companies", "include_funding",
+                "include_tenders", "auto_run"):
         if key in data:
             sets.append(f"{key} = ?")
             params.append(int(bool(data[key])))

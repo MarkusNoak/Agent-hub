@@ -6,6 +6,7 @@
   validates that a domain can receive email and identifies the provider.
 """
 
+import re
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -235,6 +236,53 @@ async def search_hiring_companies(
         "companies": ranked[:max_companies],
         "source": "jobsearch.api.jobtechdev.se (Arbetsförmedlingen)",
     }
+
+
+
+# Swedish funding headlines follow a tight pattern ("X tar in 40 miljoner"),
+# tight enough for deterministic company extraction — no LLM cost in harvest
+FUNDING_VERBS = r"(?:tar in|h\u00e4mtar(?: in)?|reser|s\u00e4krar|plockar in|f\u00e5r in|landar)"
+FUNDING_RE = re.compile(
+    rf"^(?P<co>[^\u2013\u2014:|]{{2,60}}?)\s+{FUNDING_VERBS}\s+"
+    rf"(?P<amt>[\d.,]+\s*(?:miljoner|miljarder|mkr|msek|mnkr|msek kronor)?)",
+    re.IGNORECASE,
+)
+GENERIC_SUBJECTS = ("svenska", "flera", "allt fler", "bolag", "startups",
+                    "techbolag", "han", "hon", "de ")
+
+
+def extract_funding_companies(items: list[dict]) -> list[dict]:
+    """Deterministically pull company names out of Swedish funding
+    headlines. Conservative: skips anything that doesn't match the
+    canonical pattern or looks like a generic subject."""
+    found = []
+    seen = set()
+    for item in items:
+        title = (item.get("title") or "").strip()
+        # Google News appends " - Source"; drop the final segment
+        if " - " in title:
+            title = title.rsplit(" - ", 1)[0].strip()
+        m = FUNDING_RE.match(title)
+        if not m:
+            continue
+        company = m.group("co").strip().strip('"\u201d\u201c').strip()
+        lower = company.lower()
+        if (not company or not company[0].isupper()
+                or len(company.split()) > 6
+                or any(lower.startswith(g) for g in GENERIC_SUBJECTS)):
+            continue
+        key = lower
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append({
+            "company_name": company,
+            "amount": (m.group("amt") or "").strip(),
+            "headline": title,
+            "link": item.get("link"),
+            "published": item.get("published"),
+        })
+    return found
 
 
 async def scan_funding_news(topic: str | None = None, limit: int = 10) -> dict:

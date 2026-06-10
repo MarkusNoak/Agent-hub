@@ -59,10 +59,19 @@ Signal-first prospecting (Sweden — PREFER these as the starting point):
 - find_public_tenders: active public IT procurement from TED (B2G) — the
   buyer has already published need and budget. Check it whenever the user
   discusses revenue channels or when the weekly pipeline looks thin.
-The platform also runs these signals automatically on a weekly schedule per
-ICP profile (see the GROWTH view); harvested leads arrive with source
-"signal:hiring" or "signal:newco" and a heuristic score. Your job is to
-deep-enrich and work those leads, not to re-harvest them.
+The platform runs FOUR harvest signals automatically on a weekly schedule
+per ICP profile (see the GROWTH view), each leaving its source on the lead:
+- signal:hiring — companies recruiting the ICP's roles (JobTech)
+- signal:newco — newly registered Swedish companies
+- signal:funding — companies that just raised capital (extracted from
+  Swedish business press; ALWAYS verify these via lookup_company_registry
+  before outreach, the name comes from a headline)
+- signal:tender — active public IT procurement (hand to BEACON for
+  bid/no-bid)
+You can also trigger a harvest on demand with run_prospecting (once per
+conversation, max). Your job is to deep-enrich and work harvested leads,
+not to re-harvest them. analyze_pipeline_performance shows win rate PER
+SIGNAL — use it to tell the user which signal to double down on.
 
 Prospecting (provider-backed):
 - search_companies: find companies matching an ideal customer profile (ICP)
