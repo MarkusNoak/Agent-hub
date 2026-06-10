@@ -324,7 +324,7 @@ async def count_sends_today(org_id: str, today_prefix: str) -> int:
 
 async def block_company(org_id: str, company_name: str | None,
                         org_number: str | None, reason: str,
-                        days: int = 90) -> None:
+                        days: int = 45) -> None:
     # Store every available key so a later lookup by name OR org number hits
     keys = {k for k in (_norm_orgnr(org_number),
                         (company_name or "").strip().lower()) if k}
