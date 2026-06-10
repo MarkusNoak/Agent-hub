@@ -56,6 +56,21 @@ SPAM_WORDS = (
     "free", "buy now", "limited offer", "act now", "no obligation",
 )
 
+# Generic cold-email clichés kill reply rates — reject and make the agent
+# rewrite with a specific observation instead
+CLICHE_PATTERNS = (
+    r"vi på .{0,40}?(följer|har följt)",
+    r"hoppas (att )?(allt är|du har|ni har|det är)",
+    r"i hope this (e-?mail )?finds you",
+    r"imponeras av",
+    r"imponerande (tillväxt|resa|utveckling)",
+    r"jag heter .{0,40}?(och|på)",
+    r"(we|vi) (are|är) (a |en |ett )?(leading|ledande)",
+    r"hör (gärna )?av (er|dig) vid intresse",
+    r"din digitala partner",
+    r"helhetslösning",
+)
+
 
 def spam_lint(subject: str, body: str) -> list[str]:
     issues = []
@@ -70,6 +85,13 @@ def spam_lint(subject: str, body: str) -> list[str]:
     hits = [w for w in SPAM_WORDS if w in lower]
     if hits:
         issues.append(f"spam-trigger words: {', '.join(hits)}")
+    for pattern in CLICHE_PATTERNS:
+        m = re.search(pattern, lower)
+        if m:
+            issues.append(
+                f"generic cold-email cliché ('{m.group(0)[:40]}') — open "
+                "with a specific, verifiable observation about the "
+                "recipient instead")
     links = len(re.findall(r"https?://", body))
     if links > 2:
         issues.append(f"{links} links — keep at most 2 (booking link counts)")

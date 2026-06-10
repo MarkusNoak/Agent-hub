@@ -337,17 +337,24 @@ async function loadApprovals() {
   body.innerHTML = data.items.map(s => `
     <div class="approval-card" id="appr-${s.id}">
       <div class="approval-head">
-        <div>
-          <div class="lead-company">${escHtml(s.company_name)} <span class="dim">· step ${s.step}</span></div>
-          <div class="dim small">To: ${escHtml(s.contact_name || '')} &lt;${escHtml(s.contact_email || '')}&gt; · sends ${escHtml((s.send_at || '').slice(0, 16))}</div>
+        <div class="approval-lead">
+          <span class="lead-company">${escHtml(s.company_name)}</span>
+          ${s.score != null ? `<span class="score-pill">${s.score}</span>` : ''}
+          ${s.hook_type ? `<span class="tool-badge">${escHtml(s.hook_type)}</span>` : ''}
         </div>
-        ${s.hook_type ? `<span class="tool-badge">${escHtml(s.hook_type)}</span>` : ''}
+        <div class="dim small">Step ${s.step} · sends ${escHtml((s.send_at || '').slice(0, 16).replace('T', ' '))}</div>
       </div>
-      <input class="pixel-input approval-subject" id="appr-subj-${s.id}" value="${escHtml(s.subject)}" />
-      <textarea class="pixel-input approval-body" id="appr-body-${s.id}" rows="7">${escHtml(s.body)}</textarea>
+      <div class="email-preview">
+        <div class="email-row"><span class="email-label">From</span><div class="dim">${escHtml(state.org?.name || '')} · via Agent Hub</div></div>
+        <div class="email-row"><span class="email-label">To</span><div>${escHtml(s.contact_name || '')} <span class="dim">&lt;${escHtml(s.contact_email || '')}&gt;</span></div></div>
+        <div class="email-row"><span class="email-label">Subject</span><input class="email-subject" id="appr-subj-${s.id}" value="${escHtml(s.subject)}" /></div>
+        <textarea class="email-body" id="appr-body-${s.id}" rows="8">${escHtml(s.body)}</textarea>
+        <div class="email-footnote dim small">GDPR footer with unsubscribe link is appended automatically</div>
+      </div>
       <div class="approval-actions">
-        <button class="btn btn-primary btn-sm" onclick="approveStep(${s.id})">Approve &amp; send</button>
+        <button class="btn btn-primary btn-sm" onclick="approveStep(${s.id})">✓ &nbsp;Approve &amp; send</button>
         <button class="btn btn-ghost btn-sm btn-danger-ghost" onclick="rejectStep(${s.id})">Reject</button>
+        <span class="dim small approval-edit-hint">Edit the subject or body directly — your version is what sends</span>
       </div>
     </div>`).join('');
 }
