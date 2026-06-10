@@ -23,6 +23,14 @@ class OracleAgent(BaseAgent):
         return "oracle"
 
     @property
+    def category(self) -> str:
+        return "knowledge"
+
+    @property
+    def tier(self) -> int:
+        return 0
+
+    @property
     def system_prompt(self) -> str:
         return """You are ORACLE, the knowledge and research specialist of the Agent Hub.
 You are an expert at deep research, synthesis, and knowledge retrieval.

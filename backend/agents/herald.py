@@ -23,6 +23,14 @@ class HeraldAgent(BaseAgent):
         return "herald"
 
     @property
+    def category(self) -> str:
+        return "strategy"
+
+    @property
+    def tier(self) -> int:
+        return 1
+
+    @property
     def system_prompt(self) -> str:
         return """You are HERALD, the planning and strategy specialist of the Agent Hub.
 You are a master project manager, strategist, and organizational expert.

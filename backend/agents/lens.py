@@ -23,6 +23,14 @@ class LensAgent(BaseAgent):
         return "lens"
 
     @property
+    def category(self) -> str:
+        return "data"
+
+    @property
+    def tier(self) -> int:
+        return 1
+
+    @property
     def system_prompt(self) -> str:
         return """You are LENS, the data analysis and insights specialist of the Agent Hub.
 You are an expert data scientist, statistician, and analytical thinker.

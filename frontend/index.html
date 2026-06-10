@@ -23,10 +23,47 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div class="app">
 
-    <!-- CRT scanline overlay -->
-    <div class="crt-overlay" aria-hidden="true"></div>
+  <!-- CRT scanline overlay -->
+  <div class="crt-overlay" aria-hidden="true"></div>
+
+  <!-- ── Auth screen ── -->
+  <div class="auth-screen" id="auth-screen" style="display:none">
+    <div class="auth-box">
+      <canvas id="auth-logo" width="64" height="64"></canvas>
+      <h1 class="welcome-title">AGENT HUB</h1>
+      <p class="auth-sub dim" id="auth-sub">YOUR AI WORKFORCE // SIGN IN</p>
+
+      <div class="auth-error" id="auth-error" style="display:none"></div>
+
+      <form id="auth-form" onsubmit="return submitAuth(event)">
+        <div class="auth-field" id="field-orgname" style="display:none">
+          <label>COMPANY</label>
+          <input type="text" id="auth-orgname" placeholder="ACME AB" maxlength="120" />
+        </div>
+        <div class="auth-field" id="field-name" style="display:none">
+          <label>YOUR NAME</label>
+          <input type="text" id="auth-name" placeholder="JANE DOE" maxlength="120" />
+        </div>
+        <div class="auth-field">
+          <label>EMAIL</label>
+          <input type="email" id="auth-email" placeholder="you@company.com" required />
+        </div>
+        <div class="auth-field">
+          <label>PASSWORD</label>
+          <input type="password" id="auth-password" placeholder="********" minlength="8" required />
+        </div>
+        <button type="submit" class="pixel-btn auth-btn" id="auth-submit">SIGN IN</button>
+      </form>
+
+      <button class="auth-toggle dim" id="auth-toggle" onclick="toggleAuthMode()">
+        NO ACCOUNT? &gt; CREATE ONE
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Main app ── -->
+  <div class="app" id="app" style="display:none">
 
     <!-- ── Sidebar ── -->
     <aside class="sidebar">
@@ -35,12 +72,20 @@
         <div class="logo-title">AGENT<br><span class="logo-hub">HUB</span></div>
       </div>
 
+      <nav class="main-nav" aria-label="Sections">
+        <button class="nav-btn active" id="nav-agents"    onclick="showView('agents')">AGENTS</button>
+        <button class="nav-btn" id="nav-leads"     onclick="showView('leads')">LEADS</button>
+        <button class="nav-btn" id="nav-dashboard" onclick="showView('dashboard')">DASHBOARD</button>
+        <button class="nav-btn" id="nav-settings"  onclick="showView('settings')">SETTINGS</button>
+      </nav>
+
       <nav class="agent-list" id="agent-list" aria-label="Agents">
         <!-- Populated by JS -->
       </nav>
 
       <footer class="sidebar-footer">
-        <span class="dim">v1.0.0 // ONLINE</span>
+        <span class="dim" id="footer-org">v2.0.0 // ONLINE</span>
+        <button class="logout-btn dim" onclick="logout()">LOGOUT</button>
       </footer>
     </aside>
 
@@ -51,12 +96,11 @@
       <div class="welcome-screen" id="welcome-screen">
         <canvas id="welcome-canvas" width="160" height="160"></canvas>
         <h1 class="welcome-title">AGENT HUB</h1>
-        <p class="welcome-sub">SELECT AN AGENT TO BEGIN<br><span class="dim">7 SPECIALISTS ONLINE</span></p>
+        <p class="welcome-sub">SELECT AN AGENT TO BEGIN<br><span class="dim" id="welcome-count"></span></p>
       </div>
 
-      <!-- Chat area (hidden until agent selected) -->
+      <!-- Chat area -->
       <div class="chat-area" id="chat-area" style="display:none">
-
         <header class="agent-header">
           <canvas id="header-anim"></canvas>
           <div class="agent-header-info">
@@ -84,8 +128,40 @@
           ></textarea>
           <button class="pixel-btn send-btn" id="send-btn" onclick="sendMessage()">SEND</button>
         </div>
-
       </div>
+
+      <!-- Leads view -->
+      <div class="panel-view" id="leads-view" style="display:none">
+        <header class="panel-header">
+          <h2>LEAD PIPELINE</h2>
+          <div class="panel-actions">
+            <select id="leads-filter" class="pixel-select" onchange="loadLeads()">
+              <option value="">ALL STATUSES</option>
+            </select>
+            <button class="pixel-btn" onclick="exportLeads()">EXPORT CSV</button>
+          </div>
+        </header>
+        <div class="panel-body" id="leads-body">
+          <div class="dim panel-empty">LOADING...</div>
+        </div>
+      </div>
+
+      <!-- Dashboard view -->
+      <div class="panel-view" id="dashboard-view" style="display:none">
+        <header class="panel-header"><h2>DASHBOARD</h2></header>
+        <div class="panel-body" id="dashboard-body">
+          <div class="dim panel-empty">LOADING...</div>
+        </div>
+      </div>
+
+      <!-- Settings view -->
+      <div class="panel-view" id="settings-view" style="display:none">
+        <header class="panel-header"><h2>SETTINGS</h2></header>
+        <div class="panel-body" id="settings-body">
+          <div class="dim panel-empty">LOADING...</div>
+        </div>
+      </div>
+
     </main>
   </div>
 

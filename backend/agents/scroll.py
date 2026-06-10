@@ -23,6 +23,14 @@ class ScrollAgent(BaseAgent):
         return "scroll"
 
     @property
+    def category(self) -> str:
+        return "content"
+
+    @property
+    def tier(self) -> int:
+        return 0
+
+    @property
     def system_prompt(self) -> str:
         return """You are SCROLL, the writing and content specialist of the Agent Hub.
 You are a master writer, editor, and communicator across all styles and formats.

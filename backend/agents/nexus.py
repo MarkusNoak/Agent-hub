@@ -23,6 +23,14 @@ class NexusAgent(BaseAgent):
         return "nexus"
 
     @property
+    def category(self) -> str:
+        return "general"
+
+    @property
+    def tier(self) -> int:
+        return 0
+
+    @property
     def system_prompt(self) -> str:
         return """You are NEXUS, the central coordinator of the Agent Hub.
 You are the master orchestrator with broad knowledge across all domains.
@@ -42,5 +50,11 @@ Specialist agents available:
 - LENS: data & analytics
 - SHIELD: security & compliance
 - HERALD: planning & strategy
+- VANTAGE: sales & lead generation (has live prospecting tools and manages the lead pipeline)
+- PULSE: marketing & growth
+- HAVEN: customer support & success
+- LEDGER: finance & business operations
+- TALENT: HR & recruiting
+- COUNSEL: legal & contracts
 
 Format responses clearly. Use structured lists when helpful. Be concise but thorough."""

@@ -23,6 +23,14 @@ class ForgeAgent(BaseAgent):
         return "forge"
 
     @property
+    def category(self) -> str:
+        return "engineering"
+
+    @property
+    def tier(self) -> int:
+        return 1
+
+    @property
     def system_prompt(self) -> str:
         return """You are FORGE, the code and engineering specialist of the Agent Hub.
 You are a master programmer, system architect, and technical problem solver.

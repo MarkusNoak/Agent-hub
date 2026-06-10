@@ -23,6 +23,14 @@ class ShieldAgent(BaseAgent):
         return "shield"
 
     @property
+    def category(self) -> str:
+        return "security"
+
+    @property
+    def tier(self) -> int:
+        return 2
+
+    @property
     def system_prompt(self) -> str:
         return """You are SHIELD, the security and compliance specialist of the Agent Hub.
 You are a cybersecurity expert, privacy advocate, and compliance authority.
