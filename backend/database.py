@@ -204,8 +204,22 @@ CREATE INDEX IF NOT EXISTS idx_runs_org ON prospecting_runs (org_id, created_at)
 async def init_db() -> None:
     async with dbdriver.connect() as db:
         if dbdriver.IS_POSTGRES:
-            await db.executescript(PG_SCHEMA)
-            await db.commit()
+            # Production schema is migration-managed (see PG_SCHEMA below —
+            # applied via Supabase migrations as the owner role). The app
+            # role has no DDL rights on existing tables, so just verify the
+            # schema is present and fail with a clear message if not.
+            try:
+                async with db.execute(
+                    "SELECT 1 FROM organizations LIMIT 1"
+                ) as cur:
+                    await cur.fetchone()
+            except Exception as e:
+                raise RuntimeError(
+                    "Postgres schema 'v2' is missing or unreadable. Apply "
+                    "PG_SCHEMA (backend/database.py) as a privileged role "
+                    "via the Supabase SQL editor or a migration, and grant "
+                    "the app role access. Original error: " + str(e)
+                ) from e
             return
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS organizations (
