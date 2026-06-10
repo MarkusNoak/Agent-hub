@@ -8,13 +8,14 @@ month's prospecting sharper — that is the compounding advantage.
 
 import aiosqlite
 
-from database import DB_PATH
+import dbdriver
+
 
 MIN_SAMPLE = 3  # don't draw conclusions from fewer outcomes than this
 
 
 async def _rows(query: str, params: list) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(query, params) as cur:
             return [dict(r) for r in await cur.fetchall()]
@@ -72,8 +73,8 @@ async def pipeline_insights(org_id: str) -> dict:
 
     # Score calibration: does our scoring actually predict outcomes?
     calib = await _rows(
-        "SELECT AVG(CASE WHEN status='won' THEN score END)  AS avg_won, "
-        "       AVG(CASE WHEN status='lost' THEN score END) AS avg_lost, "
+        "SELECT CAST(AVG(CASE WHEN status='won' THEN score END) AS REAL)  AS avg_won, "
+        "       CAST(AVG(CASE WHEN status='lost' THEN score END) AS REAL) AS avg_lost, "
         "       SUM(CASE WHEN status='won' THEN 1 ELSE 0 END)  AS n_won, "
         "       SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) AS n_lost "
         "FROM leads WHERE org_id = ? AND score IS NOT NULL",

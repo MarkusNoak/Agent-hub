@@ -175,5 +175,22 @@ backend/
 frontend/               vanilla JS SPA: auth, chat, leads, dashboard, settings
 ```
 
-SQLite keeps deployment trivial; the schema is plain SQL and ports to
-Postgres when a single customer outgrows it.
+## Database
+
+Local development runs on SQLite (zero setup). Production runs on
+**Supabase Postgres**: set `DATABASE_URL` and the app uses the `v2` schema
+(created automatically on startup; legacy V1 tables in `public` are left
+untouched). `scripts/migrate_v1_leads.sql` imports V1 leads + history into
+v2 after you register your organization.
+
+## Deploying
+
+The backend needs long-lived processes (WebSocket chat, weekly prospecting
+scheduler, sequence engine) — deploy it on Railway, Render, or Fly.io, NOT
+on serverless platforms like Vercel. The FastAPI app serves the frontend
+itself, so one service is enough:
+
+1. Create the service from this repo (Dockerfile included)
+2. Copy your environment variables (e.g. from Vercel project settings)
+   and set DATABASE_URL to your Supabase connection string
+3. Point your domain at the new service

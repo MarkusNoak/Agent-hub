@@ -9,9 +9,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
-import aiosqlite
+import dbdriver
 
-from database import DB_PATH
 
 # Hours before a cached entry is considered stale, per source
 TTL_HOURS = {
@@ -43,7 +42,7 @@ def make_key(params: dict) -> str:
 
 async def cache_get(source: str, key: str) -> dict | None:
     ttl = timedelta(hours=TTL_HOURS.get(source, DEFAULT_TTL_HOURS))
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT payload, fetched_at FROM enrichment_cache "
             "WHERE source = ? AND cache_key = ?",
@@ -62,7 +61,7 @@ async def cache_get(source: str, key: str) -> dict | None:
 
 
 async def cache_set(source: str, key: str, payload: dict) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO enrichment_cache (source, cache_key, payload, fetched_at) "
             "VALUES (?, ?, ?, ?) "
