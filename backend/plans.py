@@ -24,7 +24,7 @@ PLANS: dict[str, Plan] = {
         leads_per_month=10,
         seats=1,
         agent_tier=0,
-        features=["3 core agents", "50 messages/month", "Community support"],
+        features=["3 core agents (incl. research tools)", "50 messages/month", "Community support"],
     ),
     "starter": Plan(
         id="starter",
@@ -35,7 +35,7 @@ PLANS: dict[str, Plan] = {
         seats=5,
         agent_tier=1,
         features=[
-            "9 specialist agents",
+            "10 specialist agents",
             "1 000 messages/month",
             "100 leads/month",
             "5 seats",
@@ -51,7 +51,7 @@ PLANS: dict[str, Plan] = {
         seats=25,
         agent_tier=2,
         features=[
-            "All 13 agents incl. VANTAGE lead generation",
+            "All 15 agents incl. VANTAGE lead generation and BEACON tenders",
             "10 000 messages/month",
             "1 000 leads/month",
             "25 seats",

@@ -160,6 +160,19 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_seq_lead
                 ON sequence_steps (org_id, lead_id);
 
+            -- Org knowledge base: reference cases, tech standards, offerings.
+            -- Shared by agents (FORGE briefs, VANTAGE outreach, SCROLL copy)
+            CREATE TABLE IF NOT EXISTS knowledge_entries (
+                id          TEXT PRIMARY KEY,
+                org_id      TEXT NOT NULL,
+                kind        TEXT NOT NULL DEFAULT 'other',
+                title       TEXT NOT NULL,
+                content     TEXT NOT NULL,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_org
+                ON knowledge_entries (org_id, kind);
+
             -- Companies disqualified from re-harvest (cooldown, per org)
             CREATE TABLE IF NOT EXISTS company_blocklist (
                 org_id      TEXT NOT NULL,
@@ -216,6 +229,54 @@ async def init_db() -> None:
             await db.execute(
                 "ALTER TABLE sequence_steps ADD COLUMN hook_type TEXT"
             )
+        await db.commit()
+
+
+KNOWLEDGE_KINDS = ["case", "standard", "offering", "process", "other"]
+
+
+async def create_knowledge(org_id: str, kind: str, title: str,
+                           content: str) -> str:
+    entry_id = new_id()
+    if kind not in KNOWLEDGE_KINDS:
+        kind = "other"
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO knowledge_entries (id, org_id, kind, title, content) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (entry_id, org_id, kind, title, content),
+        )
+        await db.commit()
+    return entry_id
+
+
+async def list_knowledge(org_id: str, kind: str | None = None,
+                         query: str | None = None,
+                         limit: int = 20) -> list[dict]:
+    sql = ("SELECT id, kind, title, content, created_at "
+           "FROM knowledge_entries WHERE org_id = ?")
+    params: list = [org_id]
+    if kind:
+        sql += " AND kind = ?"
+        params.append(kind)
+    if query:
+        sql += " AND (title LIKE ? OR content LIKE ?)"
+        like = f"%{query}%"
+        params += [like, like]
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(sql, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_knowledge(org_id: str, entry_id: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM knowledge_entries WHERE id = ? AND org_id = ?",
+            (entry_id, org_id),
+        )
         await db.commit()
 
 

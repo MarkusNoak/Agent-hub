@@ -738,6 +738,8 @@ const TOOL_LABELS = {
   get_sequence_status:     'CHECKING SEQUENCE',
   check_sending_domain:    'AUDITING EMAIL DELIVERABILITY',
   analyze_pipeline_performance: 'ANALYZING WIN/LOSS DATA',
+  search_knowledge:        'SEARCHING KNOWLEDGE BASE',
+  save_knowledge:          'SAVING TO KNOWLEDGE BASE',
 };
 
 function handleWsMsg(data, agentId) {
@@ -1244,10 +1246,18 @@ async function loadSettings() {
   const body = document.getElementById('settings-body');
   const isAdmin = state.me && ['owner','admin'].includes(state.me.role);
   try {
-    const [org, plans, orgSettings] = await Promise.all([
+    const [org, plans, orgSettings, knowledge] = await Promise.all([
       api('/api/org'), api('/api/billing/plans'), api('/api/org/settings'),
+      api('/api/knowledge'),
     ]);
     const keys = isAdmin ? await api('/api/keys') : [];
+
+    const knowledgeRows = knowledge.entries.map(k => `
+      <tr>
+        <td><span class="dim">${escHtml(k.kind.toUpperCase())}</span></td>
+        <td>${escHtml(k.title)}</td>
+        <td><button class="pixel-btn small danger" onclick="removeKnowledge('${k.id}')">DEL</button></td>
+      </tr>`).join('') || '<tr><td colspan="3" class="dim">EMPTY — ADD REFERENCE CASES & STANDARDS SO AGENTS CAN USE THEM</td></tr>';
 
     const planCards = plans.map(p => `
       <div class="plan-card ${p.id === org.plan.id ? 'current' : ''}">
@@ -1293,6 +1303,27 @@ async function loadSettings() {
       </div>
 
       <div class="dash-section">
+        <div class="dash-label">KNOWLEDGE BASE <span class="dim">// REFERENCE CASES, TECH STANDARDS, OFFERINGS — USED BY FORGE, VANTAGE, SCROLL, MENTOR M.FL.</span></div>
+        <table class="leads-table slim">
+          <thead><tr><th>KIND</th><th>TITLE</th><th></th></tr></thead>
+          <tbody>${knowledgeRows}</tbody>
+        </table>
+        <div class="settings-row">
+          <select id="kb-kind" class="pixel-select">
+            ${knowledge.kinds.map(k => `<option value="${k}">${k.toUpperCase()}</option>`).join('')}
+          </select>
+          <input type="text" id="kb-title" class="pixel-input" placeholder="TITLE (E.G. 'E-COMMERCE FOR ACME AB')" />
+        </div>
+        <div class="settings-row">
+          <textarea id="kb-content" class="pixel-input" rows="3" style="width:100%; resize:vertical; font-family:var(--font); font-size:7px"
+            placeholder="CONTENT — WHAT WAS BUILT, TECH, RESULT / THE STANDARD / THE OFFERING..."></textarea>
+        </div>
+        <div class="settings-row">
+          <button class="pixel-btn small" onclick="addKnowledge()">ADD ENTRY</button>
+        </div>
+      </div>
+
+      <div class="dash-section">
         <div class="dash-label">PLANS</div>
         <div class="plans-grid">${planCards}</div>
       </div>
@@ -1329,6 +1360,24 @@ async function loadSettings() {
   } catch (e) {
     body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
   }
+}
+
+async function addKnowledge() {
+  const title = document.getElementById('kb-title').value.trim();
+  const content = document.getElementById('kb-content').value.trim();
+  if (!title || !content) { alert('Title and content required.'); return; }
+  try {
+    await api('/api/knowledge', { method: 'POST', body: JSON.stringify({
+      kind: document.getElementById('kb-kind').value, title, content,
+    })});
+    loadSettings();
+  } catch (e) { alert(e.message); }
+}
+
+async function removeKnowledge(id) {
+  if (!confirm('Delete this knowledge entry?')) return;
+  try { await api(`/api/knowledge/${id}`, { method: 'DELETE' }); } catch (e) { alert(e.message); }
+  loadSettings();
 }
 
 async function saveOutreachSettings() {

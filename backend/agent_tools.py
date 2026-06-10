@@ -217,6 +217,78 @@ async def _update_lead(inp: dict, ctx: ToolContext) -> str:
     return _json({"ok": True, "lead_id": lead_id})
 
 
+# ── Knowledge base tools (shared across agents) ──────────────────────────────
+
+
+async def _search_knowledge(inp: dict, ctx: ToolContext) -> str:
+    entries = await db.list_knowledge(
+        ctx.org_id, kind=inp.get("kind"), query=inp.get("query"), limit=8
+    )
+    slim = [
+        {"id": e["id"], "kind": e["kind"], "title": e["title"],
+         "content": e["content"][:1500]}
+        for e in entries
+    ]
+    return _json({"count": len(slim), "entries": slim,
+                  "note": None if slim else
+                  "Knowledge base empty for this filter — ask the user to "
+                  "add reference cases and standards, or save them with "
+                  "save_knowledge when they appear in conversation."})
+
+
+async def _save_knowledge(inp: dict, ctx: ToolContext) -> str:
+    title = (inp.get("title") or "").strip()
+    content = (inp.get("content") or "").strip()
+    if not title or len(content) < 20:
+        return _json({"error": "Provide a title and meaningful content."})
+    entry_id = await db.create_knowledge(
+        ctx.org_id, inp.get("kind", "other"), title, content
+    )
+    return _json({"ok": True, "id": entry_id})
+
+
+SEARCH_KNOWLEDGE = Tool(
+    name="search_knowledge",
+    description=(
+        "Search the organization's knowledge base: reference cases ('case'), "
+        "tech standards & stack choices ('standard'), service offerings & "
+        "pricing ('offering'), internal processes ('process'). Use it to "
+        "ground proposals, outreach, briefs, and onboarding in how THIS "
+        "company actually works — never invent reference cases."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Keyword filter"},
+            "kind": {"type": "string",
+                     "enum": db.KNOWLEDGE_KINDS},
+        },
+    },
+    handler=_search_knowledge,
+)
+
+SAVE_KNOWLEDGE = Tool(
+    name="save_knowledge",
+    description=(
+        "Save an entry to the organization's knowledge base (reference case, "
+        "tech standard, offering, process). Use when the user shares "
+        "something worth reusing — e.g. a finished project that should "
+        "become a reference case, or a stack decision that should become "
+        "the standard. Confirm with the user before saving."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": db.KNOWLEDGE_KINDS},
+            "title": {"type": "string"},
+            "content": {"type": "string"},
+        },
+        "required": ["kind", "title", "content"],
+    },
+    handler=_save_knowledge,
+)
+
+
 # ── Outreach sequence tools ───────────────────────────────────────────────────
 
 
@@ -840,4 +912,5 @@ LEAD_TOOLS = [
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
     START_EMAIL_SEQUENCE, CANCEL_EMAIL_SEQUENCE, GET_SEQUENCE_STATUS,
     CHECK_SENDING_DOMAIN, ANALYZE_PIPELINE_PERFORMANCE,
+    SEARCH_KNOWLEDGE,
 ]

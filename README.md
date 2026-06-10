@@ -1,7 +1,7 @@
 # Agent Hub
 
 A multi-tenant SaaS platform that gives every customer an AI workforce:
-13 specialist agents behind a retro pixel-art interface, with real
+15 specialist agents behind a retro pixel-art interface, with real
 lead-generation tooling, a built-in lead pipeline (CRM), subscription plans,
 usage metering, and a public API.
 
@@ -36,21 +36,28 @@ customer-acquisition machine (built Sweden-first):
 
 ## The agents
 
+All agents are consultancy-aware (Sweden-first), share a per-org
+**knowledge base** (reference cases, tech standards, offerings, processes —
+managed in SETTINGS or by the agents themselves), and answer in the user's
+language.
+
 | Agent | Specialty | Plan | Tools |
 |---|---|---|---|
-| NEXUS | Central coordinator & orchestrator | Free | |
-| ORACLE | Research & knowledge | Free | |
-| SCROLL | Writing & content | Free | |
-| FORGE | Dev support & delivery acceleration | Starter | website tech-audit, pipeline read |
-| LENS | Data & analytics | Starter | |
-| HERALD | Planning & strategy | Starter | |
-| PULSE | Marketing & growth | Starter | |
-| HAVEN | Customer support & success | Starter | |
-| **VANTAGE** | **Sales & lead generation** | Pro | company search, people search, enrichment, lead pipeline |
-| SHIELD | Security & compliance | Pro | |
-| LEDGER | Finance & business operations | Pro | |
-| TALENT | HR & recruiting | Pro | |
-| COUNSEL | Legal & contracts | Pro | |
+| NEXUS | Central coordinator & orchestrator | Free | pipeline read, win/loss analytics, knowledge |
+| ORACLE | Research & market intelligence | Free | news, funding scan, registries, website audit |
+| SCROLL | Writing, proposals & case studies | Free | knowledge search/save |
+| FORGE | Dev support & delivery acceleration | Starter | website tech-audit, pipeline read, knowledge |
+| LENS | Data, analytics & pipeline insight | Starter | win/loss analytics, pipeline read |
+| HERALD | Planning, priorities & project ops | Starter | pipeline read, knowledge |
+| PULSE | Marketing, brand & employer branding | Starter | knowledge, news, funding scan |
+| HAVEN | Client success & repeat business | Starter | pipeline read/update, knowledge |
+| MENTOR | Onboarding & consultant training | Starter | knowledge search/save |
+| **VANTAGE** | **Sales & lead generation** | Pro | 21 tools: signal harvesting, enrichment, pipeline, sequences |
+| **BEACON** | **Public tenders & bid writing (B2G)** | Pro | TED tenders, knowledge, pipeline |
+| SHIELD | Security & GDPR in deliveries | Pro | website audit, SPF/DMARC, MX checks |
+| LEDGER | Consultancy finance & pricing | Pro | win/loss analytics, knowledge |
+| TALENT | Recruiting & people ops | Pro | knowledge search/save, job-market scan |
+| COUNSEL | Contracts & legal for consulting | Pro | knowledge |
 
 ### VANTAGE — actionable lead generation
 

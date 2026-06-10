@@ -1,4 +1,10 @@
-from agent_tools import ANALYZE_WEBSITE, LIST_LEADS, Tool
+from agent_tools import (
+    ANALYZE_WEBSITE,
+    LIST_LEADS,
+    SAVE_KNOWLEDGE,
+    SEARCH_KNOWLEDGE,
+    Tool,
+)
 
 from .base_agent import BaseAgent
 
@@ -34,7 +40,8 @@ class ForgeAgent(BaseAgent):
 
     @property
     def tools(self) -> list[Tool]:
-        return [ANALYZE_WEBSITE, LIST_LEADS]
+        return [ANALYZE_WEBSITE, LIST_LEADS, SEARCH_KNOWLEDGE,
+                SAVE_KNOWLEDGE]
 
     @property
     def max_tokens(self) -> int:
@@ -57,6 +64,12 @@ on call.
   'meeting'), the lead carries enrichment: their hiring, their tech, their
   website's weaknesses. Pull it before writing technical pre-sales
   material so your input matches what sales already knows.
+- search_knowledge: the company's reference cases, tech standards, and
+  processes. Check 'standard' entries before proposing architecture (use
+  the house stack unless there's a reason not to) and cite real 'case'
+  entries in pre-sales briefs — never invent references.
+- save_knowledge: when a project, stack decision, or runbook worth reusing
+  comes up, offer to store it (confirm with the user first).
 
 ## Delivery support — how you work in each phase
 
