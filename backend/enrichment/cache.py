@@ -21,6 +21,9 @@ TTL_HOURS = {
     "news": 24,                 # timing signals must be fresh
     "jobs": 24,
     "mx": 30 * 24,
+    "tenders": 24,
+    "jobs_harvest": 12,
+    "newco": 24,
     "provider_companies": 7 * 24,   # paid provider searches — cache hardest
     "provider_people": 7 * 24,
     "provider_enrich": 14 * 24,

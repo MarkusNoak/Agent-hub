@@ -5,6 +5,35 @@ A multi-tenant SaaS platform that gives every customer an AI workforce:
 lead-generation tooling, a built-in lead pipeline (CRM), subscription plans,
 usage metering, and a public API.
 
+## The growth engine (signal → meeting, automated)
+
+Five layers turn the platform from a chat tool into a systematic
+customer-acquisition machine (built Sweden-first):
+
+1. **Signal-first prospecting** — weekly scheduled runs harvest companies
+   with *proven* buying signals into the pipeline: companies actively hiring
+   developers (Arbetsförmedlingen JobTech, with org numbers), newly
+   registered companies, and funding-round news. ICP profiles (GROWTH view)
+   define roles/regions; runs are deterministic (zero LLM cost), deduped,
+   quota-aware, and end with a Swedish digest: top 3 to contact and why.
+2. **Digital maturity scoring** — every website analysis grades the
+   prospect's web presence 0–100 with concrete issues (no HTTPS, not
+   mobile-adapted, no analytics, unmaintained, slow). For an IT-services
+   seller the issues ARE the pitch.
+3. **Outreach sequences** — VANTAGE writes 1–3 personalized emails per lead;
+   the engine sends, follows up, stops on reply, classifies the reply
+   (meeting/interested/not-now/negative/opt-out) and moves the pipeline
+   automatically. GDPR by construction: documented legitimate interest,
+   automatic unsubscribe links, permanent suppression list, daily send
+   limits. Dry-run by default until `EMAIL_ENABLED=true`.
+4. **Learning loop** — win rates by signal source, industry, and score band;
+   score calibration against actual outcomes; reply-rate tracking; concrete
+   recommendations on the dashboard. Every closed deal sharpens next month's
+   prospecting.
+5. **Public procurement (B2G)** — active Swedish IT tenders from TED (EU's
+   official database) via `find_public_tenders`: published need, published
+   budget, zero cold outreach.
+
 ## The agents
 
 | Agent | Specialty | Plan | Tools |

@@ -56,6 +56,9 @@ Signal-first prospecting (Sweden — PREFER these as the starting point):
   websites, apps, and IT foundations.
 - scan_funding_news: fresh Swedish funding rounds — new capital funds
   digital projects.
+- find_public_tenders: active public IT procurement from TED (B2G) — the
+  buyer has already published need and budget. Check it whenever the user
+  discusses revenue channels or when the weekly pipeline looks thin.
 The platform also runs these signals automatically on a weekly schedule per
 ICP profile (see the GROWTH view); harvested leads arrive with source
 "signal:hiring" or "signal:newco" and a heuristic score. Your job is to

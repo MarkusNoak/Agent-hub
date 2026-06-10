@@ -330,6 +330,23 @@ async def _scan_funding_news(inp: dict, ctx: ToolContext) -> str:
     return _json(await cached_fetch("news", {"funding": True, **inp}, fetch))
 
 
+async def _find_public_tenders(inp: dict, ctx: ToolContext) -> str:
+    from enrichment.procurement import find_tenders
+
+    async def fetch() -> dict:
+        try:
+            return await find_tenders(
+                category=inp.get("category", "it"),
+                country=inp.get("country", "SWE"),
+                keywords=inp.get("keywords"),
+                limit=inp.get("limit", 10),
+            )
+        except Exception as e:
+            return {"error": f"Tender search failed: {e}"}
+
+    return _json(await cached_fetch("tenders", inp, fetch))
+
+
 async def _check_email_domain(inp: dict, ctx: ToolContext) -> str:
     async def fetch() -> dict:
         try:
@@ -600,6 +617,29 @@ FIND_JOB_POSTINGS = Tool(
     handler=_find_job_postings,
 )
 
+FIND_PUBLIC_TENDERS = Tool(
+    name="find_public_tenders",
+    description=(
+        "Search ACTIVE public IT procurement (B2G) via TED, the EU's "
+        "official tender database — free. Categories: 'it' (IT services/"
+        "consulting/development), 'software', 'web'. Returns buyer, "
+        "deadline, estimated value, and a link per tender. Public buyers "
+        "have published need AND budget — zero cold outreach required. "
+        "Covers above-threshold tenders (roughly > 1.5 MSEK); say so when "
+        "the user asks about smaller deals."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "category": {"type": "string", "enum": ["it", "software", "web"]},
+            "country": {"type": "string", "description": "ISO3 country, default SWE"},
+            "keywords": {"type": "string", "description": "Optional title keywords, e.g. 'webbplats'"},
+            "limit": {"type": "integer"},
+        },
+    },
+    handler=_find_public_tenders,
+)
+
 CHECK_EMAIL_DOMAIN = Tool(
     name="check_email_domain",
     description=(
@@ -705,7 +745,7 @@ LEAD_TOOLS = [
     FIND_HIRING_COMPANIES, FIND_NEW_COMPANIES, SCAN_FUNDING_NEWS,
     SEARCH_COMPANIES, SEARCH_PEOPLE, ENRICH_COMPANY,
     LOOKUP_REGISTRY, ANALYZE_WEBSITE, FIND_COMPANY_NEWS, FIND_JOB_POSTINGS,
-    CHECK_EMAIL_DOMAIN,
+    FIND_PUBLIC_TENDERS, CHECK_EMAIL_DOMAIN,
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
     START_EMAIL_SEQUENCE, CANCEL_EMAIL_SEQUENCE, GET_SEQUENCE_STATUS,
     ANALYZE_PIPELINE_PERFORMANCE,
