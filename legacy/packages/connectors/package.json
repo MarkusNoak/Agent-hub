@@ -1,0 +1,21 @@
+{
+  "name": "@agent-hub/connectors",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agent-hub/core": "workspace:*",
+    "nodemailer": "^6.9.14",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^6.4.15",
+    "typescript": "^5.4.0"
+  }
+}

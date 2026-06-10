@@ -1,0 +1,321 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Inter via next/font is injected via layout; this import is a fallback ── */
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --sidebar-w: 228px;
+    --radius-card: 18px;
+    --surface: #ddd9cf;
+  }
+
+  html {
+    font-family: "Inter", system-ui, sans-serif;
+    font-feature-settings: "cv11", "ss01", "ss03", "cv03", "cv04";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: #ddd9cf;
+    color: #111009;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar          { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track    { background: transparent; }
+  ::-webkit-scrollbar-thumb    { background: rgb(0 0 0 / 0.12); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(0 0 0 / 0.22); }
+
+  /* ── Selection ── */
+  ::selection { background: #fde68a; color: #111009; }
+
+  /* ── Base heading tightening ── */
+  h1, h2, h3 { letter-spacing: -0.02em; }
+}
+
+@layer components {
+
+  /* ────────────────────────────────────────────
+     CARDS
+     Inner top highlight = light source from above,
+     the single trick that makes cards look glass/material
+  ──────────────────────────────────────────── */
+  .card {
+    @apply bg-white rounded-[18px] border border-black/[0.06];
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      0 1px 2px 0 rgb(0 0 0 / 0.04),
+      0 4px 20px -4px rgb(0 0 0 / 0.07),
+      0 20px 60px -10px rgb(0 0 0 / 0.10);
+    transition: box-shadow 0.2s ease, transform 0.18s ease;
+  }
+
+  .card-hover {
+    @apply card cursor-pointer;
+  }
+  .card-hover:hover {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      0 4px 12px 0 rgb(0 0 0 / 0.07),
+      0 20px 48px -8px rgb(0 0 0 / 0.13),
+      0 40px 80px -16px rgb(0 0 0 / 0.14);
+    transform: translateY(-2px);
+  }
+
+  /* ── Coloured KPI cards ── */
+  .card-green {
+    @apply rounded-[18px] border;
+    background: linear-gradient(148deg, #f5fef7 0%, #dcfce7 55%, #bbf7d0 100%);
+    border-color: rgb(134 239 172 / 0.7);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.8),
+      0 1px 2px 0 rgb(16 185 129 / 0.06),
+      0 6px 20px -4px rgb(16 185 129 / 0.14),
+      0 20px 60px -10px rgb(16 185 129 / 0.10);
+  }
+  .card-amber {
+    @apply rounded-[18px] border;
+    background: linear-gradient(148deg, #fffdf5 0%, #fef3c7 55%, #fde68a 100%);
+    border-color: rgb(252 211 77 / 0.7);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.8),
+      0 1px 2px 0 rgb(232 160 32 / 0.06),
+      0 6px 20px -4px rgb(232 160 32 / 0.14),
+      0 20px 60px -10px rgb(232 160 32 / 0.08);
+  }
+  .card-blue {
+    @apply rounded-[18px] border;
+    background: linear-gradient(148deg, #f5f9ff 0%, #dbeafe 55%, #bfdbfe 100%);
+    border-color: rgb(147 197 253 / 0.7);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.8),
+      0 1px 2px 0 rgb(59 130 246 / 0.06),
+      0 6px 20px -4px rgb(59 130 246 / 0.14),
+      0 20px 60px -10px rgb(59 130 246 / 0.10);
+  }
+  .card-purple {
+    @apply rounded-[18px] border;
+    background: linear-gradient(148deg, #fdf9ff 0%, #ede9fe 55%, #ddd6fe 100%);
+    border-color: rgb(196 181 253 / 0.7);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.8),
+      0 1px 2px 0 rgb(139 92 246 / 0.06),
+      0 6px 20px -4px rgb(139 92 246 / 0.14),
+      0 20px 60px -10px rgb(139 92 246 / 0.10);
+  }
+  .card-dark {
+    @apply rounded-[18px] text-white;
+    background: linear-gradient(148deg, #1e1912 0%, #2c2418 100%);
+    border: 1px solid rgb(255 255 255 / 0.07);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 4px 20px -4px rgb(0 0 0 / 0.35),
+      0 20px 60px -10px rgb(0 0 0 / 0.25);
+  }
+
+  /* ────────────────────────────────────────────
+     BUTTONS
+  ──────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold
+           cursor-pointer select-none outline-none whitespace-nowrap;
+    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+  }
+  .btn:active  { transform: scale(0.965); }
+  .btn:disabled { opacity: 0.45; pointer-events: none; }
+  .btn:focus-visible {
+    box-shadow: 0 0 0 3px rgb(232 160 32 / 0.35);
+    outline: none;
+  }
+
+  .btn-primary {
+    background: linear-gradient(145deg, #f0b030 0%, #e8960c 100%);
+    @apply text-[#1a1008];
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.25),
+      0 1px 3px 0 rgb(232 160 32 / 0.5),
+      0 4px 14px -2px rgb(232 160 32 / 0.3);
+  }
+  .btn-primary:hover {
+    background: linear-gradient(145deg, #e8a820 0%, #d08010 100%);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.2),
+      0 2px 6px 0 rgb(232 160 32 / 0.5),
+      0 8px 24px -4px rgb(232 160 32 / 0.35);
+  }
+  .btn-secondary {
+    @apply bg-white text-ink-800 border border-black/[0.08];
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9), 0 1px 3px 0 rgb(0 0 0 / 0.07);
+  }
+  .btn-secondary:hover {
+    @apply bg-ink-50 border-black/[0.11];
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.15), 0 1px 4px 0 rgb(220 38 38 / 0.35);
+  }
+  .btn-ghost {
+    @apply text-ink-500 hover:bg-ink-100/80 hover:text-ink-900;
+  }
+  .btn-outline {
+    @apply border border-black/[0.08] bg-white text-ink-800;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9), 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+  .btn-outline:hover {
+    @apply border-black/[0.13] bg-ink-50/70;
+  }
+
+  /* ────────────────────────────────────────────
+     BADGES
+  ──────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-md;
+    letter-spacing: 0.01em;
+  }
+  .badge-green  {
+    background: rgb(240 253 244);
+    color: #15803d;
+    box-shadow: inset 0 0 0 1px rgb(134 239 172 / 0.6);
+  }
+  .badge-yellow {
+    background: rgb(255 251 235);
+    color: #92400e;
+    box-shadow: inset 0 0 0 1px rgb(252 211 77 / 0.6);
+  }
+  .badge-red    {
+    background: rgb(254 242 242);
+    color: #b91c1c;
+    box-shadow: inset 0 0 0 1px rgb(252 165 165 / 0.6);
+  }
+  .badge-gray   {
+    background: rgb(250 249 247);
+    color: #57534e;
+    box-shadow: inset 0 0 0 1px rgb(214 211 208 / 0.7);
+  }
+  .badge-blue   {
+    background: rgb(239 246 255);
+    color: #1d4ed8;
+    box-shadow: inset 0 0 0 1px rgb(147 197 253 / 0.6);
+  }
+
+  /* ────────────────────────────────────────────
+     INPUTS
+  ──────────────────────────────────────────── */
+  .input {
+    @apply w-full border bg-white rounded-xl px-3 py-2.5 text-sm
+           placeholder:text-ink-400 outline-none;
+    border-color: rgb(0 0 0 / 0.1);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 0 rgb(255 255 255 / 0.7);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .input:hover { border-color: rgb(0 0 0 / 0.15); }
+  .input:focus {
+    border-color: #e8a020;
+    box-shadow:
+      inset 0 1px 2px rgb(0 0 0 / 0.04),
+      0 0 0 3px rgb(232 160 32 / 0.14);
+  }
+
+  /* ────────────────────────────────────────────
+     TYPOGRAPHY
+  ──────────────────────────────────────────── */
+  .section-label {
+    @apply text-[10px] font-bold uppercase;
+    color: rgb(120 113 108);
+    letter-spacing: 0.08em;
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #111009 20%, #b06810 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .gradient-text-brand {
+    background: linear-gradient(135deg, #e8a020 0%, #f0c050 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ────────────────────────────────────────────
+     TABLES
+  ──────────────────────────────────────────── */
+  .table-premium {
+    @apply w-full text-sm;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .table-premium thead tr {
+    background: rgb(250 249 247);
+  }
+  .table-premium thead th {
+    @apply py-3 px-4 text-left section-label border-b whitespace-nowrap;
+    border-color: rgb(0 0 0 / 0.06);
+  }
+  .table-premium thead th:first-child { border-radius: 18px 0 0 0; }
+  .table-premium thead th:last-child  { border-radius: 0 18px 0 0; }
+  .table-premium tbody tr {
+    transition: background 0.1s ease;
+  }
+  .table-premium tbody tr:hover {
+    background: rgb(254 249 238 / 0.7);
+  }
+  .table-premium tbody td {
+    @apply py-3 px-4 align-middle;
+    border-bottom: 1px solid rgb(0 0 0 / 0.04);
+  }
+  .table-premium tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* ────────────────────────────────────────────
+     MISC
+  ──────────────────────────────────────────── */
+  .glass {
+    backdrop-filter: blur(16px) saturate(1.8);
+    background: rgba(255,255,255,0.78);
+    border: 1px solid rgba(255,255,255,0.55);
+  }
+
+  .divider-label {
+    @apply flex items-center gap-3 text-xs text-ink-400 font-medium;
+  }
+  .divider-label::before,
+  .divider-label::after {
+    content: "";
+    @apply flex-1 h-px bg-ink-100;
+  }
+
+  /* Stat helpers */
+  .stat-value {
+    @apply text-[36px] font-extrabold tracking-[-0.04em] leading-none tabular-nums;
+    background: linear-gradient(175deg, #111009 10%, #3d2c14 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  /* Child spans (units, prefixes) keep their own colour */
+  .stat-value span { -webkit-text-fill-color: currentColor; }
+  .stat-sm {
+    @apply text-[22px] font-extrabold tracking-[-0.03em] leading-none tabular-nums;
+    background: linear-gradient(175deg, #111009 10%, #3d2c14 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .stat-sm span { -webkit-text-fill-color: currentColor; }
+  .stat-sub   { @apply text-xs text-ink-400 mt-3 font-medium; }
+}
+
+@layer utilities {
+  .text-balance   { text-wrap: balance; }
+  .tabular-nums   { font-variant-numeric: tabular-nums; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar   { -ms-overflow-style: none; scrollbar-width: none; }
+}

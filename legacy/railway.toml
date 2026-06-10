@@ -1,0 +1,17 @@
+# ============================================================
+# DEPRECATED — Agent Hub runs on Vercel + Supabase pg_cron
+# ============================================================
+#
+# This file is kept only to not break existing Railway projects.
+# The active production config is in vercel.json and
+# supabase/migrations/0004_pg_cron_tick.sql.
+#
+# Rationale for the move:
+#   - Vercel Hobby has a real free tier (Railway does not).
+#   - pg_cron + pg_net replace the long-running scheduler worker.
+#   - Scales to zero when no agents are due.
+#
+# See GO-LIVE.md for the current deploy flow.
+# ============================================================
+
+# Intentionally left empty so Railway cannot auto-detect this repo.
