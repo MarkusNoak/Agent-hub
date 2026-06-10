@@ -2,6 +2,7 @@ from agent_tools import (
     ANALYZE_PIPELINE_PERFORMANCE,
     LIST_LEADS,
     SEARCH_KNOWLEDGE,
+    SLACK_POST,
     Tool,
 )
 
@@ -39,7 +40,7 @@ class NexusAgent(BaseAgent):
 
     @property
     def tools(self) -> list[Tool]:
-        return [LIST_LEADS, ANALYZE_PIPELINE_PERFORMANCE, SEARCH_KNOWLEDGE]
+        return [LIST_LEADS, ANALYZE_PIPELINE_PERFORMANCE, SEARCH_KNOWLEDGE, SLACK_POST]
 
     @property
     def system_prompt(self) -> str:

@@ -226,6 +226,19 @@ ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS approved_at TEXT;
 ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS reject_reason TEXT;
 ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS model TEXT;
 ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(10,6) DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS v2.integrations (
+    id          TEXT PRIMARY KEY,
+    org_id      TEXT NOT NULL REFERENCES v2.organizations(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,
+    label       TEXT NOT NULL,
+    credentials TEXT NOT NULL,
+    config      TEXT NOT NULL DEFAULT '{}',
+    status      TEXT NOT NULL DEFAULT 'active',
+    last_verified_at TEXT,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_integrations_org_kind ON v2.integrations(org_id, kind);
 """
 
 async def init_db() -> None:
@@ -430,6 +443,20 @@ async def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_projects_org
                 ON completed_projects (org_id, completed_at);
+
+            CREATE TABLE IF NOT EXISTS integrations (
+                id          TEXT PRIMARY KEY,
+                org_id      TEXT NOT NULL REFERENCES organizations(id),
+                kind        TEXT NOT NULL,
+                label       TEXT NOT NULL,
+                credentials TEXT NOT NULL,
+                config      TEXT NOT NULL DEFAULT '{}',
+                status      TEXT NOT NULL DEFAULT 'active',
+                last_verified_at TEXT,
+                created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_integrations_org_kind
+                ON integrations(org_id, kind);
         """)
         if dbdriver.IS_POSTGRES:
             return
@@ -473,6 +500,28 @@ async def init_db() -> None:
             await db.execute(
                 "ALTER TABLE usage_events ADD COLUMN cost_usd REAL DEFAULT 0"
             )
+        # Migration: integrations table for connector credentials
+        async with db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='integrations'"
+        ) as cur:
+            if not await cur.fetchone():
+                await db.execute("""
+                    CREATE TABLE integrations (
+                        id          TEXT PRIMARY KEY,
+                        org_id      TEXT NOT NULL REFERENCES organizations(id),
+                        kind        TEXT NOT NULL,
+                        label       TEXT NOT NULL,
+                        credentials TEXT NOT NULL,
+                        config      TEXT NOT NULL DEFAULT '{}',
+                        status      TEXT NOT NULL DEFAULT 'active',
+                        last_verified_at TEXT,
+                        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                    )
+                """)
+                await db.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_integrations_org_kind "
+                    "ON integrations(org_id, kind)"
+                )
         await db.commit()
 
 
@@ -1440,3 +1489,66 @@ async def list_lead_activities(org_id: str, lead_id: str) -> list[dict]:
             (org_id, lead_id),
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+async def save_integration(
+    org_id: str, kind: str, label: str, credentials_json: str, config: str = "{}"
+) -> None:
+    row_id = new_id()
+    async with dbdriver.connect() as db:
+        await db.execute(
+            """
+            INSERT INTO integrations (id, org_id, kind, label, credentials, config)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(org_id, kind) DO UPDATE SET
+                label=excluded.label,
+                credentials=excluded.credentials,
+                config=excluded.config,
+                status='active'
+            """,
+            (row_id, org_id, kind, label, credentials_json, config),
+        )
+        await db.commit()
+
+
+async def get_integration(org_id: str, kind: str) -> dict | None:
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM integrations WHERE org_id = ? AND kind = ?",
+            (org_id, kind),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def list_integrations(org_id: str) -> list[dict]:
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, org_id, kind, label, config, status, last_verified_at, created_at "
+            "FROM integrations WHERE org_id = ? ORDER BY created_at",
+            (org_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_integration(org_id: str, kind: str) -> None:
+    async with dbdriver.connect() as db:
+        await db.execute(
+            "DELETE FROM integrations WHERE org_id = ? AND kind = ?",
+            (org_id, kind),
+        )
+        await db.commit()
+
+
+async def update_integration_status(
+    org_id: str, kind: str, status: str, last_verified_at: str | None = None
+) -> None:
+    async with dbdriver.connect() as db:
+        await db.execute(
+            "UPDATE integrations SET status = ?, last_verified_at = ? "
+            "WHERE org_id = ? AND kind = ?",
+            (status, last_verified_at, org_id, kind),
+        )
+        await db.commit()

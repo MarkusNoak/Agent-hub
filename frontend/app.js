@@ -1443,10 +1443,97 @@ async function loadSettings() {
         </div>
         <div id="new-key-box" style="display:none" class="new-key-box"></div>
       </div>` : ''}
+
+      <div class="dash-section">
+        <div class="dash-label">INTEGRATIONS <span class="dim">// CONNECT EXTERNAL SERVICES</span></div>
+        <div id="integrations-section"><div class="dim" style="font-size:11px">Loading...</div></div>
+      </div>
     `;
+    loadIntegrations();
   } catch (e) {
     body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
   }
+}
+
+async function loadIntegrations() {
+  const el = document.getElementById('integrations-section');
+  if (!el) return;
+  try {
+    const [meta, connected] = await Promise.all([
+      api('/api/integrations/meta'),
+      api('/api/integrations'),
+    ]);
+    const connMap = {};
+    connected.forEach(c => { connMap[c.kind] = c; });
+    el.innerHTML = meta.map(m => {
+      const c = connMap[m.kind];
+      const isConnected = !!c && c.status !== 'error';
+      const isError = c && c.status === 'error';
+      const badgeHtml = c
+        ? `<span class="int-badge ${isError ? 'error' : 'connected'}">${isError ? 'ERROR' : 'Connected'} · ${escHtml(c.label)}</span>`
+        : '';
+      const actionsHtml = c
+        ? `<button class="int-secondary-btn" onclick="verifyIntegration('${m.kind}')">Verify</button>
+           <button class="int-disconnect-btn" onclick="disconnectIntegration('${m.kind}')">Disconnect</button>`
+        : `<button class="int-secondary-btn" onclick="toggleIntForm('${m.kind}')">Connect →</button>`;
+      const fieldsHtml = m.credential_fields.map(f => `
+        <div>
+          <label>${escHtml(f.label)}</label>
+          <input type="${f.type}" id="int-${m.kind}-${f.name}" placeholder="${escHtml(f.placeholder)}" autocomplete="off" />
+          ${f.help ? `<div class="field-help">${escHtml(f.help)}</div>` : ''}
+        </div>`).join('');
+      return `
+        <div class="integration-card" id="int-card-${m.kind}">
+          <div class="int-header">
+            <div>
+              <div class="int-name">${escHtml(m.display_name)}</div>
+              <div class="int-desc">${escHtml(m.description)}</div>
+            </div>
+            <div>${badgeHtml}</div>
+          </div>
+          <div class="int-actions">${actionsHtml}</div>
+          <div class="integration-form" id="int-form-${m.kind}">
+            ${fieldsHtml}
+            <div><button class="int-connect-btn" onclick="saveIntegration('${m.kind}', ${JSON.stringify(m.credential_fields.map(f => f.name))})">Save & Verify</button></div>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    if (el) el.innerHTML = `<div class="dim" style="font-size:11px">Failed to load integrations: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function toggleIntForm(kind) {
+  const form = document.getElementById('int-form-' + kind);
+  if (form) form.classList.toggle('open');
+}
+
+async function saveIntegration(kind, fieldNames) {
+  const credentials = {};
+  for (const name of fieldNames) {
+    const el = document.getElementById('int-' + kind + '-' + name);
+    if (el) credentials[name] = el.value;
+  }
+  try {
+    const res = await api('/api/integrations', { method: 'POST', body: JSON.stringify({ kind, credentials }) });
+    loadIntegrations();
+  } catch (e) { alert(e.message); }
+}
+
+async function verifyIntegration(kind) {
+  try {
+    const res = await api('/api/integrations/' + kind + '/verify', { method: 'POST' });
+    alert(res.ok ? ('Verified: ' + res.label) : ('Verification failed: ' + res.error));
+    loadIntegrations();
+  } catch (e) { alert(e.message); }
+}
+
+async function disconnectIntegration(kind) {
+  if (!confirm('Disconnect ' + kind + '?')) return;
+  try {
+    await api('/api/integrations/' + kind, { method: 'DELETE' });
+    loadIntegrations();
+  } catch (e) { alert(e.message); }
 }
 
 async function saveBizProfile() {

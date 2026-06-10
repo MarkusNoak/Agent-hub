@@ -1,5 +1,6 @@
 from agent_tools import (
     FIND_COMPANY_NEWS,
+    LINKEDIN_CREATE_POST,
     SCAN_FUNDING_NEWS,
     SEARCH_KNOWLEDGE,
     Tool,
@@ -39,7 +40,7 @@ class PulseAgent(BaseAgent):
 
     @property
     def tools(self) -> list[Tool]:
-        return [SEARCH_KNOWLEDGE, FIND_COMPANY_NEWS, SCAN_FUNDING_NEWS]
+        return [SEARCH_KNOWLEDGE, FIND_COMPANY_NEWS, SCAN_FUNDING_NEWS, LINKEDIN_CREATE_POST]
 
     @property
     def system_prompt(self) -> str:

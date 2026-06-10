@@ -1,5 +1,7 @@
 from agent_tools import (
     ANALYZE_WEBSITE,
+    GITHUB_LIST_ISSUES,
+    GITHUB_LIST_PRS,
     LIST_LEADS,
     SAVE_KNOWLEDGE,
     SEARCH_KNOWLEDGE,
@@ -41,7 +43,7 @@ class ForgeAgent(BaseAgent):
     @property
     def tools(self) -> list[Tool]:
         return [ANALYZE_WEBSITE, LIST_LEADS, SEARCH_KNOWLEDGE,
-                SAVE_KNOWLEDGE]
+                SAVE_KNOWLEDGE, GITHUB_LIST_ISSUES, GITHUB_LIST_PRS]
 
     @property
     def max_tokens(self) -> int:

@@ -979,6 +979,88 @@ GET_SEQUENCE_STATUS = Tool(
     handler=_get_sequence_status,
 )
 
+async def _github_list_issues(inp: dict, ctx: ToolContext) -> str:
+    from integrations.registry import get_connector
+    conn = await get_connector(ctx.org_id, "github")
+    if not conn:
+        return json.dumps({"error": "GitHub not connected — ask user to connect in Settings → Integrations."})
+    issues = await conn.list_issues(inp["repo"], inp.get("state", "open"), inp.get("limit", 20))
+    return json.dumps(issues)
+
+
+async def _github_list_prs(inp: dict, ctx: ToolContext) -> str:
+    from integrations.registry import get_connector
+    conn = await get_connector(ctx.org_id, "github")
+    if not conn:
+        return json.dumps({"error": "GitHub not connected."})
+    prs = await conn.list_prs(inp["repo"], inp.get("state", "open"), inp.get("limit", 20))
+    return json.dumps(prs)
+
+
+async def _linkedin_create_post(inp: dict, ctx: ToolContext) -> str:
+    from integrations.registry import get_connector
+    conn = await get_connector(ctx.org_id, "linkedin")
+    if not conn:
+        return json.dumps({"error": "LinkedIn not connected — ask user to connect in Settings → Integrations."})
+    if inp.get("draft", True):
+        result = await conn.create_draft(inp["text"])
+    else:
+        result = await conn.create_post(inp["text"], inp.get("visibility", "PUBLIC"))
+    return json.dumps(result)
+
+
+async def _slack_post_message(inp: dict, ctx: ToolContext) -> str:
+    from integrations.registry import get_connector
+    conn = await get_connector(ctx.org_id, "slack")
+    if not conn:
+        return json.dumps({"error": "Slack not connected — ask user to connect in Settings → Integrations."})
+    result = await conn.post_message(inp["text"], inp.get("channel"))
+    return json.dumps(result)
+
+
+GITHUB_LIST_ISSUES = Tool(
+    name="github_list_issues",
+    description="List issues for a GitHub repository. Requires GitHub connected in Settings → Integrations.",
+    input_schema={"type": "object", "properties": {
+        "repo": {"type": "string", "description": "owner/repo, e.g. acme/backend"},
+        "state": {"type": "string", "enum": ["open", "closed", "all"], "default": "open"},
+        "limit": {"type": "integer", "default": 20}
+    }, "required": ["repo"]},
+    handler=_github_list_issues,
+)
+
+GITHUB_LIST_PRS = Tool(
+    name="github_list_prs",
+    description="List pull requests for a GitHub repository.",
+    input_schema={"type": "object", "properties": {
+        "repo": {"type": "string"},
+        "state": {"type": "string", "enum": ["open", "closed", "all"], "default": "open"},
+        "limit": {"type": "integer", "default": 20}
+    }, "required": ["repo"]},
+    handler=_github_list_prs,
+)
+
+LINKEDIN_CREATE_POST = Tool(
+    name="linkedin_create_post",
+    description="Draft or publish a LinkedIn post. draft=true (default) returns text for review; draft=false publishes immediately. Requires LinkedIn in Settings → Integrations.",
+    input_schema={"type": "object", "properties": {
+        "text": {"type": "string"},
+        "draft": {"type": "boolean", "default": True},
+        "visibility": {"type": "string", "enum": ["PUBLIC", "CONNECTIONS"], "default": "PUBLIC"}
+    }, "required": ["text"]},
+    handler=_linkedin_create_post,
+)
+
+SLACK_POST = Tool(
+    name="slack_post",
+    description="Post a message to a Slack channel. Requires Slack in Settings → Integrations.",
+    input_schema={"type": "object", "properties": {
+        "text": {"type": "string"},
+        "channel": {"type": "string", "description": "#channel — uses default if omitted"}
+    }, "required": ["text"]},
+    handler=_slack_post_message,
+)
+
 LEAD_TOOLS = [
     FIND_HIRING_COMPANIES, FIND_NEW_COMPANIES, SCAN_FUNDING_NEWS,
     SEARCH_COMPANIES, SEARCH_PEOPLE, ENRICH_COMPANY,
@@ -988,5 +1070,5 @@ LEAD_TOOLS = [
     START_EMAIL_SEQUENCE, CANCEL_EMAIL_SEQUENCE, GET_SEQUENCE_STATUS,
     LIST_UPSELL_CANDIDATES, ADD_COMPLETED_PROJECT, MARK_UPSELL_CONTACTED,
     CHECK_SENDING_DOMAIN, ANALYZE_PIPELINE_PERFORMANCE,
-    SEARCH_KNOWLEDGE,
+    SEARCH_KNOWLEDGE, SLACK_POST,
 ]

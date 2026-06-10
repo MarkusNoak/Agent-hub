@@ -1,4 +1,4 @@
-from agent_tools import LIST_LEADS, SEARCH_KNOWLEDGE, Tool
+from agent_tools import LIST_LEADS, SEARCH_KNOWLEDGE, SLACK_POST, Tool
 
 from .base_agent import BaseAgent
 
@@ -34,7 +34,7 @@ class HeraldAgent(BaseAgent):
 
     @property
     def tools(self) -> list[Tool]:
-        return [LIST_LEADS, SEARCH_KNOWLEDGE]
+        return [LIST_LEADS, SEARCH_KNOWLEDGE, SLACK_POST]
 
     @property
     def system_prompt(self) -> str:

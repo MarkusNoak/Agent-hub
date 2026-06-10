@@ -33,6 +33,7 @@ from zoneinfo import ZoneInfo
 
 import database as db
 from auth import jwt_secret
+from integrations.registry import get_connector
 
 SE_TZ = ZoneInfo("Europe/Stockholm")
 
@@ -135,12 +136,15 @@ def gdpr_footer(org_name: str, org_id: str, recipient: str) -> str:
 # ── Sending ───────────────────────────────────────────────────────────────────
 
 
-def _smtp_send(to_addr: str, subject: str, body: str) -> None:
-    host = os.environ["SMTP_HOST"]
-    port = int(os.environ.get("SMTP_PORT", "587"))
-    user = os.environ.get("SMTP_USER")
-    password = os.environ.get("SMTP_PASS")
-    from_addr = os.environ.get("SMTP_FROM") or user
+def _smtp_send(to_addr: str, subject: str, body: str,
+               smtp_host: str = None, smtp_port: int = None,
+               smtp_user: str = None, smtp_pass: str = None,
+               smtp_from: str = None, use_ssl: bool = False) -> None:
+    host = smtp_host or os.environ["SMTP_HOST"]
+    port = smtp_port or int(os.environ.get("SMTP_PORT", "587"))
+    user = smtp_user or os.environ.get("SMTP_USER")
+    password = smtp_pass or os.environ.get("SMTP_PASS")
+    from_addr = smtp_from or os.environ.get("SMTP_FROM") or user
 
     msg = EmailMessage()
     msg["From"] = from_addr
@@ -148,15 +152,35 @@ def _smtp_send(to_addr: str, subject: str, body: str) -> None:
     msg["Subject"] = subject
     msg.set_content(body)
 
-    with smtplib.SMTP(host, port, timeout=30) as smtp:
-        smtp.starttls()
-        if user and password:
-            smtp.login(user, password)
-        smtp.send_message(msg)
+    if use_ssl:
+        import ssl as _ssl
+        ctx = _ssl.create_default_context()
+        with smtplib.SMTP_SSL(host, port, context=ctx, timeout=30) as smtp:
+            if user and password:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+    else:
+        with smtplib.SMTP(host, port, timeout=30) as smtp:
+            smtp.starttls()
+            if user and password:
+                smtp.login(user, password)
+            smtp.send_message(msg)
 
 
-async def send_email(to_addr: str, subject: str, body: str) -> str:
+async def send_email(to_addr: str, subject: str, body: str,
+                     org_id: str = None) -> str:
     """Returns 'sent' or 'simulated'."""
+    if org_id:
+        _gmail = await get_connector(org_id, "gmail")
+    else:
+        _gmail = None
+    if _gmail:
+        p = _gmail.smtp_params()
+        await asyncio.to_thread(
+            _smtp_send, to_addr, subject, body,
+            p["host"], p["port"], p["user"], p["password"], p["from"], p["ssl"]
+        )
+        return "sent"
     if not email_enabled() or not os.environ.get("SMTP_HOST"):
         return "simulated"
     await asyncio.to_thread(_smtp_send, to_addr, subject, body)
@@ -288,7 +312,7 @@ async def sequence_tick() -> None:
 
             org = await db.get_organization(org_id)
             body = step["body"] + gdpr_footer(org["name"], org_id, recipient)
-            result = await send_email(recipient, step["subject"], body)
+            result = await send_email(recipient, step["subject"], body, org_id=org_id)
             await db.mark_step(step["id"], result, now.isoformat())
             await db.add_lead_activity(
                 org_id, lead_id, "email_" + result,

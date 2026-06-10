@@ -1,4 +1,4 @@
-from agent_tools import SAVE_KNOWLEDGE, SEARCH_KNOWLEDGE, Tool
+from agent_tools import LINKEDIN_CREATE_POST, SAVE_KNOWLEDGE, SEARCH_KNOWLEDGE, Tool
 
 from .base_agent import BaseAgent
 
@@ -34,7 +34,7 @@ class ScrollAgent(BaseAgent):
 
     @property
     def tools(self) -> list[Tool]:
-        return [SEARCH_KNOWLEDGE, SAVE_KNOWLEDGE]
+        return [SEARCH_KNOWLEDGE, SAVE_KNOWLEDGE, LINKEDIN_CREATE_POST]
 
     @property
     def system_prompt(self) -> str:
