@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AGENT HUB</title>
+  <title>Agent Hub</title>
 
-  <!-- Pixel font -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <!-- Markdown rendering -->
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
@@ -24,40 +23,41 @@
 </head>
 <body>
 
-  <!-- CRT scanline overlay -->
-  <div class="crt-overlay" aria-hidden="true"></div>
-
   <!-- ── Auth screen ── -->
   <div class="auth-screen" id="auth-screen" style="display:none">
+    <div class="auth-glow" aria-hidden="true"></div>
     <div class="auth-box">
-      <canvas id="auth-logo" width="64" height="64"></canvas>
-      <h1 class="welcome-title">AGENT HUB</h1>
-      <p class="auth-sub dim" id="auth-sub">YOUR AI WORKFORCE // SIGN IN</p>
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div class="brand-name">Agent Hub</div>
+      </div>
+      <h1 class="auth-title">Your AI workforce</h1>
+      <p class="auth-sub" id="auth-sub">Sign in to continue</p>
 
       <div class="auth-error" id="auth-error" style="display:none"></div>
 
       <form id="auth-form" onsubmit="return submitAuth(event)">
         <div class="auth-field" id="field-orgname" style="display:none">
-          <label>COMPANY</label>
-          <input type="text" id="auth-orgname" placeholder="ACME AB" maxlength="120" />
+          <label>Company</label>
+          <input type="text" id="auth-orgname" placeholder="Acme AB" maxlength="120" />
         </div>
         <div class="auth-field" id="field-name" style="display:none">
-          <label>YOUR NAME</label>
-          <input type="text" id="auth-name" placeholder="JANE DOE" maxlength="120" />
+          <label>Your name</label>
+          <input type="text" id="auth-name" placeholder="Jane Doe" maxlength="120" />
         </div>
         <div class="auth-field">
-          <label>EMAIL</label>
+          <label>Email</label>
           <input type="email" id="auth-email" placeholder="you@company.com" required />
         </div>
         <div class="auth-field">
-          <label>PASSWORD</label>
-          <input type="password" id="auth-password" placeholder="********" minlength="8" required />
+          <label>Password</label>
+          <input type="password" id="auth-password" placeholder="••••••••" minlength="8" required />
         </div>
-        <button type="submit" class="pixel-btn auth-btn" id="auth-submit">SIGN IN</button>
+        <button type="submit" class="btn btn-primary auth-btn" id="auth-submit">Sign in</button>
       </form>
 
-      <button class="auth-toggle dim" id="auth-toggle" onclick="toggleAuthMode()">
-        NO ACCOUNT? &gt; CREATE ONE
+      <button class="auth-toggle" id="auth-toggle" onclick="toggleAuthMode()">
+        No account? <span>Create one</span>
       </button>
     </div>
   </div>
@@ -67,26 +67,25 @@
 
     <!-- ── Sidebar ── -->
     <aside class="sidebar">
-      <div class="hub-logo">
-        <canvas id="logo-canvas" width="64" height="64"></canvas>
-        <div class="logo-title">AGENT<br><span class="logo-hub">HUB</span></div>
+      <div class="brand sidebar-brand">
+        <div class="brand-mark">A</div>
+        <div class="brand-name">Agent Hub</div>
       </div>
 
       <nav class="main-nav" aria-label="Sections">
-        <button class="nav-btn active" id="nav-agents"    onclick="showView('agents')">AGENTS</button>
-        <button class="nav-btn" id="nav-leads"     onclick="showView('leads')">LEADS</button>
-        <button class="nav-btn" id="nav-growth"    onclick="showView('growth')">GROWTH</button>
-        <button class="nav-btn" id="nav-dashboard" onclick="showView('dashboard')">DASHBOARD</button>
-        <button class="nav-btn" id="nav-settings"  onclick="showView('settings')">SETTINGS</button>
+        <button class="nav-btn active" id="nav-agents"    onclick="showView('agents')">Agents</button>
+        <button class="nav-btn" id="nav-leads"     onclick="showView('leads')">Leads</button>
+        <button class="nav-btn" id="nav-growth"    onclick="showView('growth')">Growth</button>
+        <button class="nav-btn" id="nav-dashboard" onclick="showView('dashboard')">Dashboard</button>
+        <button class="nav-btn" id="nav-settings"  onclick="showView('settings')">Settings</button>
       </nav>
 
-      <nav class="agent-list" id="agent-list" aria-label="Agents">
-        <!-- Populated by JS -->
-      </nav>
+      <div class="agent-list-label">Specialists</div>
+      <nav class="agent-list" id="agent-list" aria-label="Agents"></nav>
 
       <footer class="sidebar-footer">
-        <span class="dim" id="footer-org">v2.0.0 // ONLINE</span>
-        <button class="logout-btn dim" onclick="logout()">LOGOUT</button>
+        <span class="dim" id="footer-org"></span>
+        <button class="logout-btn" onclick="logout()">Log out</button>
       </footer>
     </aside>
 
@@ -95,15 +94,15 @@
 
       <!-- Welcome screen -->
       <div class="welcome-screen" id="welcome-screen">
-        <canvas id="welcome-canvas" width="160" height="160"></canvas>
-        <h1 class="welcome-title">AGENT HUB</h1>
-        <p class="welcome-sub">SELECT AN AGENT TO BEGIN<br><span class="dim" id="welcome-count"></span></p>
+        <div class="welcome-orb" aria-hidden="true"></div>
+        <h1 class="welcome-title">Welcome to Agent Hub</h1>
+        <p class="welcome-sub">Select a specialist to begin<br><span class="dim" id="welcome-count"></span></p>
       </div>
 
       <!-- Chat area -->
       <div class="chat-area" id="chat-area" style="display:none">
         <header class="agent-header">
-          <canvas id="header-anim"></canvas>
+          <div id="header-avatar"></div>
           <div class="agent-header-info">
             <div class="agent-header-name" id="header-name"></div>
             <div class="agent-header-desc" id="header-desc"></div>
@@ -111,9 +110,9 @@
           <div class="header-actions">
             <div class="conn-indicator" id="conn-indicator" title="Connection status">
               <span class="conn-dot"></span>
-              <span class="conn-label" id="conn-label">CONNECTING</span>
+              <span class="conn-label" id="conn-label">Connecting</span>
             </div>
-            <button class="pixel-btn clear-btn" onclick="clearChat()" title="Clear conversation">CLR</button>
+            <button class="btn btn-ghost btn-sm" onclick="clearChat()" title="Clear conversation">Clear</button>
           </div>
         </header>
 
@@ -122,57 +121,57 @@
         <div class="input-area">
           <textarea
             id="message-input"
-            placeholder="> ENTER MESSAGE... (SHIFT+ENTER for newline)"
+            placeholder="Message your agent…  (Shift+Enter for newline)"
             onkeydown="handleKeyDown(event)"
             rows="2"
             aria-label="Message input"
           ></textarea>
-          <button class="pixel-btn send-btn" id="send-btn" onclick="sendMessage()">SEND</button>
+          <button class="btn btn-primary send-btn" id="send-btn" onclick="sendMessage()">Send</button>
         </div>
       </div>
 
       <!-- Leads view -->
       <div class="panel-view" id="leads-view" style="display:none">
         <header class="panel-header">
-          <h2>LEAD PIPELINE</h2>
+          <h2>Lead pipeline</h2>
           <div class="panel-actions">
             <select id="leads-filter" class="pixel-select" onchange="loadLeads()">
-              <option value="">ALL STATUSES</option>
+              <option value="">All statuses</option>
             </select>
-            <button class="pixel-btn" onclick="exportLeads()">EXPORT CSV</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportLeads()">Export CSV</button>
           </div>
         </header>
         <div class="panel-body" id="leads-body">
-          <div class="dim panel-empty">LOADING...</div>
+          <div class="dim panel-empty">Loading…</div>
         </div>
       </div>
 
       <!-- Growth view -->
       <div class="panel-view" id="growth-view" style="display:none">
         <header class="panel-header">
-          <h2>GROWTH ENGINE</h2>
+          <h2>Growth engine</h2>
           <div class="panel-actions">
-            <span class="dim" style="font-size:6px">SIGNAL-FIRST PROSPECTING // WEEKLY AUTO-RUNS</span>
+            <span class="dim small">Signal-first prospecting · weekly auto-runs</span>
           </div>
         </header>
         <div class="panel-body" id="growth-body">
-          <div class="dim panel-empty">LOADING...</div>
+          <div class="dim panel-empty">Loading…</div>
         </div>
       </div>
 
       <!-- Dashboard view -->
       <div class="panel-view" id="dashboard-view" style="display:none">
-        <header class="panel-header"><h2>DASHBOARD</h2></header>
+        <header class="panel-header"><h2>Dashboard</h2></header>
         <div class="panel-body" id="dashboard-body">
-          <div class="dim panel-empty">LOADING...</div>
+          <div class="dim panel-empty">Loading…</div>
         </div>
       </div>
 
       <!-- Settings view -->
       <div class="panel-view" id="settings-view" style="display:none">
-        <header class="panel-header"><h2>SETTINGS</h2></header>
+        <header class="panel-header"><h2>Settings</h2></header>
         <div class="panel-body" id="settings-body">
-          <div class="dim panel-empty">LOADING...</div>
+          <div class="dim panel-empty">Loading…</div>
         </div>
       </div>
 

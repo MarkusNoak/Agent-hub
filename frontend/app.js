@@ -3,332 +3,15 @@
    Auth · Agents · Leads · Dashboard · Settings
    ═══════════════════════════════════════════════════ */
 
-// ── Colour helpers ─────────────────────────────────────
-function hexToRgb(hex) {
-  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return r ? { r: parseInt(r[1],16), g: parseInt(r[2],16), b: parseInt(r[3],16) } : null;
-}
-function clamp(v) { return Math.max(0, Math.min(255, Math.round(v))); }
-function toHex(r,g,b) {
-  return '#' + [r,g,b].map(v => clamp(v).toString(16).padStart(2,'0')).join('');
-}
-function darken(hex, t)  { const c = hexToRgb(hex); return c ? toHex(c.r*(1-t), c.g*(1-t), c.b*(1-t)) : hex; }
-function lighten(hex, t) { const c = hexToRgb(hex); return c ? toHex(c.r+(255-c.r)*t, c.g+(255-c.g)*t, c.b+(255-c.b)*t) : hex; }
-
-// ── Character colour palette ───────────────────────────
-function charPalette(agentColor) {
-  return {
-    1: '#f5c892',
-    2: '#c47832',
-    3: '#1e0f00',
-    4: agentColor,
-    5: darken(agentColor, 0.40),
-    6: '#000000',
-    7: '#4a5a6a',
-    8: '#2a3a4a',
-    9: lighten(agentColor, 0.55),
-  };
-}
-
-// ── Character sprite frames (10 wide × 12 tall) ────────
-const CHAR_FRAMES = {
-  work: [
-    [
-      [0,0,3,3,3,3,0,0,0,0],
-      [0,0,3,1,1,3,0,0,9,0],
-      [0,0,3,6,1,6,3,0,9,0],
-      [0,0,3,1,1,1,3,0,9,0],
-      [0,0,0,3,1,3,0,0,0,0],
-      [0,4,4,4,4,4,4,0,0,0],
-      [1,4,0,5,5,0,4,1,0,0],
-      [1,1,7,7,7,7,1,1,0,0],
-      [0,0,7,7,7,7,0,0,0,0],
-      [0,0,8,8,8,8,0,0,0,0],
-      [0,0,0,8,8,0,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-    [
-      [0,0,0,3,3,3,0,0,0,0],
-      [0,0,3,1,1,1,3,0,9,0],
-      [0,0,3,6,1,6,1,0,9,0],
-      [0,0,3,1,1,1,3,0,9,0],
-      [0,0,0,0,3,3,0,0,0,0],
-      [0,4,4,4,4,4,4,0,0,0],
-      [1,4,0,5,5,0,4,1,0,0],
-      [1,1,7,7,7,7,1,1,0,0],
-      [0,0,7,7,7,7,0,0,0,0],
-      [0,0,8,8,8,8,0,0,0,0],
-      [0,0,0,8,8,0,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-    [
-      [0,0,3,3,3,3,0,0,0,0],
-      [0,0,3,1,1,3,0,0,9,0],
-      [0,0,3,6,1,6,3,0,9,0],
-      [0,0,3,1,1,1,3,0,9,0],
-      [0,0,0,3,1,3,0,0,0,0],
-      [0,4,4,4,4,4,4,0,0,0],
-      [0,4,5,4,4,5,4,0,0,0],
-      [1,1,7,7,7,7,1,1,0,0],
-      [0,0,7,7,7,7,0,0,0,0],
-      [0,0,8,8,8,8,0,0,0,0],
-      [0,0,0,8,8,0,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-  ],
-  idle: [
-    [
-      [0,0,3,3,3,3,0,0,0,0],
-      [0,0,3,1,1,3,0,0,0,0],
-      [0,0,3,6,1,6,3,0,0,0],
-      [0,0,3,1,1,1,3,0,0,0],
-      [0,0,0,3,1,3,0,0,0,0],
-      [0,4,4,4,4,4,4,0,0,0],
-      [1,4,0,5,5,0,4,1,0,0],
-      [0,1,0,4,4,0,1,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,5,5,5,5,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-    [
-      [0,0,3,3,3,3,0,0,0,0],
-      [0,0,3,1,1,3,0,0,0,0],
-      [0,0,3,6,1,6,3,0,0,0],
-      [0,0,3,1,1,1,3,0,0,0],
-      [0,0,0,3,1,3,0,0,0,0],
-      [0,4,4,4,4,4,4,0,0,0],
-      [0,4,0,5,5,0,4,1,0,0],
-      [1,1,0,4,4,0,0,0,0,0],
-      [0,0,5,4,0,0,0,0,0,0],
-      [0,0,0,4,5,0,0,0,0,0],
-      [0,0,0,5,0,5,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-    [
-      [0,0,3,3,3,3,0,0,0,0],
-      [0,0,3,1,1,3,0,0,0,0],
-      [0,0,3,6,1,6,3,0,0,0],
-      [0,0,3,1,1,1,3,0,0,0],
-      [0,0,0,3,1,3,0,0,0,0],
-      [0,4,4,4,4,4,4,0,0,0],
-      [1,4,0,5,5,0,4,0,0,0],
-      [0,0,0,4,4,0,1,1,0,0],
-      [0,0,0,0,4,5,0,0,0,0],
-      [0,0,0,5,4,0,0,0,0,0],
-      [0,0,5,0,0,5,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-    [
-      [0,0,3,3,3,3,0,0,0,0],
-      [0,0,3,1,1,3,0,0,0,0],
-      [0,0,3,6,1,6,3,0,0,0],
-      [0,0,3,1,2,1,3,0,0,0],
-      [0,0,0,3,3,3,0,0,0,0],
-      [1,4,4,4,4,4,4,1,0,0],
-      [0,1,0,5,5,0,1,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,5,5,5,5,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-    [
-      [1,0,3,3,3,3,0,1,0,0],
-      [0,0,3,1,1,3,0,0,0,0],
-      [0,0,3,6,1,6,3,0,0,0],
-      [0,0,3,1,2,1,3,0,0,0],
-      [0,0,0,3,3,3,0,0,0,0],
-      [0,4,4,4,4,4,4,0,0,0],
-      [0,0,0,5,5,0,0,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,5,5,5,5,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-    [
-      [0,0,3,3,3,3,0,0,0,0],
-      [0,1,3,1,1,3,1,0,0,0],
-      [0,0,3,6,1,6,3,0,0,0],
-      [0,0,3,1,1,1,3,0,0,0],
-      [0,0,0,3,1,3,0,0,0,0],
-      [1,4,4,4,4,4,4,1,0,0],
-      [0,1,0,5,5,0,1,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,0,4,4,0,0,0,0,0],
-      [0,0,5,5,5,5,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0],
-    ],
-  ],
-};
-
-// ── Animation engine ───────────────────────────────────
-const animReg = {};
-
-const WORK_SPEED  = 300;
-const IDLE_SPEED  = 480;
-const IDLE_PAUSE  = 2800;
-
-function registerAnim(key, canvas, agentId, px) {
-  animReg[key] = {
-    canvas, agentId, px,
-    mode: 'idle', frameIdx: 0, lastTick: 0,
-    cycleCount: 0, flipX: false,
-    paused: true, pauseUntil: 0,
-  };
+// ── Agent avatars & status ─────────────────────────────
+function avatarHtml(agent, extra) {
+  const initials = (agent?.name || '?').slice(0, 2);
+  return `<div class="avatar ${extra || ''}" data-avatar="${agent?.id || ''}" style="--ac:${agent?.color || '#7c5cff'}">${initials}</div>`;
 }
 
 function setAgentMode(agentId, mode) {
-  for (const key of Object.keys(animReg)) {
-    const a = animReg[key];
-    if (a.agentId !== agentId) continue;
-    a.mode      = mode;
-    a.frameIdx  = 0;
-    a.lastTick  = 0;
-    a.paused    = mode === 'idle';
-    a.pauseUntil = mode === 'idle' ? performance.now() + IDLE_PAUSE : 0;
-    a.flipX     = false;
-    a.cycleCount = 0;
-    const agent = state.agents.find(ag => ag.id === agentId);
-    if (agent) renderChar(a.canvas, mode, 0, agent.color, a.px, false);
-  }
-}
-
-function renderChar(canvas, mode, frameIdx, agentColor, px, flipX) {
-  const frame = CHAR_FRAMES[mode][frameIdx % CHAR_FRAMES[mode].length];
-  const COLS = frame[0].length;
-  const ROWS = frame.length;
-  canvas.width  = COLS * px;
-  canvas.height = ROWS * px;
-
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (flipX) {
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-  }
-
-  const pal = charPalette(agentColor);
-  frame.forEach((row, y) => {
-    row.forEach((v, x) => {
-      if (!v) return;
-      ctx.fillStyle = pal[v];
-      ctx.fillRect(x * px, y * px, px, px);
-    });
-  });
-
-  if (flipX) ctx.restore();
-}
-
-let animLoopStarted = false;
-function startAnimLoop() {
-  if (animLoopStarted) return;
-  animLoopStarted = true;
-
-  function loop(ts) {
-    for (const a of Object.values(animReg)) {
-      const agent = state.agents.find(ag => ag.id === a.agentId);
-      if (!agent) continue;
-
-      if (a.mode === 'idle' && a.paused) {
-        if (ts >= a.pauseUntil) {
-          a.paused = false;
-          a.frameIdx = 1;
-          a.lastTick = ts;
-          renderChar(a.canvas, 'idle', a.frameIdx, agent.color, a.px, a.flipX);
-        }
-        continue;
-      }
-
-      const speed = a.mode === 'work' ? WORK_SPEED : IDLE_SPEED;
-      if (ts - a.lastTick < speed) continue;
-
-      a.frameIdx++;
-      const total = CHAR_FRAMES[a.mode].length;
-
-      if (a.frameIdx >= total) {
-        a.frameIdx  = 0;
-        a.cycleCount++;
-        if (a.mode === 'idle') {
-          a.paused     = true;
-          a.pauseUntil = ts + IDLE_PAUSE;
-          if (a.cycleCount % 2 === 0) a.flipX = !a.flipX;
-        }
-      }
-
-      a.lastTick = ts;
-      renderChar(a.canvas, a.mode, a.frameIdx, agent.color, a.px, a.flipX);
-    }
-    requestAnimationFrame(loop);
-  }
-
-  requestAnimationFrame(loop);
-}
-
-// ── Welcome animation ──────────────────────────────────
-function startWelcomeAnimation(canvas, agentColors) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  let frame = 0;
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    const cx = W/2, cy = H/2, r = 52;
-    agentColors.forEach((col, i) => {
-      const angle = (i / agentColors.length) * Math.PI * 2 + frame * 0.008;
-      const x = cx + Math.cos(angle) * r;
-      const y = cy + Math.sin(angle) * r;
-      ctx.strokeStyle = col + '30';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
-      ctx.fillStyle = col;
-      ctx.fillRect(x - 3, y - 3, 6, 6);
-    });
-    const pulse = Math.sin(frame * 0.04) * 3 + 5;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - pulse, cy - pulse, pulse * 2, pulse * 2);
-    frame++;
-    requestAnimationFrame(draw);
-  }
-  draw();
-}
-
-// ── Sidebar logo ───────────────────────────────────────
-function drawLogo(canvas) {
-  const px = 3;
-  canvas.width  = 16 * px;
-  canvas.height = 16 * px;
-  const ctx = canvas.getContext('2d');
-  // prettier-ignore
-  const logo = [
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,1,2,1,1,2,1,0,0,0,0,0],
-    [0,0,0,0,1,2,1,1,1,1,2,1,0,0,0,0],
-    [0,0,0,0,1,1,1,3,3,1,1,1,0,0,0,0],
-    [0,0,0,0,1,1,3,1,1,3,1,1,0,0,0,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [1,2,1,1,1,1,1,1,1,1,1,1,1,1,2,1],
-    [1,1,1,1,1,1,3,1,1,3,1,1,1,1,1,1],
-    [1,1,1,1,1,1,3,1,1,3,1,1,1,1,1,1],
-    [1,2,1,1,1,1,1,1,1,1,1,1,1,1,2,1],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,0,0,0,1,1,3,1,1,3,1,1,0,0,0,0],
-    [0,0,0,0,1,1,1,3,3,1,1,1,0,0,0,0],
-    [0,0,0,0,1,2,1,1,1,1,2,1,0,0,0,0],
-    [0,0,0,0,0,1,2,1,1,2,1,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-  ];
-  const pal = { 1:'#ffffff', 2:'#888899', 3:'#ccccdd' };
-  logo.forEach((row, y) => {
-    row.forEach((v, x) => {
-      if (!v) return;
-      ctx.fillStyle = pal[v];
-      ctx.fillRect(x * px, y * px, px, px);
-    });
-  });
+  document.querySelectorAll(`[data-avatar="${agentId}"]`).forEach(el =>
+    el.classList.toggle('working', mode === 'work'));
 }
 
 // ── App state ──────────────────────────────────────────
@@ -371,11 +54,11 @@ function toggleAuthMode() {
   const isReg = state.authMode === 'register';
   document.getElementById('field-orgname').style.display = isReg ? 'block' : 'none';
   document.getElementById('field-name').style.display    = isReg ? 'block' : 'none';
-  document.getElementById('auth-submit').textContent     = isReg ? 'CREATE ACCOUNT' : 'SIGN IN';
+  document.getElementById('auth-submit').textContent     = isReg ? 'Create account' : 'Sign in';
   document.getElementById('auth-sub').textContent        = isReg
-    ? 'YOUR AI WORKFORCE // CREATE ACCOUNT' : 'YOUR AI WORKFORCE // SIGN IN';
-  document.getElementById('auth-toggle').textContent     = isReg
-    ? 'HAVE AN ACCOUNT? > SIGN IN' : 'NO ACCOUNT? > CREATE ONE';
+    ? 'Create your workspace' : 'Sign in to continue';
+  document.getElementById('auth-toggle').innerHTML       = isReg
+    ? 'Have an account? <span>Sign in</span>' : 'No account? <span>Create one</span>';
   showAuthError('');
 }
 
@@ -396,7 +79,7 @@ async function submitAuth(e) {
     if (state.authMode === 'register') {
       const orgName = document.getElementById('auth-orgname').value.trim();
       const name    = document.getElementById('auth-name').value.trim();
-      if (!orgName || !name) { showAuthError('ALL FIELDS REQUIRED'); return false; }
+      if (!orgName || !name) { showAuthError('All fields are required'); return false; }
       data = await api('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify({ organization_name: orgName, name, email, password }),
@@ -411,7 +94,7 @@ async function submitAuth(e) {
     localStorage.setItem('ahub_token', data.token);
     await enterApp();
   } catch (err) {
-    showAuthError(err.message.toUpperCase());
+    showAuthError(err.message);
   }
   return false;
 }
@@ -427,8 +110,6 @@ function logout() {
 
 // ── Init ───────────────────────────────────────────────
 async function init() {
-  drawLogo(document.getElementById('auth-logo'));
-
   if (state.token) {
     try {
       await enterApp();
@@ -449,21 +130,15 @@ async function enterApp() {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
 
-  drawLogo(document.getElementById('logo-canvas'));
-  document.getElementById('footer-org') .textContent =
-    `${state.org.name.toUpperCase().slice(0, 18)} // ${state.org.plan.toUpperCase()}`;
+  document.getElementById('footer-org').textContent =
+    `${state.org.name.slice(0, 22)} · ${state.org.plan.charAt(0).toUpperCase() + state.org.plan.slice(1)}`;
 
   state.agents = await api('/api/v1/agents');
   const available = state.agents.filter(a => a.available).length;
   document.getElementById('welcome-count').textContent =
-    `${available}/${state.agents.length} SPECIALISTS UNLOCKED`;
+    `${available} of ${state.agents.length} specialists unlocked`;
 
   renderSidebar();
-  startAnimLoop();
-  startWelcomeAnimation(
-    document.getElementById('welcome-canvas'),
-    state.agents.map(a => a.color),
-  );
   showView('agents');
 }
 
@@ -612,33 +287,25 @@ function renderSidebar() {
     const card = document.createElement('div');
     card.className = 'agent-card' + (agent.available ? '' : ' locked');
     card.id = `card-${agent.id}`;
-    card.style.setProperty('--agent-color', agent.color);
     card.setAttribute('role', 'button');
     card.setAttribute('tabindex', '0');
     card.onclick = () => agent.available ? selectAgent(agent.id) : showView('settings');
     card.onkeydown = e => { if (e.key === 'Enter') card.onclick(); };
 
-    const anim = document.createElement('canvas');
-    anim.className = 'anim-canvas';
-
     const statusHtml = agent.available
       ? `<span class="status-dot"></span>
-         <span class="status-label" id="slabel-${agent.id}">IDLE</span>`
-      : `<span class="lock-label">LOCKED // UPGRADE</span>`;
+         <span class="status-label" id="slabel-${agent.id}">Idle</span>`
+      : `<span class="lock-label">Upgrade to unlock</span>`;
 
     card.innerHTML = `
-      <div class="anim-wrap"></div>
+      ${avatarHtml(agent)}
       <div class="agent-card-info">
-        <div class="agent-card-name">${agent.name}${agent.has_tools ? ' <span class="tool-badge" title="Has live tools">T</span>' : ''}</div>
+        <div class="agent-card-name">${agent.name}${agent.has_tools ? ' <span class="tool-badge" title="Has live tools">tools</span>' : ''}</div>
         <div class="agent-card-desc">${agent.description}</div>
         <div class="agent-status-row">${statusHtml}</div>
       </div>
     `;
-    card.querySelector('.anim-wrap').appendChild(anim);
     list.appendChild(card);
-
-    registerAnim(agent.id, anim, agent.id, 4);
-    renderChar(anim, 'idle', 0, agent.color, 4, false);
   });
 }
 
@@ -657,19 +324,11 @@ function selectAgent(id) {
   document.getElementById('welcome-screen').style.display = 'none';
   const chatArea = document.getElementById('chat-area');
   chatArea.style.display = 'flex';
-  chatArea.style.setProperty('--agent-color', agent.color);
 
-  const headerCanvas = document.getElementById('header-anim');
-  registerAnim('header', headerCanvas, id, 5);
-  renderChar(headerCanvas, 'idle', 0, agent.color, 5, false);
+  document.getElementById('header-avatar').innerHTML = avatarHtml(agent, 'lg');
 
   document.getElementById('header-name').textContent = agent.name;
   document.getElementById('header-desc').textContent = agent.description;
-
-  const sendBtn = document.getElementById('send-btn');
-  sendBtn.style.borderColor = agent.color;
-  sendBtn.style.color       = agent.color;
-  sendBtn.style.boxShadow   = `3px 3px 0 0 ${agent.color}`;
 
   if (!state.messages[id]) state.messages[id] = [];
   renderMessages(id);
@@ -826,9 +485,11 @@ function completeToolChip(name, ok) {
 function setStatusLabel(agentId, text) {
   const el = document.getElementById(`slabel-${agentId}`);
   if (el) {
-    el.textContent = text;
-    el.style.color = text === 'WORKING' ? `var(--agent-color)` : 'var(--dim)';
+    el.textContent = text === 'WORKING' ? 'Working' : 'Idle';
+    el.style.color = text === 'WORKING' ? 'var(--accent-2)' : 'var(--dim)';
   }
+  const dot = el?.closest('.agent-status-row')?.querySelector('.status-dot');
+  if (dot) dot.style.background = text === 'WORKING' ? 'var(--accent-2)' : 'var(--dim)';
 }
 
 // ── Message rendering ──────────────────────────────────
@@ -842,8 +503,8 @@ function renderMessages(agentId) {
     const empty = document.createElement('div');
     empty.className = 'chat-empty';
     empty.innerHTML = `
-      <div class="chat-empty-name">>> ${agent?.name ?? 'AGENT'} ONLINE <<</div>
-      <div class="chat-empty-hint">TYPE A MESSAGE TO BEGIN</div>
+      <div class="chat-empty-name">${agent?.name ?? 'Agent'} is ready</div>
+      <div class="chat-empty-hint">Type a message to begin</div>
     `;
     container.appendChild(empty);
     return;
@@ -1417,7 +1078,7 @@ async function saveOrgName() {
     await api('/api/org', { method: 'PATCH', body: JSON.stringify({ name }) });
     state.org.name = name;
     document.getElementById('footer-org').textContent =
-      `${name.toUpperCase().slice(0, 18)} // ${state.org.plan.toUpperCase()}`;
+      `${name.slice(0, 22)} · ${state.org.plan.charAt(0).toUpperCase() + state.org.plan.slice(1)}`;
   } catch (e) { alert(e.message); }
 }
 
@@ -1431,7 +1092,7 @@ async function switchPlan(planId) {
     renderSidebar();
     loadSettings();
     document.getElementById('footer-org').textContent =
-      `${state.org.name.toUpperCase().slice(0, 18)} // ${planId.toUpperCase()}`;
+      `${state.org.name.slice(0, 22)} · ${planId.charAt(0).toUpperCase() + planId.slice(1)}`;
   } catch (e) { alert(e.message); }
 }
 
