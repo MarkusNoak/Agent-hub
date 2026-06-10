@@ -1,5 +1,5 @@
 import json
-import backend.database as db
+import database as db
 from .crypto import decrypt
 from .gmail import GmailConnector
 from .github import GitHubConnector
