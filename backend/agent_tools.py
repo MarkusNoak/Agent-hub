@@ -455,9 +455,11 @@ ANALYZE_WEBSITE = Tool(
         "Fetch and analyze a company's website (free, no key). Returns title, "
         "meta description, site language, detected technology stack "
         "(CMS, CRM, analytics, e-commerce, chat widgets), social profiles "
-        "(LinkedIn etc.), and publicly listed contact emails. Great for: "
-        "product-fit signals (e.g. they run Shopify, they lack a CRM), "
-        "finding a contact channel, and personalizing outreach."
+        "(LinkedIn etc.), publicly listed contact emails, AND a "
+        "digital_maturity grade (0-100) with concrete issues and pitch_angles "
+        "— no HTTPS, not mobile-adapted, no analytics, unmaintained, slow. "
+        "For an IT-services seller a LOW maturity score is a sales "
+        "opportunity: open the outreach with the specific issue found."
     ),
     input_schema={
         "type": "object",

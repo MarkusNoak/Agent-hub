@@ -99,12 +99,95 @@ async def _fetch(client: httpx.AsyncClient, url: str) -> str | None:
         return None
 
 
+# Tech that indicates a modern, professionally maintained site
+MODERN_TECH = {"Next.js", "React", "Webflow", "HubSpot", "Plausible",
+               "Google Tag Manager", "Klaviyo", "Intercom"}
+ANALYTICS_TECH = {"Google Analytics", "Google Tag Manager", "Matomo",
+                  "Plausible", "HubSpot"}
+
+
+def digital_maturity(html: str, tech: list[str], https_ok: bool,
+                     response_ms: int | None) -> dict:
+    """Grade a company's web presence 0-100. For an IT services seller a LOW
+    score is a sales opportunity — every issue is a concrete pitch angle."""
+    score = 100
+    issues: list[str] = []
+    opportunities: list[str] = []
+    lower = html.lower()
+
+    if not https_ok:
+        score -= 25
+        issues.append("no working HTTPS")
+        opportunities.append("security/SSL setup")
+
+    if '<meta name="viewport"' not in lower and "name='viewport'" not in lower:
+        score -= 20
+        issues.append("no mobile viewport — site likely not mobile-adapted")
+        opportunities.append("responsive redesign")
+
+    if not any(t in ANALYTICS_TECH for t in tech):
+        score -= 15
+        issues.append("no analytics detected — they are flying blind")
+        opportunities.append("analytics & conversion tracking setup")
+
+    # Stale copyright year = nobody maintains the site
+    years = [int(y) for y in re.findall(r"(?:©|&copy;|copyright)\s*(\d{4})",
+                                        lower)]
+    if years:
+        from datetime import datetime
+        newest = max(years)
+        if newest <= datetime.now().year - 2:
+            score -= 15
+            issues.append(f"copyright year stuck at {newest} — unmaintained")
+            opportunities.append("website renewal")
+
+    if re.search(r"jquery[./-]1\.", lower):
+        score -= 10
+        issues.append("ancient jQuery 1.x — legacy front-end")
+        opportunities.append("front-end modernization")
+
+    if "wordpress" in " ".join(tech).lower() and not any(
+            t in MODERN_TECH for t in tech):
+        score -= 5
+        issues.append("plain WordPress without modern tooling")
+
+    if response_ms is not None and response_ms > 3000:
+        score -= 10
+        issues.append(f"slow response ({response_ms} ms)")
+        opportunities.append("performance optimization")
+
+    if not re.search(r'<meta[^>]+name=["\']description', lower):
+        score -= 5
+        issues.append("missing meta description — weak SEO basics")
+        opportunities.append("SEO foundation work")
+
+    score = max(0, score)
+    if score >= 80:
+        verdict = "modern — pitch advanced services, not basics"
+    elif score >= 55:
+        verdict = "decent but gaps — pitch the specific issues found"
+    else:
+        verdict = "weak digital presence — strong full-renewal prospect"
+
+    return {"score": score, "verdict": verdict, "issues": issues,
+            "pitch_angles": sorted(set(opportunities))}
+
+
 async def analyze_website(domain: str) -> dict:
+    import time
+
     url = _normalize_url(domain)
     host = re.sub(r"^https?://", "", url).split("/")[0]
 
     async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+        started = time.monotonic()
         html = await _fetch(client, url)
+        response_ms = int((time.monotonic() - started) * 1000)
+        https_ok = html is not None and url.startswith("https://")
+        if html is None and url.startswith("https://"):
+            # Fall back to plain HTTP — reaching the site at all matters more,
+            # and a missing HTTPS is itself a maturity finding
+            html = await _fetch(client, "http://" + host)
         if html is None:
             return {"error": f"Could not fetch {url}", "domain": host}
 
@@ -142,5 +225,6 @@ async def analyze_website(domain: str) -> dict:
         "social_profiles": socials,
         "contact_emails": emails,
         "contact_page_checked": contact_page_checked,
+        "digital_maturity": digital_maturity(html, tech, https_ok, response_ms),
         "source": "website",
     }
