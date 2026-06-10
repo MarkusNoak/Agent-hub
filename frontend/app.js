@@ -134,10 +134,6 @@ async function enterApp() {
     `${state.org.name.slice(0, 22)} · ${state.org.plan.charAt(0).toUpperCase() + state.org.plan.slice(1)}`;
 
   state.agents = await api('/api/v1/agents');
-  const available = state.agents.filter(a => a.available).length;
-  document.getElementById('welcome-count').textContent =
-    `${available} of ${state.agents.length} specialists unlocked`;
-
   renderSidebar();
   showView('agents');
 }
@@ -149,8 +145,9 @@ function showView(view) {
   document.getElementById(`nav-${view}`)?.classList.add('active');
 
   const showChat = view === 'agents';
-  document.getElementById('welcome-screen').style.display =
-    showChat && !state.current ? 'flex' : 'none';
+  const showHome = showChat && !state.current;
+  document.getElementById('welcome-screen').style.display = showHome ? 'flex' : 'none';
+  if (showHome) loadHome();
   document.getElementById('chat-area').style.display =
     showChat && state.current ? 'flex' : 'none';
   document.getElementById('leads-view').style.display     = view === 'leads' ? 'flex' : 'none';
@@ -162,6 +159,80 @@ function showView(view) {
   if (view === 'growth') loadGrowth();
   if (view === 'dashboard') loadDashboard();
   if (view === 'settings') loadSettings();
+}
+
+
+// ── Home view ──────────────────────────────────────────
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 5)  return 'Good night';
+  if (h < 10) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+async function loadHome() {
+  const body = document.getElementById('home-body');
+  const firstName = (state.me?.name || '').split(' ')[0];
+
+  let ins = null, usage = null, runs = [];
+  try {
+    [ins, usage, runs] = await Promise.all([
+      api('/api/growth/insights'), api('/api/usage'), api('/api/growth/runs'),
+    ]);
+  } catch (e) { /* stats are decorative — home must still render */ }
+
+  const open = ins ? (ins.total_leads - (ins.funnel.won || 0) - (ins.funnel.lost || 0)) : 0;
+  const lastRun = runs && runs[0];
+  const available = state.agents.filter(a => a.available);
+  const locked = state.agents.filter(a => !a.available);
+
+  const stat = (label, value, sub) => `
+    <div class="home-stat">
+      <div class="home-stat-value">${value}</div>
+      <div class="home-stat-label">${label}</div>
+      ${sub ? `<div class="home-stat-sub">${sub}</div>` : ''}
+    </div>`;
+
+  body.innerHTML = `
+    <div class="home-hero">
+      <h1 class="welcome-title">${greeting()}${firstName ? ', ' + escHtml(firstName) : ''}</h1>
+      <p class="welcome-sub">${escHtml(state.org?.name || '')} · ${available.length} of ${state.agents.length} specialists unlocked</p>
+    </div>
+
+    <div class="home-stats">
+      ${stat('Active leads', open, ins ? `${ins.funnel.new || 0} new this pipeline` : '')}
+      ${stat('Meetings booked', ins ? ins.meetings_booked : '–', ins?.outreach?.reply_rate != null ? `${Math.round(ins.outreach.reply_rate * 100)}% reply rate` : '')}
+      ${stat('Messages used', usage ? usage.messages : '–', usage && usage.limits.messages > 0 ? `of ${usage.limits.messages} this month` : '')}
+      ${stat('Last harvest', lastRun ? `+${lastRun.leads_created}` : '–', lastRun ? `${escHtml((lastRun.created_at || '').slice(0, 10))} · ${lastRun.signals_found} signals` : 'No runs yet')}
+    </div>
+
+    <div class="home-actions">
+      <button class="btn btn-primary" onclick="selectAgent('vantage')">Talk to Vantage</button>
+      <button class="btn btn-ghost" onclick="showView('growth')">Run prospecting</button>
+      <button class="btn btn-ghost" onclick="showView('leads')">Open pipeline</button>
+      ${ins?.recommendations?.length ? '' : ''}
+    </div>
+
+    ${ins?.recommendations?.length ? `
+    <div class="home-reco">
+      <div class="home-section-label">Latest insight</div>
+      <div class="reco-item">${escHtml(ins.recommendations[0])}</div>
+    </div>` : ''}
+
+    <div class="home-section-label">Your specialists</div>
+    <div class="home-agent-grid">
+      ${state.agents.map(a => `
+        <div class="agent-tile ${a.available ? '' : 'locked'}"
+             onclick="${a.available ? `selectAgent('${a.id}')` : `showView('settings')`}">
+          ${avatarHtml(a)}
+          <div class="agent-tile-info">
+            <div class="agent-tile-name">${escHtml(a.name)}</div>
+            <div class="agent-tile-desc">${escHtml(a.description)}</div>
+          </div>
+          ${a.available ? (a.has_tools ? '<span class="tool-badge">tools</span>' : '') : '<span class="lock-label">Locked</span>'}
+        </div>`).join('')}
+    </div>`;
 }
 
 // ── Growth view ────────────────────────────────────────

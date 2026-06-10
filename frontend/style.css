@@ -633,3 +633,72 @@ body {
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Home screen ───────────────────────────────────── */
+.welcome-screen { align-items: stretch; justify-content: flex-start; overflow-y: auto; }
+.home {
+  position: relative;
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 48px 32px 40px;
+  display: flex; flex-direction: column; gap: 24px;
+  text-align: left;
+}
+.home-hero { display: flex; flex-direction: column; gap: 6px; }
+.home-hero .welcome-title { font-size: 30px; }
+.home-hero .welcome-sub { font-size: 14px; }
+
+.home-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+.home-stat {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.home-stat-value { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+.home-stat-label { font-size: 12px; font-weight: 600; color: var(--text-2); margin-top: 2px; }
+.home-stat-sub { font-size: 11.5px; color: var(--dim); margin-top: 4px; }
+
+.home-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.home-section-label {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: var(--dim);
+  margin-top: 6px;
+}
+.home-reco { display: flex; flex-direction: column; gap: 10px; }
+
+.home-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 12px;
+  padding-bottom: 20px;
+}
+.agent-tile {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.agent-tile:hover {
+  border-color: var(--border-2);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.agent-tile.locked { opacity: .45; }
+.agent-tile.locked:hover { opacity: .75; }
+.agent-tile-info { flex: 1; min-width: 0; }
+.agent-tile-name { font-size: 13.5px; font-weight: 700; }
+.agent-tile-desc {
+  font-size: 12px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
