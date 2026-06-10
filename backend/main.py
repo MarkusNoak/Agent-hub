@@ -26,6 +26,7 @@ from routers import (  # noqa: E402
     auth_routes,
     conversation_routes,
     growth_routes,
+    integration_routes,
     knowledge_routes,
     lead_routes,
     public_api,
@@ -56,6 +57,7 @@ app.include_router(growth_routes.router)
 app.include_router(knowledge_routes.router)
 app.include_router(approval_routes.router)
 app.include_router(conversation_routes.router)
+app.include_router(integration_routes.router)
 app.include_router(public_api.router)
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")
