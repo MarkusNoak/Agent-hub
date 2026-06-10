@@ -11,12 +11,21 @@ from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
+import asyncio  # noqa: E402
+
 import database as db  # noqa: E402
+import growth  # noqa: E402
 from agent_tools import ToolContext  # noqa: E402
 from agents import AGENTS  # noqa: E402
 from auth import auth_from_ws_token  # noqa: E402
 from plans import get_plan, plan_allows_agent, within_quota  # noqa: E402
-from routers import account_routes, auth_routes, lead_routes, public_api  # noqa: E402
+from routers import (  # noqa: E402
+    account_routes,
+    auth_routes,
+    growth_routes,
+    lead_routes,
+    public_api,
+)
 
 FRONTEND = Path(__file__).parent.parent / "frontend"
 
@@ -24,7 +33,9 @@ FRONTEND = Path(__file__).parent.parent / "frontend"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
+    scheduler = asyncio.create_task(growth.scheduler_loop())
     yield
+    scheduler.cancel()
 
 
 app = FastAPI(title="Agent Hub", version="2.0.0", lifespan=lifespan)
@@ -32,6 +43,7 @@ app = FastAPI(title="Agent Hub", version="2.0.0", lifespan=lifespan)
 app.include_router(auth_routes.router)
 app.include_router(account_routes.router)
 app.include_router(lead_routes.router)
+app.include_router(growth_routes.router)
 app.include_router(public_api.router)
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")

@@ -19,6 +19,8 @@ from enrichment import (
     lookup_registry,
 )
 from enrichment.registries import SUPPORTED_COUNTRIES
+from enrichment.signals import scan_funding_news, search_hiring_companies
+from enrichment.sweden import allabolag_newly_registered
 from leadgen import get_provider
 from plans import get_plan, within_quota
 
@@ -257,6 +259,44 @@ async def _find_job_postings(inp: dict, ctx: ToolContext) -> str:
     return _json(await cached_fetch("jobs", inp, fetch))
 
 
+async def _find_hiring_companies(inp: dict, ctx: ToolContext) -> str:
+    roles = inp.get("roles") or []
+    if not roles:
+        return _json({"error": "Provide at least one role keyword, "
+                               "e.g. ['frontendutvecklare']"})
+
+    async def fetch() -> dict:
+        try:
+            return await search_hiring_companies(
+                roles, inp.get("regions"), inp.get("limit", 15)
+            )
+        except Exception as e:
+            return {"error": f"Hiring-signal search failed: {e}"}
+
+    return _json(await cached_fetch("jobs_harvest", inp, fetch))
+
+
+async def _find_new_companies(inp: dict, ctx: ToolContext) -> str:
+    async def fetch() -> dict:
+        try:
+            companies = await allabolag_newly_registered(inp.get("region"))
+        except Exception as e:
+            return {"error": f"Newly-registered lookup failed: {e}"}
+        return {"count": len(companies), "companies": companies}
+
+    return _json(await cached_fetch("newco", inp, fetch))
+
+
+async def _scan_funding_news(inp: dict, ctx: ToolContext) -> str:
+    async def fetch() -> dict:
+        try:
+            return await scan_funding_news(inp.get("topic"))
+        except Exception as e:
+            return {"error": f"Funding-news scan failed: {e}"}
+
+    return _json(await cached_fetch("news", {"funding": True, **inp}, fetch))
+
+
 async def _check_email_domain(inp: dict, ctx: ToolContext) -> str:
     async def fetch() -> dict:
         try:
@@ -448,6 +488,64 @@ FIND_COMPANY_NEWS = Tool(
     handler=_find_company_news,
 )
 
+FIND_HIRING_COMPANIES = Tool(
+    name="find_hiring_companies",
+    description=(
+        "SIGNAL-FIRST PROSPECTING (Sweden): find every company currently "
+        "advertising for given roles via Arbetsförmedlingen's open API — "
+        "free, official, includes org numbers. This inverts the funnel: "
+        "instead of guessing an ICP and searching, you harvest companies "
+        "with PROVEN need and budget right now. Returns companies ranked by "
+        "hiring intensity with sample ads and locations. The single best "
+        "lead source for selling development/IT services in Sweden."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "roles": {"type": "array", "items": {"type": "string"},
+                      "description": "Swedish occupation keywords, e.g. ['frontendutvecklare', 'systemutvecklare'] (max 5)"},
+            "regions": {"type": "array", "items": {"type": "string"},
+                        "description": "Optional region/municipality filter, e.g. ['Stockholm', 'Göteborg']"},
+            "limit": {"type": "integer", "description": "Max companies (default 15)"},
+        },
+        "required": ["roles"],
+    },
+    handler=_find_hiring_companies,
+)
+
+FIND_NEW_COMPANIES = Tool(
+    name="find_new_companies",
+    description=(
+        "List newly registered Swedish companies (via allabolag.se public "
+        "data). New companies need websites, apps, and IT foundations — "
+        "prime prospects for digital services. Optionally filter by region."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "region": {"type": "string", "description": "Optional region filter, e.g. 'Stockholm'"},
+        },
+    },
+    handler=_find_new_companies,
+)
+
+SCAN_FUNDING_NEWS = Tool(
+    name="scan_funding_news",
+    description=(
+        "Scan Swedish business press for fresh funding rounds (Google News, "
+        "free). Companies that just raised capital invest in digital "
+        "projects. Returns headlines — extract the company names and enrich "
+        "the relevant ones. Optionally focus on a topic/industry."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string", "description": "Optional industry/topic, e.g. 'logistik' or 'fintech'"},
+        },
+    },
+    handler=_scan_funding_news,
+)
+
 FIND_JOB_POSTINGS = Tool(
     name="find_job_postings",
     description=(
@@ -486,6 +584,7 @@ CHECK_EMAIL_DOMAIN = Tool(
 )
 
 LEAD_TOOLS = [
+    FIND_HIRING_COMPANIES, FIND_NEW_COMPANIES, SCAN_FUNDING_NEWS,
     SEARCH_COMPANIES, SEARCH_PEOPLE, ENRICH_COMPANY,
     LOOKUP_REGISTRY, ANALYZE_WEBSITE, FIND_COMPANY_NEWS, FIND_JOB_POSTINGS,
     CHECK_EMAIL_DOMAIN,

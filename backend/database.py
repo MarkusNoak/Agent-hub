@@ -5,6 +5,7 @@ SQLite keeps the stack dependency-free for development and small deployments;
 the SQL is deliberately plain so it can be ported to Postgres for scale.
 """
 
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -128,6 +129,33 @@ async def init_db() -> None:
                 fetched_at  TEXT NOT NULL,
                 PRIMARY KEY (source, cache_key)
             );
+
+            -- Ideal customer profiles drive signal-first prospecting runs
+            CREATE TABLE IF NOT EXISTS icp_profiles (
+                id              TEXT PRIMARY KEY,
+                org_id          TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                what_we_sell    TEXT,
+                target_roles    TEXT,   -- JSON list of occupation keywords
+                regions         TEXT,   -- JSON list of regions/municipalities
+                include_new_companies INTEGER NOT NULL DEFAULT 0,
+                auto_run        INTEGER NOT NULL DEFAULT 0,
+                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS prospecting_runs (
+                id                  TEXT PRIMARY KEY,
+                org_id              TEXT NOT NULL,
+                icp_id              TEXT,
+                trigger             TEXT NOT NULL,
+                signals_found       INTEGER NOT NULL DEFAULT 0,
+                leads_created       INTEGER NOT NULL DEFAULT 0,
+                duplicates_skipped  INTEGER NOT NULL DEFAULT 0,
+                digest              TEXT,
+                created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_runs_org
+                ON prospecting_runs (org_id, created_at);
         """)
         # Migration: org_number added after the initial leads schema
         async with db.execute("PRAGMA table_info(leads)") as cur:
@@ -135,6 +163,142 @@ async def init_db() -> None:
         if "org_number" not in cols:
             await db.execute("ALTER TABLE leads ADD COLUMN org_number TEXT")
         await db.commit()
+
+
+# ── ICP profiles & prospecting runs ──────────────────────────────────────────
+
+
+async def create_icp(org_id: str, data: dict) -> str:
+    icp_id = new_id()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO icp_profiles (id, org_id, name, what_we_sell, "
+            "target_roles, regions, include_new_companies, auto_run) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (icp_id, org_id, data["name"], data.get("what_we_sell"),
+             json.dumps(data.get("target_roles") or [], ensure_ascii=False),
+             json.dumps(data.get("regions") or [], ensure_ascii=False),
+             int(bool(data.get("include_new_companies"))),
+             int(bool(data.get("auto_run")))),
+        )
+        await db.commit()
+    return icp_id
+
+
+def _parse_icp(row: dict) -> dict:
+    row = dict(row)
+    for key in ("target_roles", "regions"):
+        try:
+            row[key] = json.loads(row.get(key) or "[]")
+        except json.JSONDecodeError:
+            row[key] = []
+    row["include_new_companies"] = bool(row["include_new_companies"])
+    row["auto_run"] = bool(row["auto_run"])
+    return row
+
+
+async def list_icps(org_id: str) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM icp_profiles WHERE org_id = ? ORDER BY created_at",
+            (org_id,),
+        ) as cur:
+            return [_parse_icp(r) for r in await cur.fetchall()]
+
+
+async def get_icp(org_id: str, icp_id: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM icp_profiles WHERE id = ? AND org_id = ?",
+            (icp_id, org_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return _parse_icp(row) if row else None
+
+
+async def update_icp(org_id: str, icp_id: str, data: dict) -> bool:
+    sets, params = [], []
+    for key in ("name", "what_we_sell"):
+        if key in data:
+            sets.append(f"{key} = ?")
+            params.append(data[key])
+    for key in ("target_roles", "regions"):
+        if key in data:
+            sets.append(f"{key} = ?")
+            params.append(json.dumps(data[key] or [], ensure_ascii=False))
+    for key in ("include_new_companies", "auto_run"):
+        if key in data:
+            sets.append(f"{key} = ?")
+            params.append(int(bool(data[key])))
+    if not sets:
+        return False
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            f"UPDATE icp_profiles SET {', '.join(sets)} "
+            "WHERE id = ? AND org_id = ?",
+            [*params, icp_id, org_id],
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def delete_icp(org_id: str, icp_id: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM icp_profiles WHERE id = ? AND org_id = ?",
+            (icp_id, org_id),
+        )
+        await db.commit()
+
+
+async def list_auto_run_icps() -> list[dict]:
+    """All auto-run ICPs across tenants — used by the scheduler."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM icp_profiles WHERE auto_run = 1"
+        ) as cur:
+            return [_parse_icp(r) for r in await cur.fetchall()]
+
+
+async def save_prospecting_run(org_id: str, icp_id: str | None, trigger: str,
+                               stats: dict, digest: str) -> str:
+    run_id = new_id()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO prospecting_runs (id, org_id, icp_id, trigger, "
+            "signals_found, leads_created, duplicates_skipped, digest) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (run_id, org_id, icp_id, trigger,
+             stats.get("signals_found", 0), stats.get("leads_created", 0),
+             stats.get("duplicates_skipped", 0), digest),
+        )
+        await db.commit()
+    return run_id
+
+
+async def list_prospecting_runs(org_id: str, limit: int = 20) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM prospecting_runs WHERE org_id = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (org_id, limit),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def last_scheduled_run_at(org_id: str) -> str | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT MAX(created_at) FROM prospecting_runs "
+            "WHERE org_id = ? AND trigger = 'scheduled'",
+            (org_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None
 
 
 # ── Organizations & users ─────────────────────────────────────────────────────

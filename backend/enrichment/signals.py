@@ -109,6 +109,126 @@ async def find_job_postings(company_name: str, limit: int = 10) -> dict:
     }
 
 
+async def search_hiring_companies(
+    roles: list[str],
+    regions: list[str] | None = None,
+    max_companies: int = 15,
+) -> dict:
+    """Inverted JobTech search: occupation keywords → companies hiring NOW.
+
+    This is the core of signal-first prospecting: instead of checking whether
+    a known company hires, it harvests every Swedish employer currently
+    advertising for the given roles. JobTech includes the employer's org
+    number, which feeds exact duplicate detection downstream.
+    """
+    companies: dict[str, dict] = {}
+    seen_ads: set[str] = set()
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        for role in roles[:5]:
+            resp = await client.get(
+                "https://jobsearch.api.jobtechdev.se/search",
+                params={"q": role, "limit": 100},
+                headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            for hit in resp.json().get("hits") or []:
+                # The same ad matches several role keywords — count it once
+                ad_key = str(hit.get("id") or hit.get("webpage_url")
+                             or hit.get("headline"))
+                if ad_key in seen_ads:
+                    continue
+                seen_ads.add(ad_key)
+                employer = (hit.get("employer") or {})
+                name = (employer.get("name") or "").strip()
+                if not name:
+                    continue
+                addr = hit.get("workplace_address") or {}
+                region = addr.get("region") or ""
+                municipality = addr.get("municipality") or ""
+
+                if regions:
+                    haystack = f"{region} {municipality}".lower()
+                    if not any(r.lower().strip() in haystack for r in regions):
+                        continue
+
+                key = (employer.get("organization_number")
+                       or name.lower())
+                c = companies.setdefault(key, {
+                    "company_name": name,
+                    "org_number": employer.get("organization_number"),
+                    "postings": 0,
+                    "roles_advertised": [],
+                    "locations": [],
+                    "sample_ads": [],
+                    "latest_published": None,
+                })
+                c["postings"] += 1
+                occupation = ((hit.get("occupation") or {}).get("label")
+                              or hit.get("headline"))
+                if occupation and occupation not in c["roles_advertised"]:
+                    c["roles_advertised"].append(occupation)
+                loc = municipality or region
+                if loc and loc not in c["locations"]:
+                    c["locations"].append(loc)
+                if len(c["sample_ads"]) < 3 and hit.get("headline"):
+                    c["sample_ads"].append({
+                        "headline": hit["headline"],
+                        "url": hit.get("webpage_url"),
+                    })
+                pub = hit.get("publication_date")
+                if pub and (c["latest_published"] is None
+                            or pub > c["latest_published"]):
+                    c["latest_published"] = pub
+
+    ranked = sorted(companies.values(), key=lambda c: -c["postings"])
+    return {
+        "roles_searched": roles[:5],
+        "regions_filter": regions,
+        "companies_found": len(ranked),
+        "companies": ranked[:max_companies],
+        "source": "jobsearch.api.jobtechdev.se (Arbetsförmedlingen)",
+    }
+
+
+async def scan_funding_news(topic: str | None = None, limit: int = 10) -> dict:
+    """Scan Swedish business press for fresh funding rounds — companies that
+    just raised capital fund digital projects. Returns headlines for the
+    agent to extract company names from."""
+    query = '"tar in" OR "kapitalrunda" OR "miljoner i en runda" OR "nyemission"'
+    if topic:
+        query = f"{topic} ({query})"
+    locale = NEWS_LOCALES["sv"]
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+        resp = await client.get(
+            "https://news.google.com/rss/search",
+            params={"q": query, **locale},
+            headers={"User-Agent": USER_AGENT},
+        )
+        resp.raise_for_status()
+        xml_text = resp.text
+
+    root = ET.fromstring(xml_text)
+    items = []
+    for item in root.iter("item"):
+        source = item.find("source")
+        items.append({
+            "title": (item.findtext("title") or "").strip(),
+            "published": item.findtext("pubDate"),
+            "source": source.text.strip() if source is not None and source.text else None,
+            "link": item.findtext("link"),
+        })
+        if len(items) >= limit:
+            break
+    return {
+        "topic": topic,
+        "headlines": items,
+        "note": ("Extract the company names from these headlines, then "
+                 "enrich the relevant ones." if items else
+                 "No recent funding news matched."),
+    }
+
+
 async def check_email_domain(domain: str) -> dict:
     domain = domain.strip().lower()
     if "@" in domain:

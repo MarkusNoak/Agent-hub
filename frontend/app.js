@@ -479,12 +479,128 @@ function showView(view) {
   document.getElementById('chat-area').style.display =
     showChat && state.current ? 'flex' : 'none';
   document.getElementById('leads-view').style.display     = view === 'leads' ? 'flex' : 'none';
+  document.getElementById('growth-view').style.display    = view === 'growth' ? 'flex' : 'none';
   document.getElementById('dashboard-view').style.display = view === 'dashboard' ? 'flex' : 'none';
   document.getElementById('settings-view').style.display  = view === 'settings' ? 'flex' : 'none';
 
   if (view === 'leads') loadLeads();
+  if (view === 'growth') loadGrowth();
   if (view === 'dashboard') loadDashboard();
   if (view === 'settings') loadSettings();
+}
+
+// ── Growth view ────────────────────────────────────────
+async function loadGrowth() {
+  const body = document.getElementById('growth-body');
+  try {
+    const [icps, runs] = await Promise.all([
+      api('/api/growth/icps'), api('/api/growth/runs'),
+    ]);
+
+    const icpRows = icps.map(icp => `
+      <tr>
+        <td>
+          <div class="lead-company">${escHtml(icp.name)}</div>
+          <div class="dim">${escHtml((icp.target_roles || []).join(', ') || 'standardroller')}
+            ${icp.regions?.length ? ' // ' + escHtml(icp.regions.join(', ')) : ''}</div>
+        </td>
+        <td>${icp.auto_run ? '<span style="color:#44ff88">WEEKLY</span>' : '<span class="dim">MANUAL</span>'}</td>
+        <td>${icp.include_new_companies ? 'HIRING+NEWCO' : 'HIRING'}</td>
+        <td>
+          <button class="pixel-btn small" onclick="runIcp('${icp.id}', this)">RUN NOW</button>
+          <button class="pixel-btn small" onclick="toggleIcpAuto('${icp.id}', ${icp.auto_run ? 'false' : 'true'})">${icp.auto_run ? 'PAUSE' : 'AUTO'}</button>
+          <button class="pixel-btn small danger" onclick="removeIcp('${icp.id}')">DEL</button>
+        </td>
+      </tr>`).join('');
+
+    const runRows = runs.map(r => `
+      <tr class="lead-row" onclick="toggleRunDigest('${r.id}')">
+        <td>${escHtml((r.created_at || '').slice(0, 16))}</td>
+        <td>${escHtml(r.trigger.toUpperCase())}</td>
+        <td>${r.signals_found}</td>
+        <td style="color:#44ff88">${r.leads_created}</td>
+        <td class="dim">${r.duplicates_skipped}</td>
+      </tr>
+      <tr class="lead-detail" id="digest-${r.id}" style="display:none">
+        <td colspan="5"><pre class="outreach-draft">${escHtml(r.digest || '')}</pre></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="dim">NO RUNS YET</td></tr>';
+
+    body.innerHTML = `
+      <div class="dash-section">
+        <div class="dash-label">ICP PROFILES <span class="dim">// WHAT SIGNALS TO HARVEST</span></div>
+        ${icps.length ? `
+        <table class="leads-table">
+          <thead><tr><th>PROFILE</th><th>SCHEDULE</th><th>SIGNALS</th><th></th></tr></thead>
+          <tbody>${icpRows}</tbody>
+        </table>` : '<div class="dim" style="line-height:2">NO ICP YET — CREATE ONE BELOW. LEADS WILL BE HARVESTED FROM COMPANIES HIRING THESE ROLES.</div>'}
+        <div class="settings-row" style="margin-top:14px">
+          <input type="text" id="icp-name" class="pixel-input" placeholder="PROFILE NAME (E.G. WEBB STHLM)" />
+          <input type="text" id="icp-roles" class="pixel-input" placeholder="ROLES, COMMA-SEP (frontendutvecklare, ...)" />
+          <input type="text" id="icp-regions" class="pixel-input" placeholder="REGIONS (Stockholm, ...)" />
+        </div>
+        <div class="settings-row">
+          <input type="text" id="icp-sell" class="pixel-input" placeholder="WHAT WE SELL (USED IN OUTREACH)" />
+          <label class="dim" style="font-size:7px"><input type="checkbox" id="icp-newco" /> +NEWLY REGISTERED</label>
+          <label class="dim" style="font-size:7px"><input type="checkbox" id="icp-auto" checked /> WEEKLY AUTO-RUN</label>
+          <button class="pixel-btn small" onclick="createIcp()">CREATE</button>
+        </div>
+      </div>
+
+      <div class="dash-section">
+        <div class="dash-label">PROSPECTING RUNS <span class="dim">// CLICK A ROW FOR THE DIGEST</span></div>
+        <table class="leads-table">
+          <thead><tr><th>WHEN (UTC)</th><th>TRIGGER</th><th>SIGNALS</th><th>NEW LEADS</th><th>DUPES SKIPPED</th></tr></thead>
+          <tbody>${runRows}</tbody>
+        </table>
+      </div>`;
+  } catch (e) {
+    body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function toggleRunDigest(id) {
+  const row = document.getElementById(`digest-${id}`);
+  if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+async function createIcp() {
+  const name = document.getElementById('icp-name').value.trim();
+  if (!name) { alert('Profile name required'); return; }
+  const split = v => v.split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    await api('/api/growth/icps', { method: 'POST', body: JSON.stringify({
+      name,
+      what_we_sell: document.getElementById('icp-sell').value.trim() || null,
+      target_roles: split(document.getElementById('icp-roles').value),
+      regions: split(document.getElementById('icp-regions').value),
+      include_new_companies: document.getElementById('icp-newco').checked,
+      auto_run: document.getElementById('icp-auto').checked,
+    })});
+    loadGrowth();
+  } catch (e) { alert(e.message); }
+}
+
+async function runIcp(id, btn) {
+  btn.disabled = true; btn.textContent = 'RUNNING...';
+  try {
+    const r = await api(`/api/growth/icps/${id}/run`, { method: 'POST' });
+    alert(`Run complete: ${r.leads_created} new leads, ${r.duplicates_skipped} duplicates skipped.`);
+    loadGrowth();
+  } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = 'RUN NOW'; }
+}
+
+async function toggleIcpAuto(id, enable) {
+  try {
+    await api(`/api/growth/icps/${id}`, { method: 'PATCH',
+      body: JSON.stringify({ auto_run: enable }) });
+    loadGrowth();
+  } catch (e) { alert(e.message); }
+}
+
+async function removeIcp(id) {
+  if (!confirm('Delete this ICP profile?')) return;
+  try { await api(`/api/growth/icps/${id}`, { method: 'DELETE' }); } catch (e) { alert(e.message); }
+  loadGrowth();
 }
 
 // ── Sidebar ────────────────────────────────────────────

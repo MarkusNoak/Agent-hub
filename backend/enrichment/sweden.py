@@ -207,6 +207,33 @@ async def allabolag_search(name: str) -> list[dict]:
         return [_norm_allabolag(r) for r in parse_allabolag_search(resp.text)]
 
 
+async def allabolag_newly_registered(region: str | None = None) -> list[dict]:
+    """Newly registered Swedish companies from allabolag.se's public listing.
+
+    New companies need websites, apps, and IT foundations — a prime segment
+    for an IT consultancy. Parsed with the same JSON-first/HTML-fallback
+    strategy as the name search."""
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+        resp = await _polite_get(client, "https://www.allabolag.se/nyregistrerade")
+        if resp.status_code >= 400:
+            raise LookupError(
+                f"allabolag.se returned HTTP {resp.status_code} for the "
+                "newly-registered listing; retry later."
+            )
+        results = parse_allabolag_search(resp.text)
+
+    normalized = [_norm_allabolag(r) for r in results]
+    for n in normalized:
+        n["status"] = "newly registered"
+    if region:
+        filtered = [
+            n for n in normalized
+            if n.get("address") and region.lower() in n["address"].lower()
+        ]
+        normalized = filtered or normalized
+    return normalized
+
+
 # ── Dispatcher used by lookup_company_registry for SE ─────────────────────────
 
 
