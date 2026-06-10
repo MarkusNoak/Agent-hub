@@ -127,6 +127,30 @@ KEYS = [{"id":"key1","name":"produktion","prefix":"ahub_x7Kp9q","created_at":"20
 SETTINGS = {"booking_url":"https://calendly.com/weknowit/intro","daily_send_limit":20,"require_approval":True,
             "business_profile":"We Know IT är ett utvecklingskonsultbolag som bygger webbplatser, webbappar och mobilappar för SMB i Sverige."}
 
+INTEGRATIONS = {"connectors":[
+  {"id":"anthropic","name":"Claude (Anthropic)","category":"Core","connected":True,"available":True,
+   "detail":"Powers every agent."},
+  {"id":"smtp","name":"Email sending (SMTP)","category":"Outreach","connected":False,"available":True,
+   "detail":"Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM. Until then all sends are simulated (dry-run)."},
+  {"id":"imap","name":"Reply inbox (IMAP)","category":"Outreach","connected":False,"available":True,
+   "detail":"Set IMAP_HOST, IMAP_USER, IMAP_PASS to auto-classify replies and stop sequences on answer."},
+  {"id":"apollo","name":"Apollo.io","category":"Data","connected":False,"available":True,
+   "detail":"Set APOLLO_API_KEY for live decision-maker contacts. Without it, contact search returns demo data."},
+  {"id":"jobtech","name":"Platsbanken (JobTech)","category":"Data","connected":True,"available":True,
+   "detail":"Swedish job ads — hiring signal. Free public API, no key needed."},
+  {"id":"registry","name":"Company registries (SE/NO/DK/FI + VIES)","category":"Data","connected":True,"available":True,
+   "detail":"Official company data, newco signal. Free public sources, no key needed."},
+  {"id":"ted","name":"TED public tenders","category":"Data","connected":True,"available":True,
+   "detail":"EU procurement — tender signal. Works without a key; TED_API_KEY optional."},
+  {"id":"companies_house","name":"Companies House (UK)","category":"Data","connected":False,"available":True,
+   "detail":"Set COMPANIES_HOUSE_API_KEY (free) for UK company lookups."},
+  {"id":"fortnox","name":"Fortnox","category":"Finance","connected":False,"available":False,"detail":"Coming soon."},
+  {"id":"visma","name":"Visma eEkonomi","category":"Finance","connected":False,"available":False,"detail":"Coming soon."},
+  {"id":"slack","name":"Slack","category":"Notifications","connected":False,"available":False,"detail":"Coming soon."},
+  {"id":"trello","name":"Trello","category":"Project","connected":False,"available":False,"detail":"Coming soon."},
+  {"id":"linkedin","name":"LinkedIn","category":"Outreach","connected":False,"available":False,"detail":"Coming soon."},
+]}
+
 CONVERSATIONS = [
   {"session_id":"demo-s1","snippet":"Hitta 10 bolag i Stockholm som rekryterar utvecklare","last_at":"2026-06-09 14:22","messages":6},
   {"session_id":"demo-s2","snippet":"Skriv outreach till Visby Health","last_at":"2026-06-08 09:10","messages":4},
@@ -190,6 +214,7 @@ const DEMO = {
   plans: %PLANS%,
   approvals: %APPROVALS%,
   conversations: %CONVERSATIONS%,
+  integrations: %INTEGRATIONS%,
 };
 const json = d => new Response(JSON.stringify(d), {status:200, headers:{'Content-Type':'application/json'}});
 window.fetch = async (url, opts={}) => {
@@ -207,6 +232,7 @@ window.fetch = async (url, opts={}) => {
   if (u.includes('/api/growth/icps')) return json(DEMO.icps);
   if (u.includes('/api/growth/runs')) return json(DEMO.runs);
   if (u.includes('/api/growth/insights')) return json(DEMO.insights);
+  if (u.includes('/api/integrations')) return json(DEMO.integrations);
   if (u.includes('/api/org/settings')) return json(DEMO.settings);
   if (u.includes('/api/org')) return json(DEMO.org);
   if (u.includes('/api/usage')) return json(DEMO.usage);
@@ -259,6 +285,7 @@ for key, data in [("AGENTS",agents),("LEADS",LEADS),("LEAD_DETAIL",LEAD_DETAIL),
                   ("INSIGHTS",INSIGHTS),("ORG",ORG),("USAGE",USAGE),("ICPS",ICPS),
                   ("KNOWLEDGE",KNOWLEDGE),("KEYS",KEYS),("SETTINGS",SETTINGS),("PLANS",plans),
                   ("APPROVALS",APPROVALS),("CONVERSATIONS",CONVERSATIONS),
+                  ("INTEGRATIONS",INTEGRATIONS),
                   ("CHAT_TEXT",CHAT_TEXT)]:
     shim = shim.replace("%"+key+"%", json.dumps(data, ensure_ascii=False))
 

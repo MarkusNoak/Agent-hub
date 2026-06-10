@@ -1012,6 +1012,10 @@ async function loadLeads() {
   try {
     const data = await api('/api/leads' + (filter.value ? `?status=${filter.value}` : ''));
     state.leadStatuses = data.statuses;
+    if (leadsViewMode() === 'board' && data.leads.length) {
+      renderBoard(body, data.leads, data.statuses);
+      return;
+    }
     if (!data.leads.length) {
       body.innerHTML = `<div class="dim panel-empty">NO LEADS YET.<br><br>
         ASK <span style="color:#ff9500">VANTAGE</span> TO PROSPECT FOR YOU —<br>
@@ -1268,9 +1272,10 @@ async function loadSettings() {
   const body = document.getElementById('settings-body');
   const isAdmin = state.me && ['owner','admin'].includes(state.me.role);
   try {
-    const [org, plans, orgSettings, knowledge] = await Promise.all([
+    const [org, plans, orgSettings, knowledge, integrations] = await Promise.all([
       api('/api/org'), api('/api/billing/plans'), api('/api/org/settings'),
       api('/api/knowledge'),
+      api('/api/integrations').catch(() => ({ connectors: [] })),
     ]);
     const keys = isAdmin ? await api('/api/keys') : [];
 
@@ -1293,6 +1298,18 @@ async function loadSettings() {
 
     const memberRows = org.members.map(m => `
       <tr><td>${escHtml(m.name)}</td><td>${escHtml(m.email)}</td><td>${m.role.toUpperCase()}</td></tr>`).join('');
+
+    const connectorCards = (integrations.connectors || []).map(c => `
+      <div class="conn-card ${c.connected ? 'on' : ''} ${c.available === false ? 'soon' : ''}">
+        <div class="conn-card-top">
+          <div class="conn-card-name">${escHtml(c.name)}</div>
+          <span class="conn-pill ${c.available === false ? 'pill-soon' : c.connected ? 'pill-on' : 'pill-off'}">
+            ${c.available === false ? 'Coming soon' : c.connected ? 'Connected' : 'Not connected'}
+          </span>
+        </div>
+        <div class="conn-card-cat dim">${escHtml(c.category || '')}</div>
+        <div class="conn-card-detail">${escHtml(c.detail || '')}</div>
+      </div>`).join('');
 
     const keyRows = keys.map(k => `
       <tr>
@@ -1338,6 +1355,12 @@ async function loadSettings() {
           EMAIL SENDING: CONFIGURED VIA SMTP_* ENV VARS. WITHOUT EMAIL_ENABLED=TRUE ALL SENDS ARE SIMULATED (DRY-RUN).
         </div>
       </div>
+
+      ${connectorCards ? `
+      <div class="dash-section">
+        <div class="dash-label">CONNECTORS <span class="dim">// CONFIGURED VIA ENV VARS ON THE SERVER — NO CREDENTIALS STORED IN THE DATABASE</span></div>
+        <div class="conn-grid">${connectorCards}</div>
+      </div>` : ''}
 
       <div class="dash-section">
         <div class="dash-label">KNOWLEDGE BASE <span class="dim">// REFERENCE CASES, TECH STANDARDS, OFFERINGS — USED BY FORGE, VANTAGE, SCROLL, MENTOR M.FL.</span></div>
