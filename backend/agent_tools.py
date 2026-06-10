@@ -206,6 +206,39 @@ async def _update_lead(inp: dict, ctx: ToolContext) -> str:
     return _json({"ok": True, "lead_id": lead_id})
 
 
+# ── Outreach sequence tools ───────────────────────────────────────────────────
+
+
+async def _start_email_sequence(inp: dict, ctx: ToolContext) -> str:
+    import outreach
+    result = await outreach.start_sequence(
+        ctx.org_id,
+        inp.get("lead_id", ""),
+        inp.get("steps") or [],
+        inp.get("relevance_basis", ""),
+    )
+    return _json(result)
+
+
+async def _cancel_email_sequence(inp: dict, ctx: ToolContext) -> str:
+    import outreach
+    cancelled = await outreach.cancel_lead_sequence(
+        ctx.org_id, inp.get("lead_id", ""),
+        inp.get("reason", "cancelled by agent"),
+    )
+    return _json({"ok": True, "steps_cancelled": cancelled})
+
+
+async def _get_sequence_status(inp: dict, ctx: ToolContext) -> str:
+    steps = await db.get_sequence(ctx.org_id, inp.get("lead_id", ""))
+    if not steps:
+        return _json({"lead_id": inp.get("lead_id"), "sequence": None,
+                      "note": "No sequence exists for this lead."})
+    slim = [{k: s[k] for k in ("step", "subject", "send_at", "status",
+                               "sent_at")} for s in steps]
+    return _json({"lead_id": inp.get("lead_id"), "steps": slim})
+
+
 # ── Free public enrichment tools ──────────────────────────────────────────────
 
 
@@ -585,10 +618,75 @@ CHECK_EMAIL_DOMAIN = Tool(
     handler=_check_email_domain,
 )
 
+START_EMAIL_SEQUENCE = Tool(
+    name="start_email_sequence",
+    description=(
+        "Schedule an outreach sequence of 1-3 emails for a lead. YOU write "
+        "the emails — short (max 120 words each), personalized with specifics "
+        "from enrichment (a news item, their tech gaps, their hiring). Step 1 "
+        "sends immediately; later steps wait days_after days and are "
+        "auto-cancelled if the prospect replies. Use {{booking_url}} in a "
+        "body to insert the org's meeting-booking link. A Swedish GDPR "
+        "footer with an unsubscribe link is appended automatically. "
+        "relevance_basis is REQUIRED: 1-2 sentences documenting why this is "
+        "relevant to the recipient's role (legitimate-interest record). "
+        "Guardrails reject suppressed addresses, missing emails, and "
+        "duplicate sequences. Without SMTP configured, sends are simulated "
+        "and fully logged."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "lead_id": {"type": "string"},
+            "relevance_basis": {"type": "string", "description": "Why this outreach is relevant to the recipient's role (GDPR documentation)"},
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "subject": {"type": "string"},
+                        "body": {"type": "string"},
+                        "days_after": {"type": "integer", "description": "Days after the previous step (ignored for step 1, default 3)"},
+                    },
+                    "required": ["subject", "body"],
+                },
+            },
+        },
+        "required": ["lead_id", "relevance_basis", "steps"],
+    },
+    handler=_start_email_sequence,
+)
+
+CANCEL_EMAIL_SEQUENCE = Tool(
+    name="cancel_email_sequence",
+    description="Cancel all pending sequence steps for a lead (e.g. the user spoke to them through another channel, or circumstances changed).",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "lead_id": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+        "required": ["lead_id"],
+    },
+    handler=_cancel_email_sequence,
+)
+
+GET_SEQUENCE_STATUS = Tool(
+    name="get_sequence_status",
+    description="Show the outreach sequence for a lead: each step's subject, schedule, and status (pending/sent/simulated/cancelled).",
+    input_schema={
+        "type": "object",
+        "properties": {"lead_id": {"type": "string"}},
+        "required": ["lead_id"],
+    },
+    handler=_get_sequence_status,
+)
+
 LEAD_TOOLS = [
     FIND_HIRING_COMPANIES, FIND_NEW_COMPANIES, SCAN_FUNDING_NEWS,
     SEARCH_COMPANIES, SEARCH_PEOPLE, ENRICH_COMPANY,
     LOOKUP_REGISTRY, ANALYZE_WEBSITE, FIND_COMPANY_NEWS, FIND_JOB_POSTINGS,
     CHECK_EMAIL_DOMAIN,
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
+    START_EMAIL_SEQUENCE, CANCEL_EMAIL_SEQUENCE, GET_SEQUENCE_STATUS,
 ]

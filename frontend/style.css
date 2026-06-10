@@ -940,3 +940,9 @@ body {
   word-break: break-all;
 }
 .new-key-box code { font-family: var(--font); color: var(--text); }
+
+/* ── Sequences ─────────────────────────────────────── */
+.seq-pending   { color: #e8d44f; }
+.seq-sent      { color: #44ff88; }
+.seq-simulated { color: #4f9dff; }
+.seq-cancelled { color: var(--dim); }

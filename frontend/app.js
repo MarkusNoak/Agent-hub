@@ -1065,9 +1065,38 @@ async function loadLeads() {
   }
 }
 
-function toggleLeadDetail(id) {
+async function toggleLeadDetail(id) {
   const row = document.getElementById(`detail-${id}`);
-  if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+  if (!row) return;
+  const show = row.style.display === 'none';
+  row.style.display = show ? 'table-row' : 'none';
+  if (!show || row.dataset.seqLoaded) return;
+  row.dataset.seqLoaded = '1';
+  try {
+    const lead = await api(`/api/leads/${id}`);
+    if (lead.sequence && lead.sequence.length) {
+      const steps = lead.sequence.map(s =>
+        `<tr><td>STEP ${s.step}</td><td>${escHtml(s.subject)}</td>
+         <td class="seq-${s.status}">${s.status.toUpperCase()}</td>
+         <td class="dim">${escHtml((s.sent_at || s.send_at || '').slice(0, 16))}</td></tr>`
+      ).join('');
+      const hasPending = lead.sequence.some(s => s.status === 'pending');
+      const div = document.createElement('div');
+      div.className = 'lead-section';
+      div.innerHTML = `
+        <span class="dim">OUTREACH SEQUENCE</span>
+        ${hasPending ? `<button class="pixel-btn small danger" onclick="event.stopPropagation(); cancelSeq('${id}')">STOP</button>` : ''}
+        <table class="leads-table slim" style="margin-top:6px"><tbody>${steps}</tbody></table>`;
+      row.querySelector('td').appendChild(div);
+    }
+  } catch (e) { /* sequence info is optional */ }
+}
+
+async function cancelSeq(leadId) {
+  if (!confirm('Stop the remaining sequence steps?')) return;
+  try { await api(`/api/leads/${leadId}/sequence/cancel`, { method: 'POST' }); }
+  catch (e) { alert(e.message); }
+  loadLeads();
 }
 
 async function setLeadStatus(id, status) {
@@ -1159,7 +1188,9 @@ async function loadSettings() {
   const body = document.getElementById('settings-body');
   const isAdmin = state.me && ['owner','admin'].includes(state.me.role);
   try {
-    const [org, plans] = await Promise.all([api('/api/org'), api('/api/billing/plans')]);
+    const [org, plans, orgSettings] = await Promise.all([
+      api('/api/org'), api('/api/billing/plans'), api('/api/org/settings'),
+    ]);
     const keys = isAdmin ? await api('/api/keys') : [];
 
     const planCards = plans.map(p => `
@@ -1188,6 +1219,20 @@ async function loadSettings() {
         <div class="settings-row">
           <input type="text" id="org-name-input" class="pixel-input" value="${escHtml(org.name)}" ${isAdmin ? '' : 'disabled'} />
           ${isAdmin ? '<button class="pixel-btn small" onclick="saveOrgName()">SAVE</button>' : ''}
+        </div>
+      </div>
+
+      <div class="dash-section">
+        <div class="dash-label">OUTREACH <span class="dim">// USED BY EMAIL SEQUENCES</span></div>
+        <div class="settings-row">
+          <input type="text" id="booking-url-input" class="pixel-input"
+                 placeholder="BOOKING URL (E.G. CALENDLY)" value="${escHtml(orgSettings.booking_url || '')}" ${isAdmin ? '' : 'disabled'} />
+          <input type="number" id="send-limit-input" class="pixel-input" style="max-width:120px"
+                 placeholder="SENDS/DAY" value="${orgSettings.daily_send_limit || 20}" ${isAdmin ? '' : 'disabled'} />
+          ${isAdmin ? '<button class="pixel-btn small" onclick="saveOutreachSettings()">SAVE</button>' : ''}
+        </div>
+        <div class="dim" style="font-size:6px; margin-top:8px; line-height:1.8">
+          EMAIL SENDING: CONFIGURED VIA SMTP_* ENV VARS. WITHOUT EMAIL_ENABLED=TRUE ALL SENDS ARE SIMULATED (DRY-RUN).
         </div>
       </div>
 
@@ -1228,6 +1273,16 @@ async function loadSettings() {
   } catch (e) {
     body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
   }
+}
+
+async function saveOutreachSettings() {
+  try {
+    await api('/api/org/settings', { method: 'PATCH', body: JSON.stringify({
+      booking_url: document.getElementById('booking-url-input').value.trim() || null,
+      daily_send_limit: parseInt(document.getElementById('send-limit-input').value) || null,
+    })});
+    alert('Saved.');
+  } catch (e) { alert(e.message); }
 }
 
 async function saveOrgName() {

@@ -112,7 +112,19 @@ async def get_lead(lead_id: str, auth: AuthContext = Depends(get_current_auth)):
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     lead["activities"] = await db.list_lead_activities(auth.org_id, lead_id)
+    lead["sequence"] = await db.get_sequence(auth.org_id, lead_id)
     return lead
+
+
+@router.post("/{lead_id}/sequence/cancel")
+async def cancel_sequence(
+    lead_id: str, auth: AuthContext = Depends(get_current_auth)
+):
+    import outreach
+    cancelled = await outreach.cancel_lead_sequence(
+        auth.org_id, lead_id, "cancelled from UI"
+    )
+    return {"ok": True, "steps_cancelled": cancelled}
 
 
 @router.patch("/{lead_id}")

@@ -20,6 +20,11 @@ class PlanChangeRequest(BaseModel):
     plan: str
 
 
+class OrgSettingsRequest(BaseModel):
+    booking_url: str | None = None
+    daily_send_limit: int | None = Field(default=None, ge=1, le=200)
+
+
 @router.get("/org")
 async def get_org(auth: AuthContext = Depends(get_current_auth)):
     org = await db.get_organization(auth.org_id)
@@ -48,6 +53,20 @@ async def update_org(
 ):
     await db.update_organization_name(auth.org_id, req.name)
     return {"ok": True}
+
+
+@router.get("/org/settings")
+async def get_settings(auth: AuthContext = Depends(get_current_auth)):
+    return await db.get_org_settings(auth.org_id)
+
+
+@router.patch("/org/settings")
+async def patch_settings(
+    req: OrgSettingsRequest, auth: AuthContext = Depends(require_admin)
+):
+    return await db.update_org_settings(
+        auth.org_id, req.model_dump(exclude_none=True)
+    )
 
 
 @router.get("/usage")

@@ -15,6 +15,7 @@ import asyncio  # noqa: E402
 
 import database as db  # noqa: E402
 import growth  # noqa: E402
+import outreach  # noqa: E402
 from agent_tools import ToolContext  # noqa: E402
 from agents import AGENTS  # noqa: E402
 from auth import auth_from_ws_token  # noqa: E402
@@ -33,9 +34,14 @@ FRONTEND = Path(__file__).parent.parent / "frontend"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
-    scheduler = asyncio.create_task(growth.scheduler_loop())
+    tasks = [
+        asyncio.create_task(growth.scheduler_loop()),
+        asyncio.create_task(outreach.sequence_loop()),
+        asyncio.create_task(outreach.inbox_loop()),
+    ]
     yield
-    scheduler.cancel()
+    for task in tasks:
+        task.cancel()
 
 
 app = FastAPI(title="Agent Hub", version="2.0.0", lifespan=lifespan)
@@ -58,6 +64,27 @@ async def root():
 async def list_agents():
     """Public agent catalogue (availability is enforced at chat time)."""
     return [agent.to_dict() for agent in AGENTS.values()]
+
+
+@app.get("/unsubscribe", include_in_schema=False)
+async def unsubscribe(org: str, email: str, token: str):
+    """Public GDPR opt-out endpoint linked from every outreach email."""
+    from fastapi.responses import HTMLResponse
+
+    if not outreach.verify_unsubscribe_token(org, email, token):
+        return HTMLResponse("<h3>Ogiltig länk.</h3>", status_code=400)
+    await db.suppress_email(org, email, "unsubscribe link")
+    lead = await db.find_lead_by_contact_email(org, email)
+    if lead:
+        await db.cancel_sequence(org, lead["id"])
+        await db.update_lead(org, lead["id"], {"status": "lost"})
+        await db.add_lead_activity(
+            org, lead["id"], "unsubscribed",
+            f"{email} avregistrerade sig via länk.",
+        )
+    return HTMLResponse(
+        "<h3>Klart.</h3><p>Du kommer inte att kontaktas igen.</p>"
+    )
 
 
 # ── WebSocket chat ────────────────────────────────────────────────────────────

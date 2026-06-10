@@ -143,6 +143,32 @@ async def init_db() -> None:
                 created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- Outreach sequences: scheduled email steps per lead
+            CREATE TABLE IF NOT EXISTS sequence_steps (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                org_id      TEXT NOT NULL,
+                lead_id     TEXT NOT NULL,
+                step        INTEGER NOT NULL,
+                subject     TEXT NOT NULL,
+                body        TEXT NOT NULL,
+                send_at     TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'pending',
+                sent_at     TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_seq_due
+                ON sequence_steps (status, send_at);
+            CREATE INDEX IF NOT EXISTS idx_seq_lead
+                ON sequence_steps (org_id, lead_id);
+
+            -- GDPR suppression list: opt-outs are permanent per org
+            CREATE TABLE IF NOT EXISTS suppression_list (
+                org_id      TEXT NOT NULL,
+                email       TEXT NOT NULL,
+                reason      TEXT,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (org_id, email)
+            );
+
             CREATE TABLE IF NOT EXISTS prospecting_runs (
                 id                  TEXT PRIMARY KEY,
                 org_id              TEXT NOT NULL,
@@ -162,7 +188,151 @@ async def init_db() -> None:
             cols = [r[1] for r in await cur.fetchall()]
         if "org_number" not in cols:
             await db.execute("ALTER TABLE leads ADD COLUMN org_number TEXT")
+        # Migration: per-org settings JSON (booking URL, send limits, ...)
+        async with db.execute("PRAGMA table_info(organizations)") as cur:
+            org_cols = [r[1] for r in await cur.fetchall()]
+        if "settings" not in org_cols:
+            await db.execute("ALTER TABLE organizations ADD COLUMN settings TEXT")
         await db.commit()
+
+
+# ── Org settings, sequences & suppression ────────────────────────────────────
+
+
+async def get_org_settings(org_id: str) -> dict:
+    org = await get_organization(org_id)
+    if not org:
+        return {}
+    try:
+        return json.loads(org.get("settings") or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+async def update_org_settings(org_id: str, patch: dict) -> dict:
+    settings = await get_org_settings(org_id)
+    settings.update({k: v for k, v in patch.items() if v is not None})
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE organizations SET settings = ? WHERE id = ?",
+            (json.dumps(settings, ensure_ascii=False), org_id),
+        )
+        await db.commit()
+    return settings
+
+
+async def create_sequence(org_id: str, lead_id: str, steps: list[dict]) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        for i, step in enumerate(steps, 1):
+            await db.execute(
+                "INSERT INTO sequence_steps "
+                "(org_id, lead_id, step, subject, body, send_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (org_id, lead_id, i, step["subject"], step["body"],
+                 step["send_at"]),
+            )
+        await db.commit()
+    return len(steps)
+
+
+async def get_sequence(org_id: str, lead_id: str) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, step, subject, body, send_at, status, sent_at "
+            "FROM sequence_steps WHERE org_id = ? AND lead_id = ? "
+            "ORDER BY step",
+            (org_id, lead_id),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def has_active_sequence(org_id: str, lead_id: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM sequence_steps "
+            "WHERE org_id = ? AND lead_id = ? AND status = 'pending'",
+            (org_id, lead_id),
+        ) as cur:
+            return (await cur.fetchone())[0] > 0
+
+
+async def cancel_sequence(org_id: str, lead_id: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "UPDATE sequence_steps SET status = 'cancelled' "
+            "WHERE org_id = ? AND lead_id = ? AND status = 'pending'",
+            (org_id, lead_id),
+        )
+        await db.commit()
+        return cur.rowcount
+
+
+async def due_sequence_steps(now_iso: str, limit: int = 50) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM sequence_steps "
+            "WHERE status = 'pending' AND send_at <= ? "
+            "ORDER BY send_at LIMIT ?",
+            (now_iso, limit),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def mark_step(step_id: int, status: str, sent_at: str | None = None) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE sequence_steps SET status = ?, sent_at = ? WHERE id = ?",
+            (status, sent_at, step_id),
+        )
+        await db.commit()
+
+
+async def count_sends_today(org_id: str, today_prefix: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM sequence_steps "
+            "WHERE org_id = ? AND status = 'sent' AND sent_at LIKE ?",
+            (org_id, today_prefix + "%"),
+        ) as cur:
+            return (await cur.fetchone())[0]
+
+
+async def is_suppressed(org_id: str, email: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT 1 FROM suppression_list WHERE org_id = ? AND email = ?",
+            (org_id, email.strip().lower()),
+        ) as cur:
+            return await cur.fetchone() is not None
+
+
+async def suppress_email(org_id: str, email: str, reason: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO suppression_list (org_id, email, reason) "
+            "VALUES (?, ?, ?)",
+            (org_id, email.strip().lower(), reason),
+        )
+        await db.commit()
+
+
+async def find_lead_by_contact_email(org_id_or_none: str | None,
+                                     email: str) -> dict | None:
+    """Match an inbound reply to a lead. org scoping optional because the
+    inbox is global per deployment."""
+    query = ("SELECT * FROM leads WHERE LOWER(COALESCE(contact_email,'')) = ?")
+    params: list = [email.strip().lower()]
+    if org_id_or_none:
+        query += " AND org_id = ?"
+        params.append(org_id_or_none)
+    query += " ORDER BY created_at DESC LIMIT 1"
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, params) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
 
 
 # ── ICP profiles & prospecting runs ──────────────────────────────────────────
