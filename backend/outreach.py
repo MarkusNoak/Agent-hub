@@ -203,6 +203,8 @@ async def start_sequence(
 
     settings = await db.get_org_settings(org_id)
     booking_url = settings.get("booking_url") or ""
+    require_approval = bool(settings.get("require_approval", True))
+    initial_status = "awaiting_approval" if require_approval else "pending"
     hook = hook_type if hook_type in HOOK_TYPES else "other"
 
     now = _now()
@@ -224,6 +226,7 @@ async def start_sequence(
             "body": body,
             "send_at": send_at.isoformat(),
             "hook_type": hook,
+            "status": initial_status,
         })
 
     await db.create_sequence(org_id, lead_id, prepared)
@@ -233,10 +236,15 @@ async def start_sequence(
         f"Relevansgrund (GDPR): {relevance_basis}",
     )
     mode = "LIVE" if email_enabled() else "DRY-RUN (EMAIL_ENABLED is off — steps will be simulated)"
-    return {"ok": True, "steps_scheduled": len(prepared), "recipient": recipient,
-            "mode": mode, "hook_type": hook,
-            "first_send": prepared[0]["send_at"]
-            + " (aligned to Tue-Thu 08-10 Swedish time)"}
+    result = {"ok": True, "steps_scheduled": len(prepared),
+              "recipient": recipient, "mode": mode, "hook_type": hook,
+              "first_send": prepared[0]["send_at"]
+              + " (aligned to Tue-Thu 08-10 Swedish time)"}
+    if require_approval:
+        result["approval"] = ("Steps are AWAITING APPROVAL in the Approvals "
+                              "inbox — nothing sends until a human approves. "
+                              "Tell the user to review them there.")
+    return result
 
 
 async def cancel_lead_sequence(org_id: str, lead_id: str, reason: str) -> int:

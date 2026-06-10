@@ -14,6 +14,45 @@ function setAgentMode(agentId, mode) {
     el.classList.toggle('working', mode === 'work'));
 }
 
+
+// ── UI primitives: toasts, confirm modal, skeletons ────
+function toast(msg, type = 'success') {
+  const stack = document.getElementById('toast-stack');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  stack.appendChild(el);
+  setTimeout(() => el.classList.add('show'), 10);
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 3200);
+}
+
+function confirmDialog(message, danger = false) {
+  return new Promise(resolve => {
+    const backdrop = document.getElementById('modal-backdrop');
+    const confirmBtn = document.getElementById('modal-confirm');
+    document.getElementById('modal-text').textContent = message;
+    confirmBtn.textContent = danger ? 'Delete' : 'Confirm';
+    confirmBtn.className = danger ? 'btn btn-sm btn-danger' : 'btn btn-primary btn-sm';
+    backdrop.style.display = 'flex';
+    const done = val => { backdrop.style.display = 'none'; cleanup(); resolve(val); };
+    const onC = () => done(true), onX = () => done(false);
+    const onBg = e => { if (e.target === backdrop) done(false); };
+    function cleanup() {
+      confirmBtn.removeEventListener('click', onC);
+      document.getElementById('modal-cancel').removeEventListener('click', onX);
+      backdrop.removeEventListener('click', onBg);
+    }
+    confirmBtn.addEventListener('click', onC);
+    document.getElementById('modal-cancel').addEventListener('click', onX);
+    backdrop.addEventListener('click', onBg);
+  });
+}
+
+function skeleton(rows = 4) {
+  return `<div class="skeleton-stack">${Array.from({length: rows})
+    .map((_, i) => `<div class="skeleton" style="width:${88 - i * 9}%"></div>`).join('')}</div>`;
+}
+
 // ── App state ──────────────────────────────────────────
 const state = {
   token:     localStorage.getItem('ahub_token') || null,
@@ -135,6 +174,7 @@ async function enterApp() {
 
   state.agents = await api('/api/v1/agents');
   renderSidebar();
+  refreshApprovalsBadge();
   showView('agents');
 }
 
@@ -151,11 +191,13 @@ function showView(view) {
   document.getElementById('chat-area').style.display =
     showChat && state.current ? 'flex' : 'none';
   document.getElementById('leads-view').style.display     = view === 'leads' ? 'flex' : 'none';
+  document.getElementById('approvals-view').style.display  = view === 'approvals' ? 'flex' : 'none';
   document.getElementById('growth-view').style.display    = view === 'growth' ? 'flex' : 'none';
   document.getElementById('dashboard-view').style.display = view === 'dashboard' ? 'flex' : 'none';
   document.getElementById('settings-view').style.display  = view === 'settings' ? 'flex' : 'none';
 
   if (view === 'leads') loadLeads();
+  if (view === 'approvals') loadApprovals();
   if (view === 'growth') loadGrowth();
   if (view === 'dashboard') loadDashboard();
   if (view === 'settings') loadSettings();
@@ -171,14 +213,48 @@ function greeting() {
   return 'Good evening';
 }
 
+
+function checklistHtml(orgSettings, icps, runs, ins) {
+  const steps = [
+    { done: !!(orgSettings && orgSettings.business_profile),
+      label: 'Describe your business so every agent adapts to it',
+      cta: 'Open settings', view: 'settings' },
+    { done: (icps || []).some(i => i.auto_run),
+      label: 'Configure your ICP and enable weekly auto-runs',
+      cta: 'Open growth', view: 'growth' },
+    { done: (runs || []).length > 0,
+      label: 'Run your first prospecting harvest',
+      cta: 'Run now', view: 'growth' },
+    { done: !!(ins && ins.total_leads > 0),
+      label: 'Review your first leads in the pipeline',
+      cta: 'Open pipeline', view: 'leads' },
+  ];
+  if (steps.every(s => s.done)) return '';
+  const doneCount = steps.filter(s => s.done).length;
+  return `
+    <div class="checklist">
+      <div class="checklist-head">
+        <div class="home-section-label">Get set up</div>
+        <span class="dim small">${doneCount} of ${steps.length} done</span>
+      </div>
+      ${steps.map(s => `
+        <div class="checklist-item ${s.done ? 'done' : ''}">
+          <span class="check-mark">${s.done ? '✓' : ''}</span>
+          <span class="check-label">${s.label}</span>
+          ${s.done ? '' : `<button class="btn btn-ghost btn-sm" onclick="showView('${s.view}')">${s.cta}</button>`}
+        </div>`).join('')}
+    </div>`;
+}
+
 async function loadHome() {
   const body = document.getElementById('home-body');
   const firstName = (state.me?.name || '').split(' ')[0];
 
-  let ins = null, usage = null, runs = [];
+  let ins = null, usage = null, runs = [], icps = [], orgSettings = {};
   try {
-    [ins, usage, runs] = await Promise.all([
+    [ins, usage, runs, icps, orgSettings] = await Promise.all([
       api('/api/growth/insights'), api('/api/usage'), api('/api/growth/runs'),
+      api('/api/growth/icps'), api('/api/org/settings'),
     ]);
   } catch (e) { /* stats are decorative — home must still render */ }
 
@@ -214,6 +290,8 @@ async function loadHome() {
       ${ins?.recommendations?.length ? '' : ''}
     </div>
 
+    ${checklistHtml(orgSettings, icps, runs, ins)}
+
     ${ins?.recommendations?.length ? `
     <div class="home-reco">
       <div class="home-section-label">Latest insight</div>
@@ -235,9 +313,109 @@ async function loadHome() {
     </div>`;
 }
 
+
+// ── Approvals inbox ────────────────────────────────────
+async function refreshApprovalsBadge() {
+  try {
+    const data = await api('/api/approvals');
+    const badge = document.getElementById('approvals-badge');
+    badge.textContent = data.count;
+    badge.style.display = data.count > 0 ? 'inline-flex' : 'none';
+    return data;
+  } catch (e) { return { count: 0, items: [] }; }
+}
+
+async function loadApprovals() {
+  const body = document.getElementById('approvals-body');
+  body.innerHTML = skeleton(4);
+  const data = await refreshApprovalsBadge();
+  if (!data.items.length) {
+    body.innerHTML = `<div class="dim panel-empty">Inbox zero — nothing awaiting approval.<br><br>
+      When <b>Vantage</b> schedules outreach, every email lands here for your review before it sends.</div>`;
+    return;
+  }
+  body.innerHTML = data.items.map(s => `
+    <div class="approval-card" id="appr-${s.id}">
+      <div class="approval-head">
+        <div>
+          <div class="lead-company">${escHtml(s.company_name)} <span class="dim">· step ${s.step}</span></div>
+          <div class="dim small">To: ${escHtml(s.contact_name || '')} &lt;${escHtml(s.contact_email || '')}&gt; · sends ${escHtml((s.send_at || '').slice(0, 16))}</div>
+        </div>
+        ${s.hook_type ? `<span class="tool-badge">${escHtml(s.hook_type)}</span>` : ''}
+      </div>
+      <input class="pixel-input approval-subject" id="appr-subj-${s.id}" value="${escHtml(s.subject)}" />
+      <textarea class="pixel-input approval-body" id="appr-body-${s.id}" rows="7">${escHtml(s.body)}</textarea>
+      <div class="approval-actions">
+        <button class="btn btn-primary btn-sm" onclick="approveStep(${s.id})">Approve &amp; send</button>
+        <button class="btn btn-ghost btn-sm btn-danger-ghost" onclick="rejectStep(${s.id})">Reject</button>
+      </div>
+    </div>`).join('');
+}
+
+async function approveStep(id) {
+  try {
+    await api(`/api/approvals/${id}/approve`, { method: 'POST', body: JSON.stringify({
+      subject: document.getElementById(`appr-subj-${id}`).value,
+      body: document.getElementById(`appr-body-${id}`).value,
+    })});
+    toast('Approved — sends at the next scheduled window');
+    loadApprovals();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function rejectStep(id) {
+  if (!await confirmDialog('Reject this email? It will never send.', true)) return;
+  try {
+    await api(`/api/approvals/${id}/reject`, { method: 'POST' });
+    toast('Rejected');
+    loadApprovals();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Suggested prompts ──────────────────────────────────
+const AGENT_PROMPTS = {
+  vantage: ['Hitta 10 bolag i Stockholm som rekryterar utvecklare just nu',
+            'Djup-enricha mina tre hetaste leads och föreslå outreach',
+            'Hur presterar pipelinen — vad ska jag prioritera idag?'],
+  forge:   ['Förbered en teknisk brief inför mötet med vårt hetaste lead',
+            'Gör en teknisk analys av en kunds webbplats',
+            'Hjälp mig estimera ett webbprojekt utifrån lösa krav'],
+  beacon:  ['Finns det aktiva IT-upphandlingar i Sverige just nu?',
+            'Gör en bid/no-bid-bedömning av en upphandling',
+            'Strukturera ett anbudssvar enligt utvärderingskriterierna'],
+  scroll:  ['Skriv en offert baserad på våra referenscase',
+            'Gör om vårt senaste projekt till en case study',
+            'Skriv ett LinkedIn-inlägg om något vi levererat'],
+  nexus:   ['Hur går affären just nu? Ge mig en överblick',
+            'Vilken agent ska jag använda för vad?',
+            'Vad borde jag fokusera på den här veckan?'],
+  haven:   ['Skriv en uppföljning till en kund vi levererade till i våras',
+            'Föreslå merförsäljning för våra vunna kunder',
+            'Utkast: be vår nöjdaste kund om en referens'],
+  mentor:  ['Skapa en onboarding-plan för en ny konsult',
+            'Lär mig hur vi skriver statusuppdateringar till kund',
+            'Gör en övning av ett verkligt projektscenario'],
+};
+const DEFAULT_PROMPTS = ['Vad kan du hjälpa mig med?',
+                         'Vad behöver du veta om oss för att göra ett bra jobb?'];
+
+function promptChips(agentId) {
+  const prompts = AGENT_PROMPTS[agentId] || DEFAULT_PROMPTS;
+  return `<div class="prompt-chips">${prompts.map(p =>
+    `<button class="prompt-chip" onclick="usePrompt(this)">${escHtml(p)}</button>`).join('')}</div>`;
+}
+
+function usePrompt(btn) {
+  const input = document.getElementById('message-input');
+  input.value = btn.textContent;
+  autoResize(input);
+  sendMessage();
+}
+
 // ── Growth view ────────────────────────────────────────
 async function loadGrowth() {
   const body = document.getElementById('growth-body');
+  body.innerHTML = skeleton(5);
   try {
     const [icps, runs] = await Promise.all([
       api('/api/growth/icps'), api('/api/growth/runs'),
@@ -311,7 +489,7 @@ function toggleRunDigest(id) {
 
 async function createIcp() {
   const name = document.getElementById('icp-name').value.trim();
-  if (!name) { alert('Profile name required'); return; }
+  if (!name) { toast('Profile name required', 'error'); return; }
   const split = v => v.split(',').map(s => s.trim()).filter(Boolean);
   try {
     await api('/api/growth/icps', { method: 'POST', body: JSON.stringify({
@@ -323,16 +501,16 @@ async function createIcp() {
       auto_run: document.getElementById('icp-auto').checked,
     })});
     loadGrowth();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function runIcp(id, btn) {
   btn.disabled = true; btn.textContent = 'RUNNING...';
   try {
     const r = await api(`/api/growth/icps/${id}/run`, { method: 'POST' });
-    alert(`Run complete: ${r.leads_created} new leads, ${r.duplicates_skipped} duplicates skipped.`);
+    toast(`Run complete: ${r.leads_created} new leads, ${r.duplicates_skipped} duplicates skipped`);
     loadGrowth();
-  } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = 'RUN NOW'; }
+  } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'Run now'; }
 }
 
 async function toggleIcpAuto(id, enable) {
@@ -340,12 +518,12 @@ async function toggleIcpAuto(id, enable) {
     await api(`/api/growth/icps/${id}`, { method: 'PATCH',
       body: JSON.stringify({ auto_run: enable }) });
     loadGrowth();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function removeIcp(id) {
-  if (!confirm('Delete this ICP profile?')) return;
-  try { await api(`/api/growth/icps/${id}`, { method: 'DELETE' }); } catch (e) { alert(e.message); }
+  if (!await confirmDialog('Delete this ICP profile?', true)) return;
+  try { await api(`/api/growth/icps/${id}`, { method: 'DELETE' }); } catch (e) { toast(e.message, 'error'); }
   loadGrowth();
 }
 
@@ -575,7 +753,8 @@ function renderMessages(agentId) {
     empty.className = 'chat-empty';
     empty.innerHTML = `
       <div class="chat-empty-name">${agent?.name ?? 'Agent'} is ready</div>
-      <div class="chat-empty-hint">Type a message to begin</div>
+      <div class="chat-empty-hint">Try one of these to get started</div>
+      ${promptChips(agentId)}
     `;
     container.appendChild(empty);
     return;
@@ -833,21 +1012,21 @@ async function toggleLeadDetail(id) {
 }
 
 async function cancelSeq(leadId) {
-  if (!confirm('Stop the remaining sequence steps?')) return;
+  if (!await confirmDialog('Stop the remaining sequence steps?', true)) return;
   try { await api(`/api/leads/${leadId}/sequence/cancel`, { method: 'POST' }); }
-  catch (e) { alert(e.message); }
+  catch (e) { toast(e.message, 'error'); }
   loadLeads();
 }
 
 async function setLeadStatus(id, status) {
   try { await api(`/api/leads/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); }
-  catch (e) { alert(e.message); }
+  catch (e) { toast(e.message, 'error'); }
   loadLeads();
 }
 
 async function removeLead(id) {
-  if (!confirm('Delete this lead?')) return;
-  try { await api(`/api/leads/${id}`, { method: 'DELETE' }); } catch (e) { alert(e.message); }
+  if (!await confirmDialog('Delete this lead? The company is blocked from re-harvest for 45 days.', true)) return;
+  try { await api(`/api/leads/${id}`, { method: 'DELETE' }); } catch (e) { toast(e.message, 'error'); }
   loadLeads();
 }
 
@@ -880,6 +1059,7 @@ function quotaBar(used, limit, color) {
 
 async function loadDashboard() {
   const body = document.getElementById('dashboard-body');
+  body.innerHTML = skeleton(5);
   try {
     const [org, usage, ins] = await Promise.all([
       api('/api/org'), api('/api/usage'), api('/api/growth/insights'),
@@ -1037,7 +1217,11 @@ async function loadSettings() {
           <input type="text" id="booking-url-input" class="pixel-input"
                  placeholder="BOOKING URL (E.G. CALENDLY)" value="${escHtml(orgSettings.booking_url || '')}" ${isAdmin ? '' : 'disabled'} />
           <input type="number" id="send-limit-input" class="pixel-input" style="max-width:120px"
-                 placeholder="SENDS/DAY" value="${orgSettings.daily_send_limit || 20}" ${isAdmin ? '' : 'disabled'} />
+                 placeholder="Sends/day" value="${orgSettings.daily_send_limit || 20}" ${isAdmin ? '' : 'disabled'} />
+          <label class="dim small" style="display:flex;align-items:center;gap:6px">
+            <input type="checkbox" id="require-approval-input" ${orgSettings.require_approval === false ? '' : 'checked'} ${isAdmin ? '' : 'disabled'} />
+            Require approval before sending
+          </label>
           ${isAdmin ? '<button class="pixel-btn small" onclick="saveOutreachSettings()">SAVE</button>' : ''}
         </div>
         <div class="dim" style="font-size:6px; margin-top:8px; line-height:1.8">
@@ -1110,25 +1294,25 @@ async function saveBizProfile() {
     await api('/api/org/settings', { method: 'PATCH', body: JSON.stringify({
       business_profile: document.getElementById('biz-profile-input').value.trim() || null,
     })});
-    alert('Saved — every agent now adapts to your business.');
-  } catch (e) { alert(e.message); }
+    toast('Saved — every agent now adapts to your business');
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function addKnowledge() {
   const title = document.getElementById('kb-title').value.trim();
   const content = document.getElementById('kb-content').value.trim();
-  if (!title || !content) { alert('Title and content required.'); return; }
+  if (!title || !content) { toast('Title and content required', 'error'); return; }
   try {
     await api('/api/knowledge', { method: 'POST', body: JSON.stringify({
       kind: document.getElementById('kb-kind').value, title, content,
     })});
     loadSettings();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function removeKnowledge(id) {
-  if (!confirm('Delete this knowledge entry?')) return;
-  try { await api(`/api/knowledge/${id}`, { method: 'DELETE' }); } catch (e) { alert(e.message); }
+  if (!await confirmDialog('Delete this knowledge entry?', true)) return;
+  try { await api(`/api/knowledge/${id}`, { method: 'DELETE' }); } catch (e) { toast(e.message, 'error'); }
   loadSettings();
 }
 
@@ -1137,9 +1321,10 @@ async function saveOutreachSettings() {
     await api('/api/org/settings', { method: 'PATCH', body: JSON.stringify({
       booking_url: document.getElementById('booking-url-input').value.trim() || null,
       daily_send_limit: parseInt(document.getElementById('send-limit-input').value) || null,
+      require_approval: document.getElementById('require-approval-input').checked,
     })});
-    alert('Saved.');
-  } catch (e) { alert(e.message); }
+    toast('Saved');
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function saveOrgName() {
@@ -1150,11 +1335,11 @@ async function saveOrgName() {
     state.org.name = name;
     document.getElementById('footer-org').textContent =
       `${name.slice(0, 22)} · ${state.org.plan.charAt(0).toUpperCase() + state.org.plan.slice(1)}`;
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function switchPlan(planId) {
-  if (!confirm(`Switch to the ${planId.toUpperCase()} plan?`)) return;
+  if (!await confirmDialog(`Switch to the ${planId.charAt(0).toUpperCase() + planId.slice(1)} plan?`)) return;
   try {
     await api('/api/billing/plan', { method: 'POST', body: JSON.stringify({ plan: planId }) });
     state.org.plan = planId;
@@ -1164,7 +1349,7 @@ async function switchPlan(planId) {
     loadSettings();
     document.getElementById('footer-org').textContent =
       `${state.org.name.slice(0, 22)} · ${planId.charAt(0).toUpperCase() + planId.slice(1)}`;
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function inviteMember() {
@@ -1172,7 +1357,7 @@ async function inviteMember() {
   const email = document.getElementById('invite-email').value.trim();
   const password = document.getElementById('invite-password').value;
   if (!name || !email || password.length < 8) {
-    alert('Name, email and a password of at least 8 characters are required.');
+    toast('Name, email and a password of at least 8 characters are required', 'error');
     return;
   }
   try {
@@ -1180,7 +1365,7 @@ async function inviteMember() {
       method: 'POST', body: JSON.stringify({ name, email, password }),
     });
     loadSettings();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function createKey() {
@@ -1192,12 +1377,12 @@ async function createKey() {
     const box = document.getElementById('new-key-box');
     box.style.display = 'block';
     box.innerHTML = `NEW KEY (SHOWN ONCE — STORE IT NOW):<br><code>${escHtml(data.key)}</code>`;
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function revokeKey(id) {
-  if (!confirm('Revoke this API key?')) return;
-  try { await api(`/api/keys/${id}`, { method: 'DELETE' }); } catch (e) { alert(e.message); }
+  if (!await confirmDialog('Revoke this API key? Integrations using it stop working.', true)) return;
+  try { await api(`/api/keys/${id}`, { method: 'DELETE' }); } catch (e) { toast(e.message, 'error'); }
   loadSettings();
 }
 

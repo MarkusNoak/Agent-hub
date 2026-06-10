@@ -124,8 +124,19 @@ KNOWLEDGE = {"kinds":["case","standard","offering","process","other"],
 
 KEYS = [{"id":"key1","name":"produktion","prefix":"ahub_x7Kp9q","created_at":"2026-06-04","last_used_at":"2026-06-10"}]
 
-SETTINGS = {"booking_url":"https://calendly.com/weknowit/intro","daily_send_limit":20,
+SETTINGS = {"booking_url":"https://calendly.com/weknowit/intro","daily_send_limit":20,"require_approval":True,
             "business_profile":"We Know IT är ett utvecklingskonsultbolag som bygger webbplatser, webbappar och mobilappar för SMB i Sverige."}
+
+APPROVALS = {"count":2,"items":[
+  {"id":1,"lead_id":"L1","step":1,"subject":"Er rekrytering av React-utvecklare",
+   "body":"Hej Sara,\n\nsåg att ni söker er fjärde utvecklare på fyra månader — att skala teamet i den takten är tufft.\n\nVi är We Know IT och hjälper bolag som ert att leverera medan ni rekryterar: senior React/AWS-kapacitet från dag ett.\n\nHar du 20 minuter nästa vecka?",
+   "send_at":"2026-06-11T06:30","hook_type":"hiring","company_name":"Visby Health Systems AB",
+   "contact_name":"Sara Lindqvist","contact_email":"sara.lindqvist@visbyhealth-demo.se","score":95},
+  {"id":2,"lead_id":"L3","step":1,"subject":"Er webbplats tappar kunder på mobilen",
+   "body":"Hej Mads,\n\nvi gjorde en snabb teknisk genomgång av er sajt: den saknar mobilanpassning och analytics — i logistikbranschen sker över hälften av bokningarna mobilt.\n\nVi bygger om sajter som er på 4–6 veckor. Intresserad av en kort genomgång av vad vi hittade?",
+   "send_at":"2026-06-11T06:30","hook_type":"maturity","company_name":"Køge Logistik ApS",
+   "contact_name":"Mads Eriksen","contact_email":"mads.eriksen@koegelogistik-demo.dk","score":71},
+]}
 
 CHAT_TEXT = """Jag körde en snabb signal-skörd mot er ICP. Här är läget:
 
@@ -172,6 +183,7 @@ const DEMO = {
   keys: %KEYS%,
   settings: %SETTINGS%,
   plans: %PLANS%,
+  approvals: %APPROVALS%,
 };
 const json = d => new Response(JSON.stringify(d), {status:200, headers:{'Content-Type':'application/json'}});
 window.fetch = async (url, opts={}) => {
@@ -197,6 +209,10 @@ window.fetch = async (url, opts={}) => {
   if (u.includes('/api/knowledge')) {
     if (opts.method && opts.method!=='GET') return json({ok:true});
     return json(DEMO.knowledge);
+  }
+  if (u.includes('/api/approvals')) {
+    if (opts.method === 'POST') { DEMO.approvals = {count: Math.max(0, DEMO.approvals.count - 1), items: DEMO.approvals.items.slice(1)}; return json({ok:true, remaining: DEMO.approvals.count}); }
+    return json(DEMO.approvals);
   }
   if (u.includes('/api/keys')) return json(DEMO.keys);
   return json({ok:true});
@@ -233,6 +249,7 @@ window.WebSocket = FakeWS;
 for key, data in [("AGENTS",agents),("LEADS",LEADS),("LEAD_DETAIL",LEAD_DETAIL),("RUNS",RUNS),
                   ("INSIGHTS",INSIGHTS),("ORG",ORG),("USAGE",USAGE),("ICPS",ICPS),
                   ("KNOWLEDGE",KNOWLEDGE),("KEYS",KEYS),("SETTINGS",SETTINGS),("PLANS",plans),
+                  ("APPROVALS",APPROVALS),
                   ("CHAT_TEXT",CHAT_TEXT)]:
     shim = shim.replace("%"+key+"%", json.dumps(data, ensure_ascii=False))
 
