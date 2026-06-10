@@ -889,3 +889,129 @@ body {
 .email-body:focus { background: rgba(124,92,255,.04); }
 .email-footnote { padding: 8px 14px; border-top: 1px dashed var(--border); }
 .approval-edit-hint { margin-left: auto; }
+
+/* ═══════════════════════════════════════════════════
+   LIQUID GLASS — translucent surfaces over ambient light
+   ═══════════════════════════════════════════════════ */
+
+body {
+  background:
+    radial-gradient(1100px 700px at 85% -10%, rgba(124,92,255,.16), transparent 60%),
+    radial-gradient(900px 600px at -10% 30%, rgba(76,159,255,.12), transparent 55%),
+    radial-gradient(800px 700px at 50% 115%, rgba(52,211,153,.07), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+:root {
+  --glass:        rgba(22, 27, 40, .52);
+  --glass-2:      rgba(28, 34, 52, .55);
+  --glass-border: rgba(255, 255, 255, .09);
+  --glass-edge:   inset 0 1px 0 rgba(255,255,255,.07);
+}
+
+/* Frosted surfaces */
+.sidebar,
+.agent-header, .panel-header, .input-area {
+  background: var(--glass);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+.sidebar { border-right-color: var(--glass-border); }
+.agent-header, .panel-header { border-bottom-color: var(--glass-border); }
+.input-area { border-top-color: var(--glass-border); }
+
+.auth-box, .modal,
+.dash-card, .home-stat, .plan-card, .approval-card, .checklist,
+.agent-tile, .reco-item, .leads-table, .email-preview {
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-edge), 0 10px 32px rgba(0,0,0,.28);
+}
+.leads-table th { background: var(--glass-2); border-bottom-color: var(--glass-border); }
+.leads-table td { border-bottom-color: rgba(255,255,255,.05); }
+.lead-row:hover td { background: rgba(255,255,255,.04); }
+.lead-detail td { background: rgba(10,13,20,.35); }
+
+.message.assistant .message-bubble {
+  background: var(--glass);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-edge);
+}
+.message.user .message-bubble {
+  box-shadow: 0 6px 20px rgba(124,92,255,.35), inset 0 1px 0 rgba(255,255,255,.25);
+}
+
+.tool-chip, .prompt-chip, .toast {
+  background: var(--glass-2);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-color: var(--glass-border);
+}
+.toast { box-shadow: var(--glass-edge), var(--shadow); }
+
+.pixel-input, .auth-field input, .pixel-select, .input-area textarea {
+  background: rgba(10, 13, 20, .45);
+  border-color: var(--glass-border);
+}
+.email-preview .email-row { border-bottom-color: rgba(255,255,255,.06); }
+.email-footnote { border-top-color: rgba(255,255,255,.08); }
+
+.nav-btn.active {
+  background: linear-gradient(135deg, rgba(124,92,255,.28), rgba(76,159,255,.18));
+  box-shadow: var(--glass-edge);
+}
+.agent-card:hover, .agent-card.active { background: rgba(255,255,255,.05); }
+.nav-btn:hover { background: rgba(255,255,255,.05); }
+
+/* Specular sheen sweeping the primary button */
+.btn-primary { position: relative; overflow: hidden; }
+.btn-primary::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.28) 50%, transparent 65%);
+  transform: translateX(-120%);
+  transition: transform .6s ease;
+}
+.btn-primary:hover::after { transform: translateX(120%); }
+
+/* Glass avatars with top highlight */
+.avatar {
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.28), inset 0 -6px 12px rgba(0,0,0,.25), 0 4px 12px rgba(0,0,0,.3);
+}
+
+/* Floating light orbs drift slowly behind everything */
+.welcome-orb { opacity: .9; }
+.auth-glow { animation: orb-float 11s ease-in-out infinite; }
+
+/* History popover (glass) */
+.history-wrap { position: relative; }
+.history-pop {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  width: 320px; max-height: 380px;
+  overflow-y: auto;
+  background: var(--glass-2);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--glass-edge), var(--shadow);
+  z-index: 50;
+  padding: 6px;
+}
+.history-item {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.history-item:hover { background: rgba(255,255,255,.06); }
+.history-item.active { background: rgba(124,92,255,.15); }
+.history-snippet {
+  font-size: 13px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}

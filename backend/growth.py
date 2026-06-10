@@ -138,6 +138,7 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
     plan = get_plan(org["plan"])
     stats = {"signals_found": 0, "leads_created": 0, "duplicates_skipped": 0}
     top_leads: list[dict] = []
+    created_ids: list[str] = []
     notes: list[str] = []
 
     roles = icp.get("target_roles") or DEFAULT_ROLES
@@ -233,6 +234,7 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
             f"Skördad från rekryteringssignal ({trigger} körning)",
         )
         stats["leads_created"] += 1
+        created_ids.append(lead_id)
         top_leads.append({
             "company_name": company["company_name"],
             "score": score,
@@ -294,6 +296,22 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
             stats["leads_created"] += 1
 
     top_leads.sort(key=lambda x: -x["score"])
+
+    # Contact auto-enrich for the top of the run (live provider only)
+    import contacts as contacts_mod
+    if contacts_mod.contact_provider_live() and created_ids:
+        try:
+            enriched = await contacts_mod.auto_enrich_new_leads(
+                org_id, created_ids, max_leads=5
+            )
+            if enriched:
+                notes.append(
+                    f"Kontaktuppgifter hittade för {enriched} av topp-leadsen "
+                    "(namn/titel/e-post ifyllt automatiskt)."
+                )
+        except Exception as e:
+            notes.append(f"Kontakt-berikning misslyckades: {e}")
+
     digest = _build_digest(icp, stats, top_leads, notes)
     run_id = await db.save_prospecting_run(
         org_id, icp.get("id"), trigger, stats, digest

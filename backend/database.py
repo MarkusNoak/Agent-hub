@@ -1051,6 +1051,33 @@ async def clear_history(org_id: str, agent_id: str, session_id: str) -> None:
         await db.commit()
 
 
+async def list_sessions(org_id: str, agent_id: str, limit: int = 20) -> list[dict]:
+    """Past conversations for an agent: session id, snippet, last activity."""
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT c1.session_id,
+                   CAST(MAX(c1.created_at) AS TEXT) AS last_at,
+                   COUNT(*) AS messages,
+                   (SELECT c2.content FROM conversations c2
+                     WHERE c2.org_id = c1.org_id AND c2.agent_id = c1.agent_id
+                       AND c2.session_id = c1.session_id AND c2.role = 'user'
+                     ORDER BY c2.id ASC LIMIT 1) AS snippet
+            FROM conversations c1
+            WHERE c1.org_id = ? AND c1.agent_id = ?
+            GROUP BY c1.session_id
+            ORDER BY MAX(c1.id) DESC
+            LIMIT ?
+            """,
+            (org_id, agent_id, limit),
+        ) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+    for r in rows:
+        r["snippet"] = (r.get("snippet") or "")[:90]
+    return rows
+
+
 # ── Usage metering ────────────────────────────────────────────────────────────
 
 

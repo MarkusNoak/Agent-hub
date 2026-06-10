@@ -61,7 +61,7 @@ const state = {
   view:      'agents',
   agents:    [],
   current:   null,
-  sessions:  {},
+  sessions:  JSON.parse(localStorage.getItem('ahub_sessions') || '{}'),
   messages:  {},
   ws:        null,
   streaming: false,
@@ -586,14 +586,76 @@ function selectAgent(id) {
   document.getElementById('header-name').textContent = agent.name;
   document.getElementById('header-desc').textContent = agent.description;
 
+  if (!state.sessions[id]) { state.sessions[id] = genSessionId(); persistSessions(); }
   if (!state.messages[id]) state.messages[id] = [];
+  if (state.messages[id].length === 0) {
+    // Restore the persisted conversation from the server (fire and forget)
+    api(`/api/conversations/${id}/${state.sessions[id]}`).then(data => {
+      if (data.messages?.length && state.current === id) {
+        state.messages[id] = data.messages;
+        renderMessages(id);
+      }
+    }).catch(() => {});
+  }
   renderMessages(id);
-  if (!state.sessions[id]) state.sessions[id] = genSessionId();
   connectWebSocket(id, state.sessions[id]);
 }
 
 function genSessionId() {
   return 'sess_' + Math.random().toString(36).substring(2, 15);
+}
+
+function persistSessions() {
+  localStorage.setItem('ahub_sessions', JSON.stringify(state.sessions));
+}
+
+// ── Conversation history ───────────────────────────────
+async function toggleHistory() {
+  const pop = document.getElementById('history-pop');
+  if (pop.style.display !== 'none') { pop.style.display = 'none'; return; }
+  pop.style.display = 'block';
+  pop.innerHTML = '<div class="history-item dim">Loading…</div>';
+  try {
+    const sessions = await api(`/api/conversations/${state.current}`);
+    if (!sessions.length) {
+      pop.innerHTML = '<div class="history-item dim">No earlier conversations</div>';
+      return;
+    }
+    pop.innerHTML = sessions.map(s => `
+      <div class="history-item ${s.session_id === state.sessions[state.current] ? 'active' : ''}"
+           onclick="openSession('${s.session_id}')">
+        <div class="history-snippet">${escHtml(s.snippet || 'New conversation')}</div>
+        <div class="dim small">${escHtml((s.last_at || '').slice(0, 16).replace('T', ' '))} · ${s.messages} messages</div>
+      </div>`).join('');
+  } catch (e) {
+    pop.innerHTML = `<div class="history-item dim">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function openSession(sessionId) {
+  document.getElementById('history-pop').style.display = 'none';
+  const agentId = state.current;
+  state.sessions[agentId] = sessionId;
+  persistSessions();
+  try {
+    const data = await api(`/api/conversations/${agentId}/${sessionId}`);
+    state.messages[agentId] = data.messages;
+  } catch (e) { state.messages[agentId] = []; }
+  renderMessages(agentId);
+  if (state.ws) { state.ws.close(); state.ws = null; }
+  connectWebSocket(agentId, sessionId);
+}
+
+function newChat() {
+  document.getElementById('history-pop').style.display = 'none';
+  const agentId = state.current;
+  state.sessions[agentId] = genSessionId();
+  persistSessions();
+  state.messages[agentId] = [];
+  renderMessages(agentId);
+  if (state.ws) { state.ws.close(); state.ws = null; }
+  connectWebSocket(agentId, state.sessions[agentId]);
+  toast('New conversation started');
 }
 
 // ── WebSocket ──────────────────────────────────────────
@@ -663,6 +725,7 @@ function handleWsMsg(data, agentId) {
   switch (data.type) {
     case 'session':
       state.sessions[agentId] = data.session_id;
+      persistSessions();
       break;
 
     case 'start':
@@ -714,6 +777,7 @@ function handleWsMsg(data, agentId) {
 
     case 'cleared':
       state.messages[agentId] = [];
+      persistSessions();
       renderMessages(agentId);
       break;
   }
@@ -967,6 +1031,10 @@ async function loadLeads() {
             <div><span class="dim">LOCATION</span><br>${escHtml(l.location || '--')}</div>
             <div><span class="dim">SOURCE</span><br>${escHtml(l.source || '--')}</div>
           </div>
+          ${!l.contact_email ? `<div class="lead-section">
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); findContact('${l.id}', this)">Find contact</button>
+            <span class="dim small"> Searches decision-makers via the data provider, falls back to public site emails</span>
+          </div>` : ''}
           ${l.score_reason ? `<div class="lead-section"><span class="dim">SCORE RATIONALE</span><br>${escHtml(l.score_reason)}</div>` : ''}
           ${l.notes ? `<div class="lead-section"><span class="dim">NOTES</span><br>${escHtml(l.notes)}</div>` : ''}
           ${l.outreach_draft ? `
@@ -1023,6 +1091,23 @@ async function cancelSeq(leadId) {
   try { await api(`/api/leads/${leadId}/sequence/cancel`, { method: 'POST' }); }
   catch (e) { toast(e.message, 'error'); }
   loadLeads();
+}
+
+async function findContact(id, btn) {
+  btn.disabled = true; btn.textContent = 'Searching…';
+  try {
+    const r = await api(`/api/leads/${id}/find-contact`, { method: 'POST' });
+    if (r.found) {
+      toast(`Contact found via ${r.source}${r.note ? ' — ' + r.note : ''}`);
+      loadLeads();
+    } else {
+      toast(r.note || 'No contact found', 'error');
+      btn.disabled = false; btn.textContent = 'Find contact';
+    }
+  } catch (e) {
+    toast(e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Find contact';
+  }
 }
 
 async function setLeadStatus(id, status) {
