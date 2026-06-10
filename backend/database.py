@@ -117,7 +117,23 @@ async def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_lead_activities
                 ON lead_activities (org_id, lead_id, created_at);
+
+            -- Cross-tenant cache for public enrichment data (registries,
+            -- websites, news, DNS, provider searches). Keyed by source +
+            -- normalized request; TTL is enforced by the reader.
+            CREATE TABLE IF NOT EXISTS enrichment_cache (
+                source      TEXT NOT NULL,
+                cache_key   TEXT NOT NULL,
+                payload     TEXT NOT NULL,
+                fetched_at  TEXT NOT NULL,
+                PRIMARY KEY (source, cache_key)
+            );
         """)
+        # Migration: org_number added after the initial leads schema
+        async with db.execute("PRAGMA table_info(leads)") as cur:
+            cols = [r[1] for r in await cur.fetchall()]
+        if "org_number" not in cols:
+            await db.execute("ALTER TABLE leads ADD COLUMN org_number TEXT")
         await db.commit()
 
 
@@ -376,17 +392,80 @@ async def get_monthly_usage(org_id: str, month: str | None = None) -> dict:
 # ── Leads ─────────────────────────────────────────────────────────────────────
 
 
+def _norm_domain(domain: str | None) -> str | None:
+    if not domain:
+        return None
+    d = domain.strip().lower()
+    d = d.removeprefix("https://").removeprefix("http://").removeprefix("www.")
+    return d.split("/")[0] or None
+
+
+def _norm_orgnr(org_number: str | None) -> str | None:
+    if not org_number:
+        return None
+    digits = "".join(ch for ch in org_number if ch.isdigit())
+    return digits or None
+
+
+async def find_duplicate_lead(
+    org_id: str,
+    company_name: str | None = None,
+    domain: str | None = None,
+    org_number: str | None = None,
+    contact_email: str | None = None,
+) -> dict | None:
+    """Match an incoming lead against the org's existing pipeline.
+
+    A lead is a duplicate if it shares an org number, domain, contact email,
+    or exact company name (case-insensitive) with an existing lead — in that
+    order of confidence.
+    """
+    conditions: list[str] = []
+    params: list[str] = []
+    if _norm_orgnr(org_number):
+        conditions.append(
+            "REPLACE(REPLACE(COALESCE(org_number,''), '-', ''), ' ', '') = ?"
+        )
+        params.append(_norm_orgnr(org_number))
+    if _norm_domain(domain):
+        conditions.append(
+            "REPLACE(REPLACE(REPLACE(LOWER(COALESCE(domain,'')), "
+            "'https://', ''), 'http://', ''), 'www.', '') = ?"
+        )
+        params.append(_norm_domain(domain))
+    if contact_email:
+        conditions.append("LOWER(COALESCE(contact_email,'')) = ?")
+        params.append(contact_email.strip().lower())
+    if company_name:
+        conditions.append("LOWER(company_name) = ?")
+        params.append(company_name.strip().lower())
+    if not conditions:
+        return None
+
+    query = (
+        "SELECT id, company_name, domain, org_number, contact_email, status, "
+        "score, created_at FROM leads WHERE org_id = ? AND ("
+        + " OR ".join(conditions)
+        + ") LIMIT 1"
+    )
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, [org_id, *params]) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
 async def create_lead(org_id: str, created_by: str | None, data: dict) -> str:
     lead_id = new_id()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
             INSERT INTO leads (
-                id, org_id, month, company_name, domain, industry,
+                id, org_id, month, company_name, domain, org_number, industry,
                 company_size, location, contact_name, contact_title,
                 contact_email, contact_linkedin, source, score, score_reason,
                 status, notes, outreach_draft, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 lead_id,
@@ -394,6 +473,7 @@ async def create_lead(org_id: str, created_by: str | None, data: dict) -> str:
                 month_key(),
                 data.get("company_name", "Unknown"),
                 data.get("domain"),
+                data.get("org_number"),
                 data.get("industry"),
                 data.get("company_size"),
                 data.get("location"),
@@ -442,9 +522,10 @@ async def list_leads(
 
 async def update_lead(org_id: str, lead_id: str, fields: dict) -> bool:
     allowed = {
-        "company_name", "domain", "industry", "company_size", "location",
-        "contact_name", "contact_title", "contact_email", "contact_linkedin",
-        "score", "score_reason", "status", "notes", "outreach_draft",
+        "company_name", "domain", "org_number", "industry", "company_size",
+        "location", "contact_name", "contact_title", "contact_email",
+        "contact_linkedin", "score", "score_reason", "status", "notes",
+        "outreach_draft",
     }
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:

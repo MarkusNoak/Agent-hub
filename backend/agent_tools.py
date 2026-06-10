@@ -12,8 +12,10 @@ from typing import Any, Awaitable, Callable
 import database as db
 from enrichment import (
     analyze_website,
+    cached_fetch,
     check_email_domain,
     find_company_news,
+    find_job_postings,
     lookup_registry,
 )
 from enrichment.registries import SUPPORTED_COUNTRIES
@@ -52,45 +54,63 @@ def _json(data: Any) -> str:
 
 async def _search_companies(inp: dict, ctx: ToolContext) -> str:
     provider = get_provider()
-    try:
-        results = await provider.search_companies(
-            keywords=inp.get("keywords"),
-            industry=inp.get("industry"),
-            locations=inp.get("locations"),
-            employee_ranges=inp.get("employee_ranges"),
-            per_page=inp.get("limit", 10),
-        )
-    except Exception as e:
-        return _json({"error": f"Provider error: {e}", "provider": provider.name})
-    return _json({"provider": provider.name, "count": len(results),
-                  "companies": results})
+
+    async def fetch() -> dict:
+        try:
+            results = await provider.search_companies(
+                keywords=inp.get("keywords"),
+                industry=inp.get("industry"),
+                locations=inp.get("locations"),
+                employee_ranges=inp.get("employee_ranges"),
+                per_page=inp.get("limit", 10),
+            )
+        except Exception as e:
+            return {"error": f"Provider error: {e}", "provider": provider.name}
+        return {"provider": provider.name, "count": len(results),
+                "companies": results}
+
+    return _json(await cached_fetch(
+        "provider_companies", {"provider": provider.name, **inp}, fetch
+    ))
 
 
 async def _search_people(inp: dict, ctx: ToolContext) -> str:
     provider = get_provider()
-    try:
-        results = await provider.search_people(
-            titles=inp.get("titles"),
-            locations=inp.get("locations"),
-            company_domains=inp.get("company_domains"),
-            keywords=inp.get("keywords"),
-            per_page=inp.get("limit", 10),
-        )
-    except Exception as e:
-        return _json({"error": f"Provider error: {e}", "provider": provider.name})
-    return _json({"provider": provider.name, "count": len(results),
-                  "people": results})
+
+    async def fetch() -> dict:
+        try:
+            results = await provider.search_people(
+                titles=inp.get("titles"),
+                locations=inp.get("locations"),
+                company_domains=inp.get("company_domains"),
+                keywords=inp.get("keywords"),
+                per_page=inp.get("limit", 10),
+            )
+        except Exception as e:
+            return {"error": f"Provider error: {e}", "provider": provider.name}
+        return {"provider": provider.name, "count": len(results),
+                "people": results}
+
+    return _json(await cached_fetch(
+        "provider_people", {"provider": provider.name, **inp}, fetch
+    ))
 
 
 async def _enrich_company(inp: dict, ctx: ToolContext) -> str:
     provider = get_provider()
-    try:
-        result = await provider.enrich_company(inp["domain"])
-    except Exception as e:
-        return _json({"error": f"Provider error: {e}", "provider": provider.name})
-    if not result:
-        return _json({"error": f"No data found for domain {inp['domain']}"})
-    return _json({"provider": provider.name, "company": result})
+
+    async def fetch() -> dict:
+        try:
+            result = await provider.enrich_company(inp["domain"])
+        except Exception as e:
+            return {"error": f"Provider error: {e}", "provider": provider.name}
+        if not result:
+            return {"error": f"No data found for domain {inp['domain']}"}
+        return {"provider": provider.name, "company": result}
+
+    return _json(await cached_fetch(
+        "provider_enrich", {"provider": provider.name, **inp}, fetch
+    ))
 
 
 async def _save_lead(inp: dict, ctx: ToolContext) -> str:
@@ -102,12 +122,37 @@ async def _save_lead(inp: dict, ctx: ToolContext) -> str:
                      f"({used}/{plan.leads_per_month} on the {plan.name} plan). "
                      "Ask the user to upgrade to save more leads.",
         })
+
+    # Duplicate disqualification: never store the same company twice
+    dupe = await db.find_duplicate_lead(
+        ctx.org_id,
+        company_name=inp.get("company_name"),
+        domain=inp.get("domain"),
+        org_number=inp.get("org_number"),
+        contact_email=inp.get("contact_email"),
+    )
+    if dupe:
+        return _json({
+            "error": "DUPLICATE — this company is already in the pipeline. "
+                     "Do not save it again or re-enrich it; use update_lead "
+                     "if there is genuinely new information, otherwise move "
+                     "on to the next prospect.",
+            "existing_lead": {
+                "lead_id": dupe["id"],
+                "company_name": dupe["company_name"],
+                "status": dupe["status"],
+                "score": dupe["score"],
+                "created_at": dupe["created_at"],
+            },
+        })
+
     score = inp.get("score")
     if score is not None:
         score = max(0, min(100, int(score)))
     lead_id = await db.create_lead(ctx.org_id, ctx.user_id, {
         "company_name": inp.get("company_name", "Unknown"),
         "domain": inp.get("domain"),
+        "org_number": inp.get("org_number"),
         "industry": inp.get("industry"),
         "company_size": inp.get("company_size"),
         "location": inp.get("location"),
@@ -163,43 +208,63 @@ async def _update_lead(inp: dict, ctx: ToolContext) -> str:
 
 
 async def _lookup_registry(inp: dict, ctx: ToolContext) -> str:
-    try:
-        results = await lookup_registry(inp["query"], inp["country"])
-    except LookupError as e:
-        return _json({"error": str(e)})
-    except Exception as e:
-        return _json({"error": f"Registry lookup failed: {e}"})
-    if not results:
-        return _json({"error": f"No registry match for '{inp['query']}' "
-                               f"in {inp['country']}"})
-    return _json({"count": len(results), "companies": results})
+    async def fetch() -> dict:
+        try:
+            results = await lookup_registry(inp["query"], inp["country"])
+        except LookupError as e:
+            return {"error": str(e)}
+        except Exception as e:
+            return {"error": f"Registry lookup failed: {e}"}
+        if not results:
+            return {"error": f"No registry match for '{inp['query']}' "
+                             f"in {inp['country']}"}
+        return {"count": len(results), "companies": results}
+
+    return _json(await cached_fetch("registry", inp, fetch))
 
 
 async def _analyze_website(inp: dict, ctx: ToolContext) -> str:
-    try:
-        return _json(await analyze_website(inp["domain"]))
-    except Exception as e:
-        return _json({"error": f"Website analysis failed: {e}"})
+    async def fetch() -> dict:
+        try:
+            return await analyze_website(inp["domain"])
+        except Exception as e:
+            return {"error": f"Website analysis failed: {e}"}
+
+    return _json(await cached_fetch("website", inp, fetch))
 
 
 async def _find_company_news(inp: dict, ctx: ToolContext) -> str:
-    try:
-        items = await find_company_news(
-            inp["company_name"], language=inp.get("language", "en")
-        )
-    except Exception as e:
-        return _json({"error": f"News search failed: {e}"})
-    if not items:
-        return _json({"company": inp["company_name"], "news": [],
-                      "note": "No recent news found."})
-    return _json({"company": inp["company_name"], "news": items})
+    async def fetch() -> dict:
+        try:
+            items = await find_company_news(
+                inp["company_name"], language=inp.get("language", "en")
+            )
+        except Exception as e:
+            return {"error": f"News search failed: {e}"}
+        return {"company": inp["company_name"], "news": items,
+                "note": None if items else "No recent news found."}
+
+    return _json(await cached_fetch("news", inp, fetch))
+
+
+async def _find_job_postings(inp: dict, ctx: ToolContext) -> str:
+    async def fetch() -> dict:
+        try:
+            return await find_job_postings(inp["company_name"])
+        except Exception as e:
+            return {"error": f"Job posting search failed: {e}"}
+
+    return _json(await cached_fetch("jobs", inp, fetch))
 
 
 async def _check_email_domain(inp: dict, ctx: ToolContext) -> str:
-    try:
-        return _json(await check_email_domain(inp["domain"]))
-    except Exception as e:
-        return _json({"error": f"Email domain check failed: {e}"})
+    async def fetch() -> dict:
+        try:
+            return await check_email_domain(inp["domain"])
+        except Exception as e:
+            return {"error": f"Email domain check failed: {e}"}
+
+    return _json(await cached_fetch("mx", inp, fetch))
 
 
 SEARCH_COMPANIES = Tool(
@@ -269,6 +334,7 @@ SAVE_LEAD = Tool(
         "properties": {
             "company_name": {"type": "string"},
             "domain": {"type": "string"},
+            "org_number": {"type": "string", "description": "Official organization number from a registry lookup — enables exact duplicate detection"},
             "industry": {"type": "string"},
             "company_size": {"type": "string"},
             "location": {"type": "string"},
@@ -382,6 +448,25 @@ FIND_COMPANY_NEWS = Tool(
     handler=_find_company_news,
 )
 
+FIND_JOB_POSTINGS = Tool(
+    name="find_job_postings",
+    description=(
+        "Search active SWEDISH job postings via Arbetsförmedlingen's open "
+        "JobTech API (free, no key). Active hiring is one of the strongest "
+        "timing signals — a company recruiting is growing and has budget — "
+        "and postings reveal which departments and technologies are scaling. "
+        "Sweden only; for other markets use find_company_news instead."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "company_name": {"type": "string"},
+        },
+        "required": ["company_name"],
+    },
+    handler=_find_job_postings,
+)
+
 CHECK_EMAIL_DOMAIN = Tool(
     name="check_email_domain",
     description=(
@@ -402,6 +487,7 @@ CHECK_EMAIL_DOMAIN = Tool(
 
 LEAD_TOOLS = [
     SEARCH_COMPANIES, SEARCH_PEOPLE, ENRICH_COMPANY,
-    LOOKUP_REGISTRY, ANALYZE_WEBSITE, FIND_COMPANY_NEWS, CHECK_EMAIL_DOMAIN,
+    LOOKUP_REGISTRY, ANALYZE_WEBSITE, FIND_COMPANY_NEWS, FIND_JOB_POSTINGS,
+    CHECK_EMAIL_DOMAIN,
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
 ]

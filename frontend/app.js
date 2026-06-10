@@ -611,6 +611,7 @@ const TOOL_LABELS = {
   lookup_company_registry: 'CHECKING OFFICIAL REGISTRY',
   analyze_website:         'ANALYZING WEBSITE',
   find_company_news:       'SCANNING NEWS SIGNALS',
+  find_job_postings:       'CHECKING HIRING SIGNALS',
   check_email_domain:      'VERIFYING EMAIL DOMAIN',
   save_lead:               'SAVING LEAD TO PIPELINE',
   list_leads:              'READING PIPELINE',

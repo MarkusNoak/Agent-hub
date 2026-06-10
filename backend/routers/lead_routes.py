@@ -12,7 +12,7 @@ from plans import get_plan, within_quota
 router = APIRouter(prefix="/api/leads", tags=["leads"])
 
 EXPORT_COLUMNS = [
-    "company_name", "domain", "industry", "company_size", "location",
+    "company_name", "domain", "org_number", "industry", "company_size", "location",
     "contact_name", "contact_title", "contact_email", "contact_linkedin",
     "source", "score", "score_reason", "status", "notes", "created_at",
 ]
@@ -21,6 +21,7 @@ EXPORT_COLUMNS = [
 class LeadCreate(BaseModel):
     company_name: str
     domain: str | None = None
+    org_number: str | None = None
     industry: str | None = None
     company_size: str | None = None
     location: str | None = None
@@ -36,6 +37,7 @@ class LeadCreate(BaseModel):
 class LeadUpdate(BaseModel):
     company_name: str | None = None
     domain: str | None = None
+    org_number: str | None = None
     industry: str | None = None
     location: str | None = None
     contact_name: str | None = None
@@ -68,6 +70,19 @@ async def create_lead(
         raise HTTPException(
             status_code=402,
             detail=f"Monthly lead quota reached ({plan.leads_per_month})",
+        )
+    dupe = await db.find_duplicate_lead(
+        auth.org_id,
+        company_name=req.company_name,
+        domain=req.domain,
+        org_number=req.org_number,
+        contact_email=req.contact_email,
+    )
+    if dupe:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Duplicate of existing lead '{dupe['company_name']}' "
+                   f"(status: {dupe['status']})",
         )
     data = req.model_dump(exclude_none=True)
     data["source"] = "manual"

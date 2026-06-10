@@ -12,14 +12,16 @@ Sources:
 - Finland  — PRH/YTJ open data (avoindata.prh.fi), no key required
 - UK       — Companies House, free API key via COMPANIES_HOUSE_API_KEY
 
-Sweden has no free public registry API (Bolagsverket requires a paid
-agreement); Swedish companies are covered by the lead provider and the
-website/news enrichers instead.
+- Sweden   — VIES VAT verification (official EU API) + allabolag.se public
+             pages, see enrichment/sweden.py. Bolagsverket itself has no
+             free API.
 """
 
 import os
 
 import httpx
+
+from .sweden import lookup_sweden
 
 USER_AGENT = "AgentHub/2.0 (lead enrichment; contact: ops@agenthub.example)"
 TIMEOUT = 15
@@ -200,6 +202,7 @@ async def _lookup_uk(query: str) -> list[dict]:
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 _REGISTRIES = {
+    "se": lookup_sweden,
     "no": _lookup_norway,
     "dk": _lookup_denmark,
     "fi": _lookup_finland,
@@ -207,7 +210,10 @@ _REGISTRIES = {
     "uk": _lookup_uk,
 }
 
-SUPPORTED_COUNTRIES = "NO (Norway), DK (Denmark), FI (Finland), GB/UK (United Kingdom)"
+SUPPORTED_COUNTRIES = (
+    "SE (Sweden: VIES + allabolag.se), NO (Norway), DK (Denmark), "
+    "FI (Finland), GB/UK (United Kingdom)"
+)
 
 
 async def lookup_registry(query: str, country: str) -> list[dict]:
@@ -216,7 +222,6 @@ async def lookup_registry(query: str, country: str) -> list[dict]:
     if not fn:
         raise LookupError(
             f"No free registry available for '{country}'. "
-            f"Supported: {SUPPORTED_COUNTRIES}. Sweden has no free public "
-            "registry API — use the lead provider plus website/news enrichment."
+            f"Supported: {SUPPORTED_COUNTRIES}."
         )
     return await fn(query.strip())

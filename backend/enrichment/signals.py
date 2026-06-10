@@ -70,6 +70,45 @@ async def find_company_news(
     return items
 
 
+async def find_job_postings(company_name: str, limit: int = 10) -> dict:
+    """Swedish job ads via Arbetsförmedlingen's open JobTech API (free, no
+    key). Active postings are a strong hiring/growth/timing signal and often
+    reveal tech stack and departments that are scaling."""
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.get(
+            "https://jobsearch.api.jobtechdev.se/search",
+            params={"q": company_name, "limit": min(limit, 20)},
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    tokens = [t for t in company_name.lower().split() if len(t) > 2]
+    postings = []
+    for hit in data.get("hits") or []:
+        employer = ((hit.get("employer") or {}).get("name") or "")
+        # Keep only ads whose employer actually matches the company
+        if tokens and not any(t in employer.lower() for t in tokens):
+            continue
+        addr = hit.get("workplace_address") or {}
+        postings.append({
+            "headline": hit.get("headline"),
+            "employer": employer,
+            "municipality": addr.get("municipality"),
+            "published": hit.get("publication_date"),
+            "url": hit.get("webpage_url"),
+        })
+
+    return {
+        "company": company_name,
+        "total_matches": len(postings),
+        "postings": postings[:limit],
+        "source": "jobsearch.api.jobtechdev.se (Arbetsförmedlingen)",
+        "note": None if postings else
+                "No active Swedish job postings matched this employer.",
+    }
+
+
 async def check_email_domain(domain: str) -> dict:
     domain = domain.strip().lower()
     if "@" in domain:

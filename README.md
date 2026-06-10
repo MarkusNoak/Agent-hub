@@ -39,17 +39,38 @@ VANTAGE is not a chat-only advisor. It has live tools:
 
 | Tool | Source | Gives you |
 |---|---|---|
-| `lookup_company_registry` | Brønnøysundregistrene (NO), CVR/cvrapi.dk (DK), PRH/YTJ (FI), Companies House (GB, free key) | Authoritative legal name, org number, active/dissolved/bankrupt status, legal form, official industry code, address, registration date |
+| `lookup_company_registry` | **SE: allabolag.se + EU VIES**, Brønnøysundregistrene (NO), CVR/cvrapi.dk (DK), PRH/YTJ (FI), Companies House (GB, free key) | Authoritative legal name, org number, active/dissolved/bankrupt status, legal form, official industry code, address, registration date |
 | `analyze_website` | The company's own site | Tech stack (Shopify, HubSpot, WordPress, …), social profiles, public contact emails, positioning, language |
 | `find_company_news` | Google News RSS (en/sv/no/da/fi) | Timing signals: funding, expansion, hires, launches |
+| `find_job_postings` | Arbetsförmedlingen JobTech API (SE) | Active hiring = growth + budget; reveals scaling departments and tech |
 | `check_email_domain` | DNS-over-HTTPS (MX records) | Whether a domain accepts email + provider (Google Workspace / Microsoft 365 / …) |
 
+Swedish coverage (Bolagsverket has no free API): name searches scrape
+allabolag.se's public pages — politely (rate-limited, identified
+User-Agent, parsed from embedded JSON with an HTML fallback) — and
+org-number lookups are verified against the official EU VIES VAT API.
+
 VANTAGE layers these in its workflow: verify the company in a registry,
-mine the website for fit and contacts, scan local-language news for an
-outreach hook, and validate the email domain before a lead is saved —
-each signal cited in the lead's score rationale. Sweden has no free public
-registry API (Bolagsverket is paywalled), so Swedish prospects rely on the
-lead provider plus website/news/DNS enrichment.
+mine the website for fit and contacts, scan local-language news and
+Swedish job ads for an outreach hook, and validate the email domain before
+a lead is saved — each signal cited in the lead's score rationale.
+
+### Cost controls
+
+- **Server-side caching** (`enrichment_cache`, shared across tenants):
+  registries ~30 days, websites ~7 days, news/jobs 24 h, MX 30 days, and —
+  most importantly — paid provider searches 7–14 days. The same company
+  researched twice costs one API call; cache hits are marked
+  `"_cache": "hit"` in tool results. Errors are never cached.
+- **Duplicate disqualification**: `save_lead` (and `POST /api/leads`)
+  reject leads matching an existing one by org number, domain, contact
+  email, or company name — normalized, so `5561112222`, `556111-2222`,
+  and `www.` variants all match. The agent is instructed to treat a
+  duplicate rejection as final and to check the pipeline *before*
+  spending enrichment calls.
+- **Prompt-level budget rules**: disqualify cheaply first (registry
+  status, MX) before paid provider calls; never repeat identical calls;
+  enrich only the shortlist; never re-prospect leads marked `lost`.
 
 Leads land in the **LEADS** view: sortable pipeline, status changes,
 outreach-draft copy button, CSV export. New data sources can be added by
