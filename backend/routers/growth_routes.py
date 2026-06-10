@@ -14,6 +14,8 @@ class IcpRequest(BaseModel):
     target_roles: list[str] = []
     regions: list[str] = []
     include_new_companies: bool = False
+    include_funding: bool = False
+    include_tenders: bool = False
     auto_run: bool = False
 
 
@@ -23,6 +25,8 @@ class IcpUpdateRequest(BaseModel):
     target_roles: list[str] | None = None
     regions: list[str] | None = None
     include_new_companies: bool | None = None
+    include_funding: bool | None = None
+    include_tenders: bool | None = None
     auto_run: bool | None = None
 
 

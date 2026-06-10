@@ -436,7 +436,7 @@ async function loadGrowth() {
             ${icp.regions?.length ? ' // ' + escHtml(icp.regions.join(', ')) : ''}</div>
         </td>
         <td>${icp.auto_run ? '<span style="color:#44ff88">WEEKLY</span>' : '<span class="dim">MANUAL</span>'}</td>
-        <td>${icp.include_new_companies ? 'HIRING+NEWCO' : 'HIRING'}</td>
+        <td>${['Hiring', icp.include_new_companies && 'Newco', icp.include_funding && 'Funding', icp.include_tenders && 'Tenders'].filter(Boolean).join(' · ')}</td>
         <td>
           <button class="pixel-btn small" onclick="runIcp('${icp.id}', this)">RUN NOW</button>
           <button class="pixel-btn small" onclick="toggleIcpAuto('${icp.id}', ${icp.auto_run ? 'false' : 'true'})">${icp.auto_run ? 'PAUSE' : 'AUTO'}</button>
@@ -471,8 +471,10 @@ async function loadGrowth() {
         </div>
         <div class="settings-row">
           <input type="text" id="icp-sell" class="pixel-input" placeholder="WHAT WE SELL (USED IN OUTREACH)" />
-          <label class="dim" style="font-size:7px"><input type="checkbox" id="icp-newco" /> +NEWLY REGISTERED</label>
-          <label class="dim" style="font-size:7px"><input type="checkbox" id="icp-auto" checked /> WEEKLY AUTO-RUN</label>
+          <label class="dim small"><input type="checkbox" id="icp-newco" /> Newly registered</label>
+          <label class="dim small"><input type="checkbox" id="icp-funding" /> Funding rounds</label>
+          <label class="dim small"><input type="checkbox" id="icp-tenders" /> Public tenders</label>
+          <label class="dim small"><input type="checkbox" id="icp-auto" checked /> Weekly auto-run</label>
           <button class="pixel-btn small" onclick="createIcp()">CREATE</button>
         </div>
       </div>
@@ -505,6 +507,8 @@ async function createIcp() {
       target_roles: split(document.getElementById('icp-roles').value),
       regions: split(document.getElementById('icp-regions').value),
       include_new_companies: document.getElementById('icp-newco').checked,
+      include_funding: document.getElementById('icp-funding').checked,
+      include_tenders: document.getElementById('icp-tenders').checked,
       auto_run: document.getElementById('icp-auto').checked,
     })});
     loadGrowth();

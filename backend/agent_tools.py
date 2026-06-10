@@ -798,6 +798,40 @@ CHECK_EMAIL_DOMAIN = Tool(
     handler=_check_email_domain,
 )
 
+async def _run_prospecting(inp: dict, ctx: ToolContext) -> str:
+    import growth
+    icps = await db.list_icps(ctx.org_id)
+    if not icps:
+        return _json({"error": "No ICP profile exists — ask the user to "
+                               "create one in the Growth view first."})
+    wanted = (inp.get("icp_name") or "").strip().lower()
+    icp = next((i for i in icps if i["name"].lower() == wanted), icps[0])
+    result = await growth.run_prospecting(ctx.org_id, icp, trigger="agent")
+    return _json(result)
+
+
+RUN_PROSPECTING = Tool(
+    name="run_prospecting",
+    description=(
+        "Run a full signal harvest NOW against an ICP profile: hiring "
+        "companies (JobTech), newly registered companies, fresh funding "
+        "rounds, and public tenders — whichever signals the ICP has "
+        "enabled. Deterministic and cheap (results cached, duplicates and "
+        "blocklist enforced). Returns the run stats and the Swedish digest. "
+        "Use when the user asks to harvest/prospect now or says the "
+        "pipeline looks thin. Heavy operation — never run it twice in one "
+        "conversation."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "icp_name": {"type": "string", "description": "ICP profile name (defaults to the first profile)"},
+        },
+    },
+    handler=_run_prospecting,
+)
+
+
 async def _analyze_pipeline_performance(inp: dict, ctx: ToolContext) -> str:
     import insights
     return _json(await insights.pipeline_insights(ctx.org_id))
@@ -912,5 +946,5 @@ LEAD_TOOLS = [
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
     START_EMAIL_SEQUENCE, CANCEL_EMAIL_SEQUENCE, GET_SEQUENCE_STATUS,
     CHECK_SENDING_DOMAIN, ANALYZE_PIPELINE_PERFORMANCE,
-    SEARCH_KNOWLEDGE,
+    RUN_PROSPECTING, SEARCH_KNOWLEDGE,
 ]

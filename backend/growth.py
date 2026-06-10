@@ -16,7 +16,11 @@ from datetime import datetime, timezone
 
 import database as db
 from enrichment.cache import cached_fetch
-from enrichment.signals import search_hiring_companies
+from enrichment.signals import (
+    extract_funding_companies,
+    scan_funding_news,
+    search_hiring_companies,
+)
 from enrichment.sweden import allabolag_newly_registered
 from plans import get_plan, within_quota
 
@@ -102,6 +106,55 @@ async def _learned_score_floor(org_id: str) -> tuple[int, str | None]:
     floor = min(int(avg_lost) + 1, 70)
     return floor, (f"Lärd tröskel aktiv: skördar inte under score {floor} "
                    f"(förlorade affärer snittar {avg_lost:.0f}).")
+
+
+
+def _draft_for_lead(lead: dict, icp: dict) -> str | None:
+    """Deterministic, signal-specific outreach template generated at
+    sourcing time — specific opening, one CTA, lint-safe, ready for human
+    review in Approvals (or for VANTAGE to refine)."""
+    sell = icp.get("what_we_sell") or "utveckling av webb och appar"
+    first_name = (lead.get("contact_name") or "").split(" ")[0]
+    greeting = f"Hej {first_name}," if first_name else "Hej,"
+    notes = lead.get("notes") or ""
+    source = lead.get("source") or ""
+
+    if source == "signal:hiring":
+        first_ad = None
+        if "Aktiva annonser: " in notes:
+            first_ad = notes.split("Aktiva annonser: ", 1)[1]
+            first_ad = first_ad.split(";")[0].split("|")[0].strip()
+        opening = (f"ni annonserar just nu efter {first_ad}"
+                   if first_ad else "ni rekryterar utvecklare just nu")
+        return (f"{greeting}\n\n{opening} — och att tillsätta den typen av "
+                f"roller tar ofta månader i dagens marknad.\n\nVi arbetar med "
+                f"{sell} och kan avlasta ert team med start inom ett par "
+                f"veckor, medan rekryteringen pågår.\n\nHar du 20 minuter "
+                f"någon dag nästa vecka? {{{{booking_url}}}}\n\nVänliga hälsningar")
+
+    if source == "signal:funding":
+        amount = None
+        reason = lead.get("score_reason") or ""
+        if "(" in reason and ")" in reason:
+            amount = reason.split("(", 1)[1].split(")", 1)[0]
+        opening = (f"såg att ni tar in {amount}"
+                   if amount and amount != "okänt belopp"
+                   else "såg nyheten om er finansieringsrunda")
+        return (f"{greeting}\n\n{opening} — den fasen brukar betyda att "
+                f"mycket ska byggas på kort tid.\n\nVi arbetar med {sell} "
+                f"och hjälper bolag i exakt det läget att leverera snabbare "
+                f"utan att vänta in nyrekryteringar.\n\nHar du 20 minuter "
+                f"nästa vecka? {{{{booking_url}}}}\n\nVänliga hälsningar")
+
+    if source == "signal:newco":
+        return (f"{greeting}\n\nert bolag registrerades nyligen — i det "
+                f"skedet avgör den digitala grunden hur snabbt ni kan börja "
+                f"sälja.\n\nVi arbetar med {sell} och sätter upp webbplats "
+                f"och digitala flöden för nystartade bolag på ett par "
+                f"veckor.\n\nVill du se ett par exempel? "
+                f"{{{{booking_url}}}}\n\nVänliga hälsningar")
+
+    return None  # tenders go through BEACON's bid process, not cold email
 
 
 def _build_digest(icp: dict, stats: dict, top_leads: list[dict],
@@ -295,6 +348,108 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
             )
             stats["leads_created"] += 1
 
+    # ── Signal 3: fresh funding rounds (optional per ICP) ──
+    if icp.get("include_funding"):
+        try:
+            news = await cached_fetch(
+                "news", {"funding_harvest": 1},
+                lambda: _funding_fetch(),
+            )
+            funded = extract_funding_companies(news.get("headlines") or [])
+        except Exception as e:
+            funded = []
+            notes.append(f"Finansieringssignalen misslyckades: {e}")
+
+        stats["signals_found"] += len(funded)
+        added = 0
+        for company in funded:
+            if added >= 5:
+                break
+            used = await db.count_leads_this_month(org_id)
+            if not within_quota(used, plan.leads_per_month):
+                break
+            if await db.is_company_blocked(org_id, company["company_name"], None):
+                stats["duplicates_skipped"] += 1
+                continue
+            dupe = await db.find_duplicate_lead(
+                org_id, company_name=company["company_name"]
+            )
+            if dupe:
+                stats["duplicates_skipped"] += 1
+                continue
+            score = 65 if " ab" in company["company_name"].lower() + " " else 60
+            lead_id = await db.create_lead(org_id, None, {
+                "company_name": company["company_name"],
+                "source": "signal:funding",
+                "score": score,
+                "score_reason": "Signalscore: ny finansiering "
+                                f"({company.get('amount') or 'okänt belopp'}) — "
+                                "färskt kapital finansierar digitala projekt (+15)",
+                "notes": f"Rubrik: {company['headline']} | {company.get('link') or ''} "
+                         "| VERIFIERA bolaget via registerkoll innan outreach.",
+            })
+            await db.add_lead_activity(
+                org_id, lead_id, "created",
+                f"Skördad från finansieringssignal ({trigger} körning)",
+            )
+            stats["leads_created"] += 1
+            created_ids.append(lead_id)
+            added += 1
+            top_leads.append({
+                "company_name": company["company_name"], "score": score,
+                "why": f"tar in {company.get('amount') or 'kapital'} enligt media",
+            })
+
+    # ── Signal 4: public tenders (optional per ICP) ──
+    if icp.get("include_tenders"):
+        try:
+            tenders = await cached_fetch(
+                "tenders", {"harvest": 1, "category": "it", "country": "SWE"},
+                lambda: _tender_fetch(),
+            )
+            tender_list = tenders.get("tenders") or []
+        except Exception as e:
+            tender_list = []
+            notes.append(f"Upphandlingssignalen misslyckades: {e}")
+
+        stats["signals_found"] += len(tender_list)
+        added = 0
+        for tender in tender_list:
+            if added >= 5 or not tender.get("buyer") or not tender.get("title"):
+                continue
+            used = await db.count_leads_this_month(org_id)
+            if not within_quota(used, plan.leads_per_month):
+                break
+            # One lead per tender: buyer + title makes the dedupe key unique
+            lead_name = f"{tender['buyer']}: {tender['title'][:60]}"
+            dupe = await db.find_duplicate_lead(org_id, company_name=lead_name)
+            if dupe:
+                stats["duplicates_skipped"] += 1
+                continue
+            score = 70 if tender.get("estimated_value") else 60
+            value = (f"{tender['estimated_value']} {tender.get('currency') or ''}".strip()
+                     if tender.get("estimated_value") else "ej angivet")
+            lead_id = await db.create_lead(org_id, None, {
+                "company_name": lead_name,
+                "source": "signal:tender",
+                "score": score,
+                "score_reason": "Signalscore: aktiv offentlig upphandling — "
+                                f"publicerat behov och budget ({value})",
+                "notes": f"Deadline: {tender.get('deadline') or 'se annons'} | "
+                         f"{tender.get('url') or ''} | Be BEACON göra "
+                         "bid/no-bid-bedömning.",
+            })
+            await db.add_lead_activity(
+                org_id, lead_id, "created",
+                f"Skördad från upphandlingssignal ({trigger} körning)",
+            )
+            stats["leads_created"] += 1
+            added += 1
+            top_leads.append({
+                "company_name": tender["buyer"], "score": score,
+                "why": f"upphandlar IT (deadline {tender.get('deadline') or '?'})",
+            })
+
     top_leads.sort(key=lambda x: -x["score"])
 
     # Contact auto-enrich for the top of the run (live provider only)
@@ -302,7 +457,7 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
     if contacts_mod.contact_provider_live() and created_ids:
         try:
             enriched = await contacts_mod.auto_enrich_new_leads(
-                org_id, created_ids, max_leads=5
+                org_id, created_ids, max_leads=8
             )
             if enriched:
                 notes.append(
@@ -311,6 +466,21 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
                 )
         except Exception as e:
             notes.append(f"Kontakt-berikning misslyckades: {e}")
+
+    # Sourcing-time outreach templates: every new lead leaves the harvest
+    # with a ready-to-review draft (refined by VANTAGE / edited in Approvals)
+    drafted = 0
+    for lead_id in created_ids:
+        lead = await db.get_lead(org_id, lead_id)
+        if not lead or lead.get("outreach_draft"):
+            continue
+        draft = _draft_for_lead(lead, icp)
+        if draft:
+            await db.update_lead(org_id, lead_id, {"outreach_draft": draft})
+            drafted += 1
+    if drafted:
+        notes.append(f"Outreach-mallar genererade för {drafted} nya leads — "
+                     "granska/justera under leadet eller låt VANTAGE vässa dem.")
 
     digest = _build_digest(icp, stats, top_leads, notes)
     run_id = await db.save_prospecting_run(
@@ -322,6 +492,15 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
 async def _newco_fetch(region: str | None) -> dict:
     companies = await allabolag_newly_registered(region)
     return {"companies": companies}
+
+
+async def _funding_fetch() -> dict:
+    return await scan_funding_news(None, limit=20)
+
+
+async def _tender_fetch() -> dict:
+    from enrichment.procurement import find_tenders
+    return await find_tenders(category="it", country="SWE", limit=10)
 
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────

@@ -1015,3 +1015,79 @@ body {
   font-size: 13px; font-weight: 500;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* ═══════════════════════════════════════════════════
+   PREMIUM REFINEMENT v2 — deeper glass, finer details
+   ═══════════════════════════════════════════════════ */
+
+:root { --radius: 18px; --radius-sm: 12px; }
+
+/* Deeper, silkier glass */
+.auth-box, .modal, .dash-card, .home-stat, .plan-card, .approval-card,
+.checklist, .agent-tile, .reco-item, .leads-table, .email-preview {
+  backdrop-filter: blur(28px) saturate(165%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
+}
+
+/* Gradient display headings */
+.panel-header h2 {
+  font-size: 20px;
+  background: linear-gradient(135deg, #fff 40%, #b9c5ff);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Cards lift toward the light on hover */
+.dash-card, .home-stat, .plan-card, .approval-card, .reco-item {
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.dash-card:hover, .home-stat:hover, .plan-card:hover, .approval-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-2);
+  box-shadow: var(--glass-edge), 0 16px 44px rgba(0,0,0,.4),
+              0 0 0 1px rgba(124,92,255,.12);
+}
+
+/* Active nav with accent indicator bar */
+.nav-btn { position: relative; padding-left: 16px; }
+.nav-btn.active::before {
+  content: '';
+  position: absolute; left: 0; top: 22%; bottom: 22%;
+  width: 3px; border-radius: 999px;
+  background: var(--grad);
+  box-shadow: 0 0 10px rgba(124,92,255,.7);
+}
+
+/* Active agent glows in its own colour */
+.agent-card.active .avatar {
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.28),
+              0 0 14px color-mix(in srgb, var(--ac) 55%, transparent);
+}
+
+/* Larger, softer chat bubbles */
+.message-bubble { border-radius: 18px; padding: 13px 17px; }
+.message.user .message-bubble { border-bottom-right-radius: 7px; }
+.message.assistant .message-bubble { border-bottom-left-radius: 7px; }
+
+/* Crisp focus rings everywhere (keyboard-friendly premium detail) */
+.btn:focus-visible, .pixel-btn:focus-visible, .nav-btn:focus-visible,
+.prompt-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Tables: roomier rows, subtle zebra */
+.leads-table td { padding: 14px 16px; }
+.leads-table tbody tr:nth-child(4n+3) td { background: rgba(255,255,255,.012); }
+
+/* Inputs feel inset in the glass */
+.pixel-input, .auth-field input, .pixel-select, .input-area textarea {
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.3);
+}
+
+/* Score pills get a soft glow */
+.lead-score { text-shadow: 0 0 14px currentColor; }
+
+/* Smooth everything */
+html { scroll-behavior: smooth; }
+::selection { background: rgba(124,92,255,.35); }
