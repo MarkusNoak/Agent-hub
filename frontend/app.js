@@ -1141,7 +1141,9 @@ function quotaBar(used, limit, color) {
 async function loadDashboard() {
   const body = document.getElementById('dashboard-body');
   try {
-    const [org, usage] = await Promise.all([api('/api/org'), api('/api/usage')]);
+    const [org, usage, ins] = await Promise.all([
+      api('/api/org'), api('/api/usage'), api('/api/growth/insights'),
+    ]);
     const agentRows = usage.by_agent.map(a => {
       const agent = state.agents.find(x => x.id === a.agent_id);
       return `<tr>
@@ -1171,6 +1173,54 @@ async function loadDashboard() {
           <div class="dim">IN ${usage.input_tokens.toLocaleString()} / OUT ${usage.output_tokens.toLocaleString()}</div>
         </div>
       </div>
+      <div class="dash-grid">
+        <div class="dash-card">
+          <div class="dash-label">MEETINGS BOOKED</div>
+          <div class="dash-value">${ins.meetings_booked}</div>
+          <div class="dim">THE METRIC THAT MATTERS</div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-label">FUNNEL</div>
+          <div class="dim" style="line-height:2">
+            ${['new','qualified','contacted','meeting','won','lost']
+              .map(s => `${s.toUpperCase()}: ${ins.funnel[s] || 0}`).join('<br>')}
+          </div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-label">OUTREACH</div>
+          <div class="dash-value small">${ins.outreach.emails_sent} SENT</div>
+          <div class="dim">${ins.outreach.replies} REPLIES${ins.outreach.reply_rate != null ? ' (' + Math.round(ins.outreach.reply_rate * 100) + '%)' : ''} // ${ins.outreach.unsubscribes} OPT-OUT</div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-label">SCORE CALIBRATION</div>
+          <div class="dim" style="line-height:2">
+            WON AVG: ${ins.score_calibration.avg_score_won ?? '--'}<br>
+            LOST AVG: ${ins.score_calibration.avg_score_lost ?? '--'}<br>
+            OUTCOMES: ${ins.score_calibration.outcomes}
+          </div>
+        </div>
+      </div>
+
+      ${ins.recommendations.length ? `
+      <div class="dash-section">
+        <div class="dash-label">SYSTEM RECOMMENDATIONS <span class="dim">// LEARNED FROM YOUR OUTCOMES</span></div>
+        <div class="reco-list">
+          ${ins.recommendations.map(r => `<div class="reco-item">> ${escHtml(r)}</div>`).join('')}
+        </div>
+      </div>` : ''}
+
+      ${ins.by_source.length ? `
+      <div class="dash-section">
+        <div class="dash-label">WIN RATE BY LEAD SOURCE</div>
+        <table class="leads-table slim">
+          <thead><tr><th>SOURCE</th><th>WON</th><th>LOST</th><th>OPEN</th><th>WIN RATE</th></tr></thead>
+          <tbody>${ins.by_source.map(s => `
+            <tr><td>${escHtml(s.segment)}</td><td>${s.won}</td><td>${s.lost}</td>
+            <td>${s.open}</td><td>${s.win_rate != null ? Math.round(s.win_rate * 100) + '%' : '--'}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : ''}
+
       <div class="dash-section">
         <div class="dash-label">ACTIVITY BY AGENT</div>
         <table class="leads-table slim">

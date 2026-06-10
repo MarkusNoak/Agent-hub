@@ -946,3 +946,14 @@ body {
 .seq-sent      { color: #44ff88; }
 .seq-simulated { color: #4f9dff; }
 .seq-cancelled { color: var(--dim); }
+
+/* ── Insights ──────────────────────────────────────── */
+.reco-list { display: flex; flex-direction: column; gap: 8px; }
+.reco-item {
+  border: 2px solid var(--border);
+  border-left: 4px solid #44ff88;
+  background: var(--panel);
+  padding: 10px 12px;
+  font-size: 7px;
+  line-height: 1.9;
+}

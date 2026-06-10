@@ -67,3 +67,9 @@ async def run_now(icp_id: str,
 @router.get("/runs")
 async def list_runs(auth: AuthContext = Depends(get_current_auth)):
     return await db.list_prospecting_runs(auth.org_id)
+
+
+@router.get("/insights")
+async def get_insights(auth: AuthContext = Depends(get_current_auth)):
+    import insights
+    return await insights.pipeline_insights(auth.org_id)

@@ -618,6 +618,25 @@ CHECK_EMAIL_DOMAIN = Tool(
     handler=_check_email_domain,
 )
 
+async def _analyze_pipeline_performance(inp: dict, ctx: ToolContext) -> str:
+    import insights
+    return _json(await insights.pipeline_insights(ctx.org_id))
+
+
+ANALYZE_PIPELINE_PERFORMANCE = Tool(
+    name="analyze_pipeline_performance",
+    description=(
+        "The learning loop: win rates by lead source, industry, and score "
+        "band; score calibration (do won deals actually score higher than "
+        "lost ones?); outreach reply rates; and concrete recommendations. "
+        "Use this to answer 'what is working?', to recalibrate the ICP, and "
+        "at the start of any strategy discussion — ground advice in the "
+        "org's actual outcomes, not generic best practice."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    handler=_analyze_pipeline_performance,
+)
+
 START_EMAIL_SEQUENCE = Tool(
     name="start_email_sequence",
     description=(
@@ -689,4 +708,5 @@ LEAD_TOOLS = [
     CHECK_EMAIL_DOMAIN,
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
     START_EMAIL_SEQUENCE, CANCEL_EMAIL_SEQUENCE, GET_SEQUENCE_STATUS,
+    ANALYZE_PIPELINE_PERFORMANCE,
 ]
