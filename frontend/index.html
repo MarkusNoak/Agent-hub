@@ -65,6 +65,11 @@
   <!-- ── Main app ── -->
   <div class="app" id="app" style="display:none">
 
+    <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar(false)"></div>
+
     <!-- ── Sidebar ── -->
     <aside class="sidebar">
       <div class="brand sidebar-brand">

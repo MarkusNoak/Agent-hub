@@ -53,6 +53,18 @@ function skeleton(rows = 4) {
     .map((_, i) => `<div class="skeleton" style="width:${88 - i * 9}%"></div>`).join('')}</div>`;
 }
 
+// ── Mobile sidebar ─────────────────────────────────────
+function toggleSidebar(force) {
+  const open = force !== undefined ? force
+    : !document.querySelector('.sidebar').classList.contains('open');
+  document.querySelector('.sidebar').classList.toggle('open', open);
+  document.getElementById('sidebar-overlay').classList.toggle('show', open);
+}
+
+function closeSidebarOnMobile() {
+  if (window.innerWidth <= 900) toggleSidebar(false);
+}
+
 // ── App state ──────────────────────────────────────────
 const state = {
   token:     localStorage.getItem('ahub_token') || null,
@@ -181,6 +193,7 @@ async function enterApp() {
 // ── Views ──────────────────────────────────────────────
 function showView(view) {
   state.view = view;
+  closeSidebarOnMobile();
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`nav-${view}`)?.classList.add('active');
 
@@ -573,6 +586,7 @@ function renderSidebar() {
 function selectAgent(id) {
   if (state.ws) { state.ws.close(); state.ws = null; }
   state.current = id;
+  closeSidebarOnMobile();
   showView('agents');
 
   document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));

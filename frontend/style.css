@@ -1091,3 +1091,104 @@ body {
 /* Smooth everything */
 html { scroll-behavior: smooth; }
 ::selection { background: rgba(124,92,255,.35); }
+
+/* ═══════════════════════════════════════════════════
+   RESPONSIVE — tablet & mobile
+   ═══════════════════════════════════════════════════ */
+
+.mobile-menu-btn {
+  display: none;
+  position: fixed; top: 14px; left: 14px;
+  z-index: 60;
+  width: 42px; height: 42px;
+  flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px;
+  background: var(--glass-2);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.mobile-menu-btn span {
+  width: 17px; height: 2px;
+  border-radius: 999px;
+  background: var(--text);
+}
+.sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(5,7,12,.55);
+  backdrop-filter: blur(2px);
+  z-index: 54;
+}
+.sidebar-overlay.show { display: block; }
+
+@media (max-width: 900px) {
+  .mobile-menu-btn { display: flex; }
+
+  .sidebar {
+    position: fixed; left: 0; top: 0; bottom: 0;
+    z-index: 55;
+    width: 292px; min-width: 292px;
+    transform: translateX(-105%);
+    transition: transform .26s ease;
+    box-shadow: 0 0 60px rgba(0,0,0,.5);
+  }
+  .sidebar.open { transform: none; }
+  .main-content { width: 100%; }
+
+  /* Make room for the hamburger */
+  .panel-header { padding: 16px 18px 16px 68px; }
+  .agent-header { padding: 14px 16px 14px 68px; flex-wrap: wrap; }
+  .home { padding: 74px 18px 36px; }
+
+  .panel-header h2 { font-size: 17px; }
+  .panel-actions .dim.small { display: none; }
+  .panel-body { padding: 18px 14px; }
+
+  /* Wide tables scroll horizontally instead of breaking layout */
+  .panel-body { overflow-x: auto; }
+  .leads-table { min-width: 660px; }
+  .leads-table.slim { min-width: 0; }
+
+  .home-stats { grid-template-columns: repeat(2, 1fr); }
+  .home-agent-grid { grid-template-columns: 1fr; }
+  .home-actions .btn { flex: 1; text-align: center; }
+
+  .messages-container { padding: 18px 14px; }
+  .message { max-width: 92%; }
+  .input-area { padding: 12px 14px 16px; gap: 8px; }
+  .send-btn { padding: 12px 16px; }
+
+  .header-actions { gap: 8px; }
+  .conn-label { display: none; }
+  .history-pop { width: min(86vw, 320px); }
+
+  .lead-detail-grid { grid-template-columns: repeat(2, 1fr); }
+  .plans-grid { grid-template-columns: 1fr; }
+  .approval-actions { flex-wrap: wrap; }
+  .approval-edit-hint { width: 100%; margin-left: 0; }
+
+  .toast-stack { left: 14px; right: 14px; bottom: 14px; }
+  .toast { max-width: none; }
+}
+
+@media (max-width: 520px) {
+  .home-hero .welcome-title { font-size: 24px; }
+  .home-stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .home-stat { padding: 14px; }
+  .home-stat-value { font-size: 21px; }
+  .agent-header-desc { display: none; }
+  .dash-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .email-row { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .email-label { width: auto; }
+  .settings-row .pixel-input { min-width: 100%; }
+  .invite-row .pixel-input { max-width: none; }
+}
+
+/* Touch targets */
+@media (pointer: coarse) {
+  .btn, .pixel-btn, .nav-btn, .agent-card { min-height: 42px; }
+  .status-select { padding: 9px 10px; }
+}
