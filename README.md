@@ -41,7 +41,7 @@ customer-acquisition machine (built Sweden-first):
 | NEXUS | Central coordinator & orchestrator | Free | |
 | ORACLE | Research & knowledge | Free | |
 | SCROLL | Writing & content | Free | |
-| FORGE | Code & engineering | Starter | |
+| FORGE | Dev support & delivery acceleration | Starter | website tech-audit, pipeline read |
 | LENS | Data & analytics | Starter | |
 | HERALD | Planning & strategy | Starter | |
 | PULSE | Marketing & growth | Starter | |
