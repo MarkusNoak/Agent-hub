@@ -371,11 +371,11 @@ function toggleAuthMode() {
   const isReg = state.authMode === 'register';
   document.getElementById('field-orgname').style.display = isReg ? 'block' : 'none';
   document.getElementById('field-name').style.display    = isReg ? 'block' : 'none';
-  document.getElementById('auth-submit').textContent     = isReg ? 'CREATE ACCOUNT' : 'SIGN IN';
+  document.getElementById('auth-submit').textContent     = isReg ? 'Create account' : 'Sign in';
   document.getElementById('auth-sub').textContent        = isReg
-    ? 'YOUR AI WORKFORCE // CREATE ACCOUNT' : 'YOUR AI WORKFORCE // SIGN IN';
+    ? 'Sign up — your AI workforce' : 'Sign in to your workspace';
   document.getElementById('auth-toggle').textContent     = isReg
-    ? 'HAVE AN ACCOUNT? > SIGN IN' : 'NO ACCOUNT? > CREATE ONE';
+    ? 'Have an account? Sign in →' : 'No account? Create one →';
   showAuthError('');
 }
 
@@ -456,7 +456,7 @@ async function enterApp() {
   state.agents = await api('/api/v1/agents');
   const available = state.agents.filter(a => a.available).length;
   document.getElementById('welcome-count').textContent =
-    `${available}/${state.agents.length} SPECIALISTS UNLOCKED`;
+    `${available}/${state.agents.length} agents available`;
 
   renderSidebar();
   api('/api/outreach/approvals/count')
@@ -527,7 +527,7 @@ async function loadGrowth() {
       </tr>
       <tr class="lead-detail" id="digest-${r.id}" style="display:none">
         <td colspan="5"><pre class="outreach-draft">${escHtml(r.digest || '')}</pre></td>
-      </tr>`).join('') || '<tr><td colspan="5" class="dim">NO RUNS YET</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="5" class="dim">No runs yet</td></tr>';
 
     body.innerHTML = `
       <div class="dash-section">
@@ -628,7 +628,7 @@ function renderSidebar() {
     const statusHtml = agent.available
       ? `<span class="status-dot"></span>
          <span class="status-label" id="slabel-${agent.id}">IDLE</span>`
-      : `<span class="lock-label">LOCKED // UPGRADE</span>`;
+      : `<span class="lock-label">Upgrade to unlock</span>`;
 
     card.innerHTML = `
       <div class="anim-wrap"></div>
@@ -846,8 +846,8 @@ function renderMessages(agentId) {
     const empty = document.createElement('div');
     empty.className = 'chat-empty';
     empty.innerHTML = `
-      <div class="chat-empty-name">>> ${agent?.name ?? 'AGENT'} ONLINE <<</div>
-      <div class="chat-empty-hint">TYPE A MESSAGE TO BEGIN</div>
+      <div class="chat-empty-name">${agent?.name ?? 'Agent'} is ready</div>
+      <div class="chat-empty-hint">Type a message to begin</div>
     `;
     container.appendChild(empty);
     return;
@@ -1017,9 +1017,9 @@ async function loadLeads() {
     const data = await api('/api/leads' + (filter.value ? `?status=${filter.value}` : ''));
     state.leadStatuses = data.statuses;
     if (!data.leads.length) {
-      body.innerHTML = `<div class="dim panel-empty">NO LEADS YET.<br><br>
-        ASK <span style="color:#ff9500">VANTAGE</span> TO PROSPECT FOR YOU —<br>
-        E.G. "FIND 5 LOGISTICS COMPANIES IN SWEDEN AND SAVE THE BEST LEADS"</div>`;
+      body.innerHTML = `<div class="dim panel-empty">No leads yet.<br><br>
+        Ask <span style="color:var(--accent)">Vantage</span> to prospect for you —<br>
+        e.g. 'Find 5 logistics companies in Sweden and save the best leads'</div>`;
       return;
     }
 
@@ -1149,8 +1149,8 @@ async function loadApprovals() {
     updateApprovalsBadge(items.length);
     if (!items.length) {
       body.innerHTML = `<div class="dim panel-empty">NO EMAILS AWAITING APPROVAL.<br><br>
-        WHEN <span style="color:#ff9500">VANTAGE</span> DRAFTS OUTREACH, EVERY EMAIL LANDS HERE<br>
-        FOR YOUR REVIEW BEFORE IT SENDS.</div>`;
+        When <span style="color:var(--accent)">Vantage</span> drafts outreach, every email lands here<br>
+        for review before it sends.</div>`;
       return;
     }
     body.innerHTML = items.map(s => `
@@ -1164,7 +1164,7 @@ async function loadApprovals() {
         <textarea class="pixel-input" id="appr-body-${s.id}" rows="8"
                   style="width:100%; font-family:inherit" aria-label="Body">${escHtml(s.body)}</textarea>
         <div style="margin-top:6px">
-          <button class="pixel-btn small" onclick="approveStep(${s.id})">APPROVE &amp; SEND</button>
+          <button class="pixel-btn small" onclick="approveStep(${s.id})">Approve &amp; send</button>
           <button class="pixel-btn small danger" onclick="rejectStep(${s.id})">REJECT</button>
         </div>
       </div>`).join('');
@@ -1381,7 +1381,7 @@ async function loadSettings() {
           <label style="font-size:7px; cursor:pointer">
             <input type="checkbox" id="require-approval-input"
                    ${orgSettings.require_approval === false ? '' : 'checked'} ${isAdmin ? '' : 'disabled'} />
-            REQUIRE HUMAN APPROVAL BEFORE OUTREACH EMAILS SEND (RECOMMENDED)
+            Require human approval before outreach emails send (recommended)
           </label>
         </div>
         <div class="dim" style="font-size:6px; margin-top:8px; line-height:1.8">
