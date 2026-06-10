@@ -505,10 +505,11 @@ async def create_sequence(org_id: str, lead_id: str, steps: list[dict]) -> int:
         for i, step in enumerate(steps, 1):
             await db.execute(
                 "INSERT INTO sequence_steps "
-                "(org_id, lead_id, step, subject, body, send_at, hook_type) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(org_id, lead_id, step, subject, body, send_at, hook_type, "
+                "status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (org_id, lead_id, i, step["subject"], step["body"],
-                 step["send_at"], step.get("hook_type")),
+                 step["send_at"], step.get("hook_type"),
+                 step.get("status", "pending")),
             )
         await db.commit()
     return len(steps)
@@ -529,8 +530,8 @@ async def get_sequence(org_id: str, lead_id: str) -> list[dict]:
 async def has_active_sequence(org_id: str, lead_id: str) -> bool:
     async with dbdriver.connect() as db:
         async with db.execute(
-            "SELECT COUNT(*) FROM sequence_steps "
-            "WHERE org_id = ? AND lead_id = ? AND status = 'pending'",
+            "SELECT COUNT(*) FROM sequence_steps WHERE org_id = ? "
+            "AND lead_id = ? AND status IN ('pending','awaiting_approval')",
             (org_id, lead_id),
         ) as cur:
             return (await cur.fetchone())[0] > 0
@@ -540,11 +541,73 @@ async def cancel_sequence(org_id: str, lead_id: str) -> int:
     async with dbdriver.connect() as db:
         cur = await db.execute(
             "UPDATE sequence_steps SET status = 'cancelled' "
-            "WHERE org_id = ? AND lead_id = ? AND status = 'pending'",
+            "WHERE org_id = ? AND lead_id = ? "
+            "AND status IN ('pending','awaiting_approval')",
             (org_id, lead_id),
         )
         await db.commit()
         return cur.rowcount
+
+
+async def list_awaiting_steps(org_id: str) -> list[dict]:
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT s.id, s.lead_id, s.step, s.subject, s.body, s.send_at,
+                   s.hook_type, l.company_name, l.contact_name,
+                   l.contact_email, l.score
+            FROM sequence_steps s
+            JOIN leads l ON l.id = s.lead_id AND l.org_id = s.org_id
+            WHERE s.org_id = ? AND s.status = 'awaiting_approval'
+            ORDER BY s.lead_id, s.step
+            """,
+            (org_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def approve_step(org_id: str, step_id: int,
+                       subject: str | None = None,
+                       body: str | None = None) -> dict | None:
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM sequence_steps WHERE id = ? AND org_id = ? "
+            "AND status = 'awaiting_approval'",
+            (step_id, org_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        await db.execute(
+            "UPDATE sequence_steps SET status = 'pending', "
+            "subject = COALESCE(?, subject), body = COALESCE(?, body) "
+            "WHERE id = ? AND org_id = ?",
+            (subject, body, step_id, org_id),
+        )
+        await db.commit()
+        return dict(row)
+
+
+async def reject_step(org_id: str, step_id: int) -> dict | None:
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM sequence_steps WHERE id = ? AND org_id = ? "
+            "AND status = 'awaiting_approval'",
+            (step_id, org_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        await db.execute(
+            "UPDATE sequence_steps SET status = 'rejected' "
+            "WHERE id = ? AND org_id = ?",
+            (step_id, org_id),
+        )
+        await db.commit()
+        return dict(row)
 
 
 async def due_sequence_steps(now_iso: str, limit: int = 50) -> list[dict]:

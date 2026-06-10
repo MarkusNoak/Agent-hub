@@ -22,6 +22,7 @@ from auth import auth_from_ws_token  # noqa: E402
 from plans import get_plan, plan_allows_agent, within_quota  # noqa: E402
 from routers import (  # noqa: E402
     account_routes,
+    approval_routes,
     auth_routes,
     growth_routes,
     knowledge_routes,
@@ -52,6 +53,7 @@ app.include_router(account_routes.router)
 app.include_router(lead_routes.router)
 app.include_router(growth_routes.router)
 app.include_router(knowledge_routes.router)
+app.include_router(approval_routes.router)
 app.include_router(public_api.router)
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")

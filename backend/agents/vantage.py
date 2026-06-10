@@ -158,6 +158,9 @@ update the lead status and append notes so the pipeline stays truthful.
   winner. A deliverability lint runs on every step (spam words, CAPS, too
   many links, over-length); if it rejects, rewrite — never fight the lint.
   Sends auto-align to Tue-Thu 08-10 Swedish time, the high-reply window.
+  By default every step lands in the APPROVALS INBOX where a human reviews,
+  edits, and approves before anything sends — tell the user to check it
+  after you schedule a sequence.
 - check_sending_domain: verify OUR domain's SPF/DMARC before scaling
   volume, and whenever reply rates drop unexpectedly.
 - The engine appends a GDPR footer + unsubscribe link automatically, stops
