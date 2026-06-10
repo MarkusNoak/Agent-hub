@@ -115,7 +115,11 @@
               <span class="conn-dot"></span>
               <span class="conn-label" id="conn-label">Connecting</span>
             </div>
-            <button class="btn btn-ghost btn-sm" onclick="clearChat()" title="Clear conversation">Clear</button>
+            <div class="history-wrap">
+              <button class="btn btn-ghost btn-sm" onclick="toggleHistory()" title="Earlier conversations">History</button>
+              <div class="history-pop" id="history-pop" style="display:none"></div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="newChat()" title="Start a new conversation">New</button>
           </div>
         </header>
 

@@ -220,10 +220,13 @@ class DemoProvider(LeadProvider):
             filtered = [p for p in results if (p.get("domain") or "").lower() in domains]
             results = filtered or results
         if titles:
+            import re as _re
             wanted = [t.lower() for t in titles]
             filtered = [
                 p for p in results
-                if any(w in p["contact_title"].lower() for w in wanted)
+                if any(_re.search(r"\b" + _re.escape(w) + r"\b",
+                                  p["contact_title"].lower())
+                       for w in wanted)
             ]
             results = filtered or results
         return [{**p, "source": "demo"} for p in results[:per_page]]

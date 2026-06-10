@@ -116,6 +116,17 @@ async def get_lead(lead_id: str, auth: AuthContext = Depends(get_current_auth)):
     return lead
 
 
+@router.post("/{lead_id}/find-contact")
+async def find_contact(
+    lead_id: str, auth: AuthContext = Depends(get_current_auth)
+):
+    import contacts
+    lead = await db.get_lead(auth.org_id, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return await contacts.find_contact_for_lead(auth.org_id, lead)
+
+
 @router.post("/{lead_id}/sequence/cancel")
 async def cancel_sequence(
     lead_id: str, auth: AuthContext = Depends(get_current_auth)

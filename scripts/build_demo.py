@@ -127,6 +127,11 @@ KEYS = [{"id":"key1","name":"produktion","prefix":"ahub_x7Kp9q","created_at":"20
 SETTINGS = {"booking_url":"https://calendly.com/weknowit/intro","daily_send_limit":20,"require_approval":True,
             "business_profile":"We Know IT är ett utvecklingskonsultbolag som bygger webbplatser, webbappar och mobilappar för SMB i Sverige."}
 
+CONVERSATIONS = [
+  {"session_id":"demo-s1","snippet":"Hitta 10 bolag i Stockholm som rekryterar utvecklare","last_at":"2026-06-09 14:22","messages":6},
+  {"session_id":"demo-s2","snippet":"Skriv outreach till Visby Health","last_at":"2026-06-08 09:10","messages":4},
+]
+
 APPROVALS = {"count":2,"items":[
   {"id":1,"lead_id":"L1","step":1,"subject":"Er rekrytering av React-utvecklare",
    "body":"Hej Sara,\n\nsåg att ni söker er fjärde utvecklare på fyra månader — att skala teamet i den takten är tufft.\n\nVi är We Know IT och hjälper bolag som ert att leverera medan ni rekryterar: senior React/AWS-kapacitet från dag ett.\n\nHar du 20 minuter nästa vecka?",
@@ -184,6 +189,7 @@ const DEMO = {
   settings: %SETTINGS%,
   plans: %PLANS%,
   approvals: %APPROVALS%,
+  conversations: %CONVERSATIONS%,
 };
 const json = d => new Response(JSON.stringify(d), {status:200, headers:{'Content-Type':'application/json'}});
 window.fetch = async (url, opts={}) => {
@@ -210,6 +216,9 @@ window.fetch = async (url, opts={}) => {
     if (opts.method && opts.method!=='GET') return json({ok:true});
     return json(DEMO.knowledge);
   }
+  if (u.match(/\/api\/conversations\/[^/]+\/[^/]+$/)) return json({session_id:'x', messages:[{role:'user',content:'Hitta leads i Stockholm'},{role:'assistant',content:'Här är 5 bolag som rekryterar utvecklare just nu...'}]});
+  if (u.includes('/api/conversations/')) return json(DEMO.conversations);
+  if (u.includes('/find-contact')) return json({found:true, source:'demo', contact:{contact_name:'Sara Lindqvist'}, note:'DEMO DATA'});
   if (u.includes('/api/approvals')) {
     if (opts.method === 'POST') { DEMO.approvals = {count: Math.max(0, DEMO.approvals.count - 1), items: DEMO.approvals.items.slice(1)}; return json({ok:true, remaining: DEMO.approvals.count}); }
     return json(DEMO.approvals);
@@ -249,7 +258,7 @@ window.WebSocket = FakeWS;
 for key, data in [("AGENTS",agents),("LEADS",LEADS),("LEAD_DETAIL",LEAD_DETAIL),("RUNS",RUNS),
                   ("INSIGHTS",INSIGHTS),("ORG",ORG),("USAGE",USAGE),("ICPS",ICPS),
                   ("KNOWLEDGE",KNOWLEDGE),("KEYS",KEYS),("SETTINGS",SETTINGS),("PLANS",plans),
-                  ("APPROVALS",APPROVALS),
+                  ("APPROVALS",APPROVALS),("CONVERSATIONS",CONVERSATIONS),
                   ("CHAT_TEXT",CHAT_TEXT)]:
     shim = shim.replace("%"+key+"%", json.dumps(data, ensure_ascii=False))
 
