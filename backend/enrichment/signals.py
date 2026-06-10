@@ -109,6 +109,36 @@ async def find_job_postings(company_name: str, limit: int = 10) -> dict:
     }
 
 
+# Canonical tech keywords mined from ad descriptions (the same API response
+# we already pay zero for — more extraction, no extra calls)
+AD_TECH_KEYWORDS = {
+    "react native": "React Native", "react": "React", "vue": "Vue",
+    "angular": "Angular", "typescript": "TypeScript", "next.js": "Next.js",
+    "node": "Node.js", ".net": ".NET", "c#": "C#", "java ": "Java",
+    "kotlin": "Kotlin", "swift": "Swift", "ios": "iOS", "android": "Android",
+    "flutter": "Flutter", "python": "Python", "django": "Django",
+    "php": "PHP", "laravel": "Laravel", "wordpress": "WordPress",
+    "episerver": "Optimizely/Episerver", "optimizely": "Optimizely/Episerver",
+    "umbraco": "Umbraco", "sitevision": "SiteVision", "magento": "Magento",
+    "shopify": "Shopify", "aws": "AWS", "azure": "Azure",
+    "google cloud": "GCP", "kubernetes": "Kubernetes", "docker": "Docker",
+    "devops": "DevOps", "postgres": "PostgreSQL", "e-handel": "e-commerce",
+}
+
+CONSULTANT_MARKERS = ("konsult", "consultant", "inhyrd", "resurs- och kompetensförstärkning")
+
+
+def _mine_ad_text(text: str) -> tuple[list[str], bool]:
+    """Extract tech keywords and consultant mentions from ad description."""
+    lower = " " + text.lower()
+    tech = []
+    for keyword, label in AD_TECH_KEYWORDS.items():
+        if keyword in lower and label not in tech:
+            tech.append(label)
+    consultants = any(m in lower for m in CONSULTANT_MARKERS)
+    return tech, consultants
+
+
 async def search_hiring_companies(
     roles: list[str],
     regions: list[str] | None = None,
@@ -161,9 +191,21 @@ async def search_hiring_companies(
                     "roles_advertised": [],
                     "locations": [],
                     "sample_ads": [],
+                    "tech_in_ads": [],
+                    "mentions_consultants": False,
+                    "first_published": None,
                     "latest_published": None,
                 })
                 c["postings"] += 1
+
+                # Mine the full ad text we already received
+                desc = ((hit.get("description") or {}).get("text") or "")
+                if desc:
+                    tech, consultants = _mine_ad_text(desc[:8000])
+                    for t in tech:
+                        if t not in c["tech_in_ads"]:
+                            c["tech_in_ads"].append(t)
+                    c["mentions_consultants"] |= consultants
                 occupation = ((hit.get("occupation") or {}).get("label")
                               or hit.get("headline"))
                 if occupation and occupation not in c["roles_advertised"]:
@@ -177,9 +219,13 @@ async def search_hiring_companies(
                         "url": hit.get("webpage_url"),
                     })
                 pub = hit.get("publication_date")
-                if pub and (c["latest_published"] is None
+                if pub:
+                    if (c["latest_published"] is None
                             or pub > c["latest_published"]):
-                    c["latest_published"] = pub
+                        c["latest_published"] = pub
+                    if (c["first_published"] is None
+                            or pub < c["first_published"]):
+                        c["first_published"] = pub
 
     ranked = sorted(companies.values(), key=lambda c: -c["postings"])
     return {

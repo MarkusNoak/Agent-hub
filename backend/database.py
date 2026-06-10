@@ -7,7 +7,7 @@ the SQL is deliberately plain so it can be ported to Postgres for scale.
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -160,6 +160,15 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_seq_lead
                 ON sequence_steps (org_id, lead_id);
 
+            -- Companies disqualified from re-harvest (cooldown, per org)
+            CREATE TABLE IF NOT EXISTS company_blocklist (
+                org_id      TEXT NOT NULL,
+                key         TEXT NOT NULL,
+                reason      TEXT,
+                until       TEXT NOT NULL,
+                PRIMARY KEY (org_id, key)
+            );
+
             -- GDPR suppression list: opt-outs are permanent per org
             CREATE TABLE IF NOT EXISTS suppression_list (
                 org_id      TEXT NOT NULL,
@@ -193,6 +202,20 @@ async def init_db() -> None:
             org_cols = [r[1] for r in await cur.fetchall()]
         if "settings" not in org_cols:
             await db.execute("ALTER TABLE organizations ADD COLUMN settings TEXT")
+        # Migration: ICP min-score floor for harvest filtering
+        async with db.execute("PRAGMA table_info(icp_profiles)") as cur:
+            icp_cols = [r[1] for r in await cur.fetchall()]
+        if "min_score" not in icp_cols:
+            await db.execute(
+                "ALTER TABLE icp_profiles ADD COLUMN min_score INTEGER DEFAULT 0"
+            )
+        # Migration: outreach hook-type for A/B learning
+        async with db.execute("PRAGMA table_info(sequence_steps)") as cur:
+            seq_cols = [r[1] for r in await cur.fetchall()]
+        if "hook_type" not in seq_cols:
+            await db.execute(
+                "ALTER TABLE sequence_steps ADD COLUMN hook_type TEXT"
+            )
         await db.commit()
 
 
@@ -226,10 +249,10 @@ async def create_sequence(org_id: str, lead_id: str, steps: list[dict]) -> int:
         for i, step in enumerate(steps, 1):
             await db.execute(
                 "INSERT INTO sequence_steps "
-                "(org_id, lead_id, step, subject, body, send_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(org_id, lead_id, step, subject, body, send_at, hook_type) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (org_id, lead_id, i, step["subject"], step["body"],
-                 step["send_at"]),
+                 step["send_at"], step.get("hook_type")),
             )
         await db.commit()
     return len(steps)
@@ -297,6 +320,46 @@ async def count_sends_today(org_id: str, today_prefix: str) -> int:
             (org_id, today_prefix + "%"),
         ) as cur:
             return (await cur.fetchone())[0]
+
+
+async def block_company(org_id: str, company_name: str | None,
+                        org_number: str | None, reason: str,
+                        days: int = 90) -> None:
+    # Store every available key so a later lookup by name OR org number hits
+    keys = {k for k in (_norm_orgnr(org_number),
+                        (company_name or "").strip().lower()) if k}
+    if not keys:
+        return
+    until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        for key in keys:
+            await db.execute(
+                "INSERT INTO company_blocklist (org_id, key, reason, until) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (org_id, key) DO UPDATE "
+                "SET reason = excluded.reason, until = excluded.until",
+                (org_id, key, reason, until),
+            )
+        await db.commit()
+
+
+async def is_company_blocked(org_id: str, company_name: str | None,
+                             org_number: str | None) -> dict | None:
+    """Returns the block record if the company is in cooldown, else None."""
+    keys = [k for k in (_norm_orgnr(org_number),
+                        (company_name or "").strip().lower()) if k]
+    if not keys:
+        return None
+    now = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"SELECT * FROM company_blocklist WHERE org_id = ? "
+            f"AND key IN ({','.join('?' * len(keys))}) AND until > ?",
+            (org_id, *keys, now),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
 
 
 async def is_suppressed(org_id: str, email: str) -> bool:

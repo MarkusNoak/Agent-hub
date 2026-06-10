@@ -151,5 +151,13 @@ async def update_lead(
 async def delete_lead(
     lead_id: str, auth: AuthContext = Depends(get_current_auth)
 ):
+    lead = await db.get_lead(auth.org_id, lead_id)
+    if lead:
+        # Deleted = disqualified: block re-harvest for 90 days so weekly
+        # runs don't keep resurrecting companies the team rejected
+        await db.block_company(
+            auth.org_id, lead.get("company_name"), lead.get("org_number"),
+            reason="lead deleted", days=90,
+        )
     await db.delete_lead(auth.org_id, lead_id)
     return {"ok": True}

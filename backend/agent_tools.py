@@ -125,6 +125,17 @@ async def _save_lead(inp: dict, ctx: ToolContext) -> str:
                      "Ask the user to upgrade to save more leads.",
         })
 
+    blocked = await db.is_company_blocked(
+        ctx.org_id, inp.get("company_name"), inp.get("org_number")
+    )
+    if blocked:
+        return _json({
+            "error": "DISQUALIFIED — this company was rejected recently "
+                     f"(reason: {blocked['reason']}, cooldown until "
+                     f"{blocked['until'][:10]}). Move on to the next "
+                     "prospect.",
+        })
+
     # Duplicate disqualification: never store the same company twice
     dupe = await db.find_duplicate_lead(
         ctx.org_id,
@@ -216,8 +227,65 @@ async def _start_email_sequence(inp: dict, ctx: ToolContext) -> str:
         inp.get("lead_id", ""),
         inp.get("steps") or [],
         inp.get("relevance_basis", ""),
+        hook_type=inp.get("hook_type", "other"),
     )
     return _json(result)
+
+
+async def _check_sending_domain(inp: dict, ctx: ToolContext) -> str:
+    """SPF/DMARC posture of the org's own sending domain via DNS-over-HTTPS.
+    Misconfigured authentication silently kills deliverability."""
+    import httpx as _httpx
+
+    domain = (inp.get("domain") or "").strip().lower()
+    if "@" in domain:
+        domain = domain.split("@", 1)[1]
+    if not domain:
+        return _json({"error": "Provide the sending domain, e.g. 'weknowit.se'"})
+
+    async def fetch() -> dict:
+        results = {}
+        try:
+            async with _httpx.AsyncClient(timeout=15) as client:
+                for label, name in (("spf", domain),
+                                    ("dmarc", f"_dmarc.{domain}")):
+                    resp = await client.get(
+                        "https://dns.google/resolve",
+                        params={"name": name, "type": "TXT"},
+                        headers={"Accept": "application/json"},
+                    )
+                    resp.raise_for_status()
+                    answers = resp.json().get("Answer") or []
+                    txts = [a.get("data", "").strip('"')
+                            for a in answers if a.get("type") == 16]
+                    if label == "spf":
+                        results["spf"] = next(
+                            (t for t in txts if t.startswith("v=spf1")), None)
+                    else:
+                        results["dmarc"] = next(
+                            (t for t in txts if t.lower().startswith("v=dmarc1")),
+                            None)
+        except Exception as e:
+            return {"error": f"DNS check failed: {e}"}
+
+        issues = []
+        if not results.get("spf"):
+            issues.append("No SPF record — receiving servers cannot verify "
+                          "the sender; many will junk the mail.")
+        if not results.get("dmarc"):
+            issues.append("No DMARC record — set at least "
+                          "'v=DMARC1; p=none; rua=mailto:...' to build "
+                          "domain reputation.")
+        return {
+            "domain": domain,
+            "spf_record": results.get("spf"),
+            "dmarc_record": results.get("dmarc"),
+            "issues": issues,
+            "verdict": "OK — authentication in place" if not issues
+                       else "FIX BEFORE SCALING OUTREACH",
+        }
+
+    return _json(await cached_fetch("mx", {"auth_check": domain}, fetch))
 
 
 async def _cancel_email_sequence(inp: dict, ctx: ToolContext) -> str:
@@ -698,6 +766,10 @@ START_EMAIL_SEQUENCE = Tool(
         "properties": {
             "lead_id": {"type": "string"},
             "relevance_basis": {"type": "string", "description": "Why this outreach is relevant to the recipient's role (GDPR documentation)"},
+            "hook_type": {"type": "string",
+                          "enum": ["hiring", "news", "tech_gap", "maturity",
+                                   "funding", "referral", "other"],
+                          "description": "The opening angle of step 1 — tracked so the learning loop can measure which angles get replies"},
             "steps": {
                 "type": "array",
                 "items": {
@@ -730,6 +802,25 @@ CANCEL_EMAIL_SEQUENCE = Tool(
     handler=_cancel_email_sequence,
 )
 
+CHECK_SENDING_DOMAIN = Tool(
+    name="check_sending_domain",
+    description=(
+        "Check OUR OWN sending domain's email authentication (SPF + DMARC) "
+        "via DNS — free. Misconfigured authentication is the silent killer "
+        "of cold-email reply rates: mails land in spam and nobody knows. "
+        "Run this before scaling outreach volume and whenever reply rates "
+        "look suspiciously low."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "domain": {"type": "string", "description": "The sending domain, e.g. 'weknowit.se'"},
+        },
+        "required": ["domain"],
+    },
+    handler=_check_sending_domain,
+)
+
 GET_SEQUENCE_STATUS = Tool(
     name="get_sequence_status",
     description="Show the outreach sequence for a lead: each step's subject, schedule, and status (pending/sent/simulated/cancelled).",
@@ -748,5 +839,5 @@ LEAD_TOOLS = [
     FIND_PUBLIC_TENDERS, CHECK_EMAIL_DOMAIN,
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
     START_EMAIL_SEQUENCE, CANCEL_EMAIL_SEQUENCE, GET_SEQUENCE_STATUS,
-    ANALYZE_PIPELINE_PERFORMANCE,
+    CHECK_SENDING_DOMAIN, ANALYZE_PIPELINE_PERFORMANCE,
 ]

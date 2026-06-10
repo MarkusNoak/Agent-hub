@@ -732,6 +732,12 @@ const TOOL_LABELS = {
   save_lead:               'SAVING LEAD TO PIPELINE',
   list_leads:              'READING PIPELINE',
   update_lead:             'UPDATING LEAD',
+  find_public_tenders:     'SCANNING PUBLIC TENDERS',
+  start_email_sequence:    'SCHEDULING OUTREACH SEQUENCE',
+  cancel_email_sequence:   'STOPPING SEQUENCE',
+  get_sequence_status:     'CHECKING SEQUENCE',
+  check_sending_domain:    'AUDITING EMAIL DELIVERABILITY',
+  analyze_pipeline_performance: 'ANALYZING WIN/LOSS DATA',
 };
 
 function handleWsMsg(data, agentId) {

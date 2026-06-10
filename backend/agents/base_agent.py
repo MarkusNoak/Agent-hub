@@ -100,12 +100,23 @@ class BaseAgent(ABC):
     ) -> AsyncGenerator[dict, None]:
         messages = history + [{"role": "user", "content": message}]
         tool_defs = [t.to_anthropic() for t in self.tools]
+        # Prompt caching: the system prompt and tool definitions are
+        # identical on every call, so cache them server-side — cached input
+        # tokens cost ~10% of normal, which dominates in tool-use loops
+        system_blocks = [{
+            "type": "text",
+            "text": self.system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }]
+        if tool_defs:
+            tool_defs[-1] = {**tool_defs[-1],
+                             "cache_control": {"type": "ephemeral"}}
 
         for _ in range(MAX_TOOL_ROUNDS):
             kwargs: dict = {
                 "model": self.model,
                 "max_tokens": self.max_tokens,
-                "system": self.system_prompt,
+                "system": system_blocks,
                 "messages": messages,
             }
             if tool_defs:

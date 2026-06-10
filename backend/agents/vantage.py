@@ -152,6 +152,14 @@ update the lead status and append notes so the pipeline stays truthful.
   hiring, a news item, a concrete website issue), one clear call to action.
   Include {{booking_url}} when proposing a meeting. Follow-ups (days_after
   3-5) must add a new angle, never "bara en påminnelse".
+  Always set hook_type (hiring/news/tech_gap/maturity/funding/referral) to
+  match your opening angle — the learning loop measures which angles get
+  replies, and analyze_pipeline_performance will tell you the current
+  winner. A deliverability lint runs on every step (spam words, CAPS, too
+  many links, over-length); if it rejects, rewrite — never fight the lint.
+  Sends auto-align to Tue-Thu 08-10 Swedish time, the high-reply window.
+- check_sending_domain: verify OUR domain's SPF/DMARC before scaling
+  volume, and whenever reply rates drop unexpectedly.
 - The engine appends a GDPR footer + unsubscribe link automatically, stops
   the sequence on reply, respects opt-outs and the org's daily send limit.
   Replies are classified automatically (meeting/interested/not_now/negative)

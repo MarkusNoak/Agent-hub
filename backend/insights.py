@@ -94,7 +94,43 @@ async def pipeline_insights(org_id: str) -> dict:
     reply_rate = (round(a["replies"] / a["sends"], 2)
                   if a.get("sends") else None)
 
+    # Which opening angle gets replies? (hook A/B learning)
+    by_hook = await _rows(
+        """
+        SELECT s.hook_type AS hook,
+               COUNT(DISTINCT s.lead_id) AS sequences,
+               COUNT(DISTINCT CASE WHEN r.lead_id IS NOT NULL
+                     THEN s.lead_id END) AS replied
+        FROM sequence_steps s
+        LEFT JOIN lead_activities r
+               ON r.lead_id = s.lead_id AND r.org_id = s.org_id
+              AND r.kind = 'reply_received'
+        WHERE s.org_id = ? AND s.step = 1 AND s.hook_type IS NOT NULL
+        GROUP BY s.hook_type
+        """,
+        [org_id],
+    )
+    hook_stats = [
+        {"hook": h["hook"], "sequences": h["sequences"],
+         "replied": h["replied"],
+         "reply_rate": (round(h["replied"] / h["sequences"], 2)
+                        if h["sequences"] else None)}
+        for h in by_hook
+    ]
+    hook_stats.sort(key=lambda x: -(x["reply_rate"] or 0))
+
     recommendations = _recommend(funnel, by_source, by_industry, c, a)
+
+    best_hook = next((h for h in hook_stats
+                      if h["sequences"] >= MIN_SAMPLE and h["reply_rate"]),
+                     None)
+    if best_hook:
+        recommendations.append(
+            f"Bästa öppningsvinkel: '{best_hook['hook']}' med "
+            f"{int(best_hook['reply_rate'] * 100)}% svarsfrekvens "
+            f"({best_hook['sequences']} sekvenser) — använd den vinkeln "
+            "som standard."
+        )
 
     return {
         "total_leads": total,
@@ -113,6 +149,7 @@ async def pipeline_insights(org_id: str) -> dict:
             "replies": a.get("replies") or 0,
             "reply_rate": reply_rate,
             "unsubscribes": a.get("unsubs") or 0,
+            "by_hook": hook_stats,
         },
         "recommendations": recommendations,
     }

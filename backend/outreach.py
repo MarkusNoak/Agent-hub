@@ -28,8 +28,13 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
+import re
+from zoneinfo import ZoneInfo
+
 import database as db
 from auth import jwt_secret
+
+SE_TZ = ZoneInfo("Europe/Stockholm")
 
 MAX_STEPS = 3
 DEFAULT_DAILY_LIMIT = 20
@@ -39,6 +44,59 @@ INBOX_TICK_SECONDS = 600
 VALID_SEND_STATUSES = {"new", "qualified", "contacted"}
 
 REPLY_CLASSES = {"meeting", "interested", "not_now", "negative", "unsubscribe"}
+
+
+HOOK_TYPES = {"hiring", "news", "tech_gap", "maturity", "funding",
+              "referral", "other"}
+
+# Deterministic deliverability lint — emails that trip spam filters never
+# get a reply, so they are rejected before scheduling (free precision)
+SPAM_WORDS = (
+    "gratis", "erbjudande", "klicka här", "garanterat", "100%", "vinn",
+    "free", "buy now", "limited offer", "act now", "no obligation",
+)
+
+
+def spam_lint(subject: str, body: str) -> list[str]:
+    issues = []
+    if len(subject) > 70:
+        issues.append("subject over 70 chars — gets truncated and looks bulk")
+    letters = [c for c in subject if c.isalpha()]
+    if letters and sum(c.isupper() for c in letters) / len(letters) > 0.5:
+        issues.append("subject is mostly CAPS — classic spam trigger")
+    if subject.count("!") + body.count("!") > 2:
+        issues.append("too many exclamation marks")
+    lower = f"{subject} {body}".lower()
+    hits = [w for w in SPAM_WORDS if w in lower]
+    if hits:
+        issues.append(f"spam-trigger words: {', '.join(hits)}")
+    links = len(re.findall(r"https?://", body))
+    if links > 2:
+        issues.append(f"{links} links — keep at most 2 (booking link counts)")
+    if len(body.split()) > 170:
+        issues.append("body over ~170 words — cold emails must be short")
+    return issues
+
+
+def next_send_window(after: datetime) -> datetime:
+    """Align sends to Tue-Thu 08:00-10:00 Swedish time — when B2B replies
+    actually happen. If 'after' already falls in a window, keep it."""
+    local = after.astimezone(SE_TZ)
+    if local.weekday() in (1, 2, 3):
+        if 8 <= local.hour < 10:
+            return after
+        if local.hour < 8:  # same-day window still ahead
+            return local.replace(
+                hour=8, minute=30, second=0, microsecond=0
+            ).astimezone(timezone.utc)
+    candidate = local
+    for _ in range(8):
+        candidate = candidate + timedelta(days=1)
+        if candidate.weekday() in (1, 2, 3):
+            return candidate.replace(
+                hour=8, minute=30, second=0, microsecond=0
+            ).astimezone(timezone.utc)
+    return after  # unreachable, defensive
 
 
 def email_enabled() -> bool:
@@ -113,9 +171,12 @@ async def start_sequence(
     lead_id: str,
     steps: list[dict],
     relevance_basis: str,
+    hook_type: str = "other",
 ) -> dict:
     """Validates guardrails and schedules the steps. steps:
-    [{subject, body, days_after}] — step 1 sends on the next engine tick."""
+    [{subject, body, days_after}] — sends align to the Tue-Thu morning
+    window (Swedish time). hook_type tags the opening angle so the learning
+    loop can measure which angles get replies."""
     lead = await db.get_lead(org_id, lead_id)
     if not lead:
         return {"error": "Lead not found"}
@@ -142,6 +203,7 @@ async def start_sequence(
 
     settings = await db.get_org_settings(org_id)
     booking_url = settings.get("booking_url") or ""
+    hook = hook_type if hook_type in HOOK_TYPES else "other"
 
     now = _now()
     prepared = []
@@ -149,13 +211,19 @@ async def start_sequence(
     for i, step in enumerate(steps, 1):
         if not step.get("subject") or not step.get("body"):
             return {"error": f"Step {i} is missing subject or body."}
+        lint = spam_lint(step["subject"], step["body"])
+        if lint:
+            return {"error": f"Deliverability lint failed on step {i} — "
+                             "rewrite and retry: " + "; ".join(lint)}
         if i > 1:
             offset_days += max(int(step.get("days_after", 3)), 1)
         body = step["body"].replace("{{booking_url}}", booking_url)
+        send_at = next_send_window(now + timedelta(days=offset_days))
         prepared.append({
             "subject": step["subject"],
             "body": body,
-            "send_at": (now + timedelta(days=offset_days)).isoformat(),
+            "send_at": send_at.isoformat(),
+            "hook_type": hook,
         })
 
     await db.create_sequence(org_id, lead_id, prepared)
@@ -166,8 +234,9 @@ async def start_sequence(
     )
     mode = "LIVE" if email_enabled() else "DRY-RUN (EMAIL_ENABLED is off — steps will be simulated)"
     return {"ok": True, "steps_scheduled": len(prepared), "recipient": recipient,
-            "mode": mode,
-            "first_send": "next engine tick (within ~5 minutes)"}
+            "mode": mode, "hook_type": hook,
+            "first_send": prepared[0]["send_at"]
+            + " (aligned to Tue-Thu 08-10 Swedish time)"}
 
 
 async def cancel_lead_sequence(org_id: str, lead_id: str, reason: str) -> int:
