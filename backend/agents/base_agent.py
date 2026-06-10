@@ -97,17 +97,30 @@ class BaseAgent(ABC):
         message: str,
         history: list[dict],
         ctx: ToolContext,
+        business_context: str | None = None,
     ) -> AsyncGenerator[dict, None]:
         messages = history + [{"role": "user", "content": message}]
         tool_defs = [t.to_anthropic() for t in self.tools]
-        # Prompt caching: the system prompt and tool definitions are
-        # identical on every call, so cache them server-side — cached input
-        # tokens cost ~10% of normal, which dominates in tool-use loops
-        system_blocks = [{
-            "type": "text",
-            "text": self.system_prompt,
-            "cache_control": {"type": "ephemeral"},
-        }]
+        # System = role prompt + the tenant's business profile, so the same
+        # agent serves any customer's business. Prompt caching: the cache
+        # breakpoint sits on the LAST system block, caching the whole prefix
+        # per org — cached input tokens cost ~10% of normal, which dominates
+        # in tool-use loops.
+        system_blocks: list[dict] = [{"type": "text",
+                                      "text": self.system_prompt}]
+        if business_context:
+            system_blocks.append({
+                "type": "text",
+                "text": (
+                    "## The organization you serve\n"
+                    f"{business_context.strip()}\n\n"
+                    "Adapt all advice, examples, and tool usage to THIS "
+                    "business. Where your role description assumes a "
+                    "different kind of company, this context takes "
+                    "precedence."
+                ),
+            })
+        system_blocks[-1]["cache_control"] = {"type": "ephemeral"}
         if tool_defs:
             tool_defs[-1] = {**tool_defs[-1],
                              "cache_control": {"type": "ephemeral"}}

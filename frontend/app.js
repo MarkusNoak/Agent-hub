@@ -1289,6 +1289,17 @@ async function loadSettings() {
       </div>
 
       <div class="dash-section">
+        <div class="dash-label">BUSINESS PROFILE <span class="dim">// TELLS EVERY AGENT WHAT *YOUR* COMPANY DOES</span></div>
+        <div class="settings-row">
+          <textarea id="biz-profile-input" class="pixel-input" rows="3"
+            style="width:100%; resize:vertical; font-family:var(--font); font-size:7px"
+            placeholder="E.G. 'VI ÄR ETT UTVECKLINGSKONSULTBOLAG SOM BYGGER WEBB & APPAR FÖR SMB I SVERIGE...'"
+            ${isAdmin ? '' : 'disabled'}>${escHtml(orgSettings.business_profile || '')}</textarea>
+        </div>
+        ${isAdmin ? '<div class="settings-row"><button class="pixel-btn small" onclick="saveBizProfile()">SAVE</button></div>' : ''}
+      </div>
+
+      <div class="dash-section">
         <div class="dash-label">OUTREACH <span class="dim">// USED BY EMAIL SEQUENCES</span></div>
         <div class="settings-row">
           <input type="text" id="booking-url-input" class="pixel-input"
@@ -1360,6 +1371,15 @@ async function loadSettings() {
   } catch (e) {
     body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
   }
+}
+
+async function saveBizProfile() {
+  try {
+    await api('/api/org/settings', { method: 'PATCH', body: JSON.stringify({
+      business_profile: document.getElementById('biz-profile-input').value.trim() || null,
+    })});
+    alert('Saved — every agent now adapts to your business.');
+  } catch (e) { alert(e.message); }
 }
 
 async function addKnowledge() {

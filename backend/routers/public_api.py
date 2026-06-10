@@ -60,11 +60,15 @@ async def chat(req: ChatRequest, auth: AuthContext = Depends(get_current_auth)):
     )
 
     ctx = ToolContext(org_id=auth.org_id, user_id=auth.user_id, plan_id=plan.id)
+    settings = await db.get_org_settings(auth.org_id)
     text_parts: list[str] = []
     tool_calls: list[dict] = []
     total_in = total_out = 0
 
-    async for event in agent.run(req.message, history, ctx):
+    async for event in agent.run(
+        req.message, history, ctx,
+        business_context=settings.get("business_profile"),
+    ):
         if event["type"] == "text":
             text_parts.append(event["content"])
         elif event["type"] == "tool_start":

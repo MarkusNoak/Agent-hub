@@ -172,12 +172,17 @@ async def ws_chat(
                 ctx = ToolContext(
                     org_id=auth.org_id, user_id=auth.user_id, plan_id=plan.id
                 )
+                settings = await db.get_org_settings(auth.org_id)
+                business_context = settings.get("business_profile")
                 full_response = ""
                 total_in = total_out = 0
                 await websocket.send_json({"type": "start"})
 
                 try:
-                    async for event in agent.run(user_msg, history, ctx):
+                    async for event in agent.run(
+                        user_msg, history, ctx,
+                        business_context=business_context,
+                    ):
                         if event["type"] == "text":
                             full_response += event["content"]
                             await websocket.send_json(

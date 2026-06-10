@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+import time
+from collections import defaultdict, deque
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 
 import database as db
@@ -13,6 +16,25 @@ from auth import (
 from plans import get_plan
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Simple in-memory rate limit for credential endpoints (per IP)
+RATE_LIMIT = 10
+RATE_WINDOW = 60
+_attempts: dict[str, deque] = defaultdict(deque)
+
+
+def check_rate_limit(request: Request) -> None:
+    ip = (request.client.host if request.client else "unknown")
+    now = time.monotonic()
+    bucket = _attempts[ip]
+    while bucket and now - bucket[0] > RATE_WINDOW:
+        bucket.popleft()
+    if len(bucket) >= RATE_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts — wait a minute and try again",
+        )
+    bucket.append(now)
 
 
 class RegisterRequest(BaseModel):
@@ -35,19 +57,31 @@ class InviteRequest(BaseModel):
 
 
 @router.post("/register")
-async def register(req: RegisterRequest):
+async def register(req: RegisterRequest, request: Request):
+    check_rate_limit(request)
     if await db.get_user_by_email(req.email):
         raise HTTPException(status_code=409, detail="Email already registered")
     org_id = await db.create_organization(req.organization_name)
     user_id = await db.create_user(
         org_id, req.email, hash_password(req.password), req.name, role="owner"
     )
+    # Onboarding: a starter ICP so the GROWTH view never meets the user
+    # empty. auto_run stays off until they make it theirs.
+    await db.create_icp(org_id, {
+        "name": "Min första ICP (redigera mig)",
+        "what_we_sell": None,
+        "target_roles": ["systemutvecklare", "frontendutvecklare"],
+        "regions": [],
+        "include_new_companies": False,
+        "auto_run": False,
+    })
     token = create_token(user_id, org_id, "owner")
     return {"token": token, "user_id": user_id, "org_id": org_id, "role": "owner"}
 
 
 @router.post("/login")
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request):
+    check_rate_limit(request)
     user = await db.get_user_by_email(req.email)
     if not user or not verify_password(req.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
