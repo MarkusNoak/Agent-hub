@@ -199,6 +199,33 @@ CREATE TABLE IF NOT EXISTS prospecting_runs (
     created_at          TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_runs_org ON prospecting_runs (org_id, created_at);
+
+-- Delivered projects feed the upsell pipeline: customers 14-60 days
+-- post-delivery are warm leads (ported from V1 visma_completed_projects)
+CREATE TABLE IF NOT EXISTS completed_projects (
+    id                  TEXT PRIMARY KEY,
+    org_id              TEXT NOT NULL,
+    source              TEXT NOT NULL DEFAULT 'manual',
+    external_id         TEXT,
+    project_name        TEXT NOT NULL,
+    company_name        TEXT NOT NULL,
+    contact_name        TEXT,
+    contact_email       TEXT,
+    completed_at        TEXT NOT NULL,
+    value_sek           NUMERIC,
+    project_type        TEXT,
+    upsell_contacted_at TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_projects_org
+    ON completed_projects (org_id, completed_at);
+
+-- Idempotent column adds for schemas created before these features
+ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS approved_by TEXT;
+ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS approved_at TEXT;
+ALTER TABLE sequence_steps ADD COLUMN IF NOT EXISTS reject_reason TEXT;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS model TEXT;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(10,6) DEFAULT 0;
 """
 
 async def init_db() -> None:
@@ -383,6 +410,26 @@ async def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_runs_org
                 ON prospecting_runs (org_id, created_at);
+
+            -- Delivered projects feed the upsell pipeline: customers
+            -- 14-60 days post-delivery are warm leads
+            CREATE TABLE IF NOT EXISTS completed_projects (
+                id                  TEXT PRIMARY KEY,
+                org_id              TEXT NOT NULL,
+                source              TEXT NOT NULL DEFAULT 'manual',
+                external_id         TEXT,
+                project_name        TEXT NOT NULL,
+                company_name        TEXT NOT NULL,
+                contact_name        TEXT,
+                contact_email       TEXT,
+                completed_at        TEXT NOT NULL,
+                value_sek           NUMERIC,
+                project_type        TEXT,
+                upsell_contacted_at TIMESTAMP,
+                created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_projects_org
+                ON completed_projects (org_id, completed_at);
         """)
         if dbdriver.IS_POSTGRES:
             return
@@ -409,6 +456,22 @@ async def init_db() -> None:
         if "hook_type" not in seq_cols:
             await db.execute(
                 "ALTER TABLE sequence_steps ADD COLUMN hook_type TEXT"
+            )
+        # Migration: human-in-the-loop approval before outreach sends
+        for col, ddl in (("approved_by", "TEXT"), ("approved_at", "TEXT"),
+                         ("reject_reason", "TEXT")):
+            if col not in seq_cols:
+                await db.execute(
+                    f"ALTER TABLE sequence_steps ADD COLUMN {col} {ddl}"
+                )
+        # Migration: per-run cost accounting
+        async with db.execute("PRAGMA table_info(usage_events)") as cur:
+            usage_cols = [r[1] for r in await cur.fetchall()]
+        if "model" not in usage_cols:
+            await db.execute("ALTER TABLE usage_events ADD COLUMN model TEXT")
+        if "cost_usd" not in usage_cols:
+            await db.execute(
+                "ALTER TABLE usage_events ADD COLUMN cost_usd REAL DEFAULT 0"
             )
         await db.commit()
 
@@ -486,15 +549,16 @@ async def update_org_settings(org_id: str, patch: dict) -> dict:
     return settings
 
 
-async def create_sequence(org_id: str, lead_id: str, steps: list[dict]) -> int:
+async def create_sequence(org_id: str, lead_id: str, steps: list[dict],
+                          status: str = "pending") -> int:
     async with dbdriver.connect() as db:
         for i, step in enumerate(steps, 1):
             await db.execute(
                 "INSERT INTO sequence_steps "
-                "(org_id, lead_id, step, subject, body, send_at, hook_type) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(org_id, lead_id, step, subject, body, send_at, hook_type, "
+                "status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (org_id, lead_id, i, step["subject"], step["body"],
-                 step["send_at"], step.get("hook_type")),
+                 step["send_at"], step.get("hook_type"), status),
             )
         await db.commit()
     return len(steps)
@@ -516,7 +580,8 @@ async def has_active_sequence(org_id: str, lead_id: str) -> bool:
     async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT COUNT(*) FROM sequence_steps "
-            "WHERE org_id = ? AND lead_id = ? AND status = 'pending'",
+            "WHERE org_id = ? AND lead_id = ? "
+            "AND status IN ('pending', 'awaiting_approval')",
             (org_id, lead_id),
         ) as cur:
             return (await cur.fetchone())[0] > 0
@@ -526,7 +591,8 @@ async def cancel_sequence(org_id: str, lead_id: str) -> int:
     async with dbdriver.connect() as db:
         cur = await db.execute(
             "UPDATE sequence_steps SET status = 'cancelled' "
-            "WHERE org_id = ? AND lead_id = ? AND status = 'pending'",
+            "WHERE org_id = ? AND lead_id = ? "
+            "AND status IN ('pending', 'awaiting_approval')",
             (org_id, lead_id),
         )
         await db.commit()
@@ -552,6 +618,81 @@ async def mark_step(step_id: int, status: str, sent_at: str | None = None) -> No
             (status, sent_at, step_id),
         )
         await db.commit()
+
+
+# ── Approval queue: human review before outreach sends ───────────────────────
+
+
+async def list_awaiting_approval(org_id: str, limit: int = 100) -> list[dict]:
+    """Steps held for human review, with lead context for the UI."""
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT s.id, s.lead_id, s.step, s.subject, s.body, s.send_at, "
+            "s.hook_type, l.company_name, l.contact_name, l.contact_email "
+            "FROM sequence_steps s JOIN leads l ON l.id = s.lead_id "
+            "WHERE s.org_id = ? AND s.status = 'awaiting_approval' "
+            "ORDER BY s.lead_id, s.step LIMIT ?",
+            (org_id, limit),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def count_awaiting_approval(org_id: str) -> int:
+    async with dbdriver.connect() as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM sequence_steps "
+            "WHERE org_id = ? AND status = 'awaiting_approval'",
+            (org_id,),
+        ) as cur:
+            return (await cur.fetchone())[0]
+
+
+async def approve_step(org_id: str, step_id: int, user_id: str | None,
+                       subject: str | None = None,
+                       body: str | None = None) -> dict | None:
+    """Release a held step for sending, optionally with edited copy.
+    Returns the step row, or None if it wasn't awaiting approval."""
+    now = datetime.now(timezone.utc).isoformat()
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM sequence_steps WHERE id = ? AND org_id = ? "
+            "AND status = 'awaiting_approval'",
+            (step_id, org_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        await db.execute(
+            "UPDATE sequence_steps SET status = 'pending', subject = ?, "
+            "body = ?, approved_by = ?, approved_at = ? WHERE id = ?",
+            (subject or row["subject"], body or row["body"],
+             user_id, now, step_id),
+        )
+        await db.commit()
+        return dict(row)
+
+
+async def reject_step(org_id: str, step_id: int, user_id: str | None,
+                      reason: str) -> dict | None:
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM sequence_steps WHERE id = ? AND org_id = ? "
+            "AND status = 'awaiting_approval'",
+            (step_id, org_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        await db.execute(
+            "UPDATE sequence_steps SET status = 'rejected', approved_by = ?, "
+            "reject_reason = ? WHERE id = ?",
+            (user_id, reason, step_id),
+        )
+        await db.commit()
+        return dict(row)
 
 
 async def count_sends_today(org_id: str, today_prefix: str) -> int:
@@ -776,6 +917,60 @@ async def last_scheduled_run_at(org_id: str) -> str | None:
             return row[0] if row else None
 
 
+# ── Completed projects & upsell pipeline ─────────────────────────────────────
+# Customers 14-60 days post-delivery are the warmest leads an agency has:
+# the work is fresh, trust is proven, decision fatigue hasn't set in.
+
+UPSELL_MIN_DAYS = 14
+UPSELL_MAX_DAYS = 60
+
+
+async def add_completed_project(org_id: str, data: dict) -> str:
+    project_id = new_id()
+    async with dbdriver.connect() as db:
+        await db.execute(
+            "INSERT INTO completed_projects (id, org_id, source, external_id, "
+            "project_name, company_name, contact_name, contact_email, "
+            "completed_at, value_sek, project_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (project_id, org_id, data.get("source", "manual"),
+             data.get("external_id"), data["project_name"],
+             data["company_name"], data.get("contact_name"),
+             data.get("contact_email"), data["completed_at"],
+             data.get("value_sek"), data.get("project_type")),
+        )
+        await db.commit()
+    return project_id
+
+
+async def list_upsell_candidates(org_id: str, limit: int = 25) -> list[dict]:
+    """Projects delivered 14-60 days ago that haven't been pitched yet."""
+    now = datetime.now(timezone.utc)
+    lo = (now - timedelta(days=UPSELL_MAX_DAYS)).strftime("%Y-%m-%d")
+    hi = (now - timedelta(days=UPSELL_MIN_DAYS)).strftime("%Y-%m-%d")
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM completed_projects WHERE org_id = ? "
+            "AND upsell_contacted_at IS NULL "
+            "AND completed_at >= ? AND completed_at <= ? "
+            "ORDER BY completed_at LIMIT ?",
+            (org_id, lo, hi, limit),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def mark_upsell_contacted(org_id: str, project_id: str) -> bool:
+    async with dbdriver.connect() as db:
+        cur = await db.execute(
+            "UPDATE completed_projects SET upsell_contacted_at = ? "
+            "WHERE id = ? AND org_id = ? AND upsell_contacted_at IS NULL",
+            (datetime.now(timezone.utc).isoformat(), project_id, org_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
 # ── Organizations & users ─────────────────────────────────────────────────────
 
 
@@ -976,6 +1171,22 @@ async def clear_history(org_id: str, agent_id: str, session_id: str) -> None:
 
 # ── Usage metering ────────────────────────────────────────────────────────────
 
+# USD per 1M tokens (input, output) — used for per-run cost accounting.
+# Unknown models fall back to Sonnet pricing (conservative).
+MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-haiku-4-5-20251001": (1.0, 5.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-opus-4-8": (15.0, 75.0),
+}
+DEFAULT_PRICING = (3.0, 15.0)
+
+
+def estimate_cost_usd(model: str | None, input_tokens: int,
+                      output_tokens: int) -> float:
+    p_in, p_out = MODEL_PRICING.get(model or "", DEFAULT_PRICING)
+    return round((input_tokens / 1e6) * p_in + (output_tokens / 1e6) * p_out, 6)
+
 
 async def record_usage(
     org_id: str,
@@ -983,13 +1194,16 @@ async def record_usage(
     agent_id: str,
     input_tokens: int,
     output_tokens: int,
+    model: str | None = None,
 ) -> None:
+    cost = estimate_cost_usd(model, input_tokens, output_tokens)
     async with dbdriver.connect() as db:
         await db.execute(
             "INSERT INTO usage_events "
-            "(org_id, user_id, agent_id, month, input_tokens, output_tokens) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (org_id, user_id, agent_id, month_key(), input_tokens, output_tokens),
+            "(org_id, user_id, agent_id, month, input_tokens, output_tokens, "
+            "model, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (org_id, user_id, agent_id, month_key(), input_tokens,
+             output_tokens, model, cost),
         )
         await db.commit()
 
@@ -999,30 +1213,34 @@ async def get_monthly_usage(org_id: str, month: str | None = None) -> dict:
     async with dbdriver.connect() as db:
         async with db.execute(
             "SELECT COUNT(*), COALESCE(SUM(input_tokens),0), "
-            "COALESCE(SUM(output_tokens),0) "
+            "COALESCE(SUM(output_tokens),0), COALESCE(SUM(cost_usd),0) "
             "FROM usage_events WHERE org_id = ? AND month = ?",
             (org_id, month),
         ) as cur:
-            messages, tin, tout = await cur.fetchone()
+            messages, tin, tout, cost = await cur.fetchone()
         async with db.execute(
             "SELECT COUNT(*) FROM leads WHERE org_id = ? AND month = ?",
             (org_id, month),
         ) as cur:
             leads = (await cur.fetchone())[0]
         async with db.execute(
-            "SELECT agent_id, COUNT(*) FROM usage_events "
+            "SELECT agent_id, COUNT(*), COALESCE(SUM(cost_usd),0) "
+            "FROM usage_events "
             "WHERE org_id = ? AND month = ? GROUP BY agent_id "
             "ORDER BY COUNT(*) DESC",
             (org_id, month),
         ) as cur:
             by_agent = [
-                {"agent_id": r[0], "messages": r[1]} for r in await cur.fetchall()
+                {"agent_id": r[0], "messages": r[1],
+                 "cost_usd": round(float(r[2]), 4)}
+                for r in await cur.fetchall()
             ]
     return {
         "month": month,
         "messages": messages,
         "input_tokens": tin,
         "output_tokens": tout,
+        "cost_usd": round(float(cost), 4),
         "leads": leads,
         "by_agent": by_agent,
     }

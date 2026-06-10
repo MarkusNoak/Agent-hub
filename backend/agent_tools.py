@@ -369,6 +369,31 @@ async def _cancel_email_sequence(inp: dict, ctx: ToolContext) -> str:
     return _json({"ok": True, "steps_cancelled": cancelled})
 
 
+async def _list_upsell_candidates(inp: dict, ctx: ToolContext) -> str:
+    candidates = await db.list_upsell_candidates(ctx.org_id)
+    if not candidates:
+        return _json({"candidates": [],
+                      "note": "No completed projects in the 14-60 day "
+                              "post-delivery window that haven't been "
+                              "contacted yet."})
+    return _json({"count": len(candidates), "candidates": candidates})
+
+
+async def _add_completed_project(inp: dict, ctx: ToolContext) -> str:
+    if not (inp.get("project_name") and inp.get("company_name")
+            and inp.get("completed_at")):
+        return _json({"error": "project_name, company_name and completed_at "
+                               "(YYYY-MM-DD) are required."})
+    project_id = await db.add_completed_project(ctx.org_id, inp)
+    return _json({"ok": True, "project_id": project_id})
+
+
+async def _mark_upsell_contacted(inp: dict, ctx: ToolContext) -> str:
+    ok = await db.mark_upsell_contacted(ctx.org_id, inp.get("project_id", ""))
+    return _json({"ok": ok} if ok else
+                 {"error": "Project not found or already marked contacted."})
+
+
 async def _get_sequence_status(inp: dict, ctx: ToolContext) -> str:
     steps = await db.get_sequence(ctx.org_id, inp.get("lead_id", ""))
     if not steps:
@@ -830,8 +855,9 @@ START_EMAIL_SEQUENCE = Tool(
         "relevance_basis is REQUIRED: 1-2 sentences documenting why this is "
         "relevant to the recipient's role (legitimate-interest record). "
         "Guardrails reject suppressed addresses, missing emails, and "
-        "duplicate sequences. Without SMTP configured, sends are simulated "
-        "and fully logged."
+        "duplicate sequences. By default every step is held in the approval "
+        "queue until a team member approves it (Approvals view). Without "
+        "SMTP configured, sends are simulated and fully logged."
     ),
     input_schema={
         "type": "object",
@@ -893,9 +919,58 @@ CHECK_SENDING_DOMAIN = Tool(
     handler=_check_sending_domain,
 )
 
+LIST_UPSELL_CANDIDATES = Tool(
+    name="list_upsell_candidates",
+    description=(
+        "List existing customers whose project was delivered 14-60 days ago "
+        "and who haven't been contacted about follow-up work yet. These are "
+        "the warmest leads available — trust is proven, the work is fresh. "
+        "Use them before any cold prospecting. After starting an upsell "
+        "sequence, call mark_upsell_contacted so they aren't pitched twice."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    handler=_list_upsell_candidates,
+)
+
+ADD_COMPLETED_PROJECT = Tool(
+    name="add_completed_project",
+    description=(
+        "Register a delivered project so the customer enters the upsell "
+        "pipeline (they surface in list_upsell_candidates 14-60 days after "
+        "completed_at). source can be 'visma', 'fortnox' or 'manual'."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "project_name": {"type": "string"},
+            "company_name": {"type": "string"},
+            "completed_at": {"type": "string", "description": "YYYY-MM-DD"},
+            "contact_name": {"type": "string"},
+            "contact_email": {"type": "string"},
+            "value_sek": {"type": "number"},
+            "project_type": {"type": "string"},
+            "source": {"type": "string",
+                       "enum": ["visma", "fortnox", "manual"]},
+        },
+        "required": ["project_name", "company_name", "completed_at"],
+    },
+    handler=_add_completed_project,
+)
+
+MARK_UPSELL_CONTACTED = Tool(
+    name="mark_upsell_contacted",
+    description="Mark an upsell candidate as contacted so they leave the candidate list. Call this right after starting their outreach sequence.",
+    input_schema={
+        "type": "object",
+        "properties": {"project_id": {"type": "string"}},
+        "required": ["project_id"],
+    },
+    handler=_mark_upsell_contacted,
+)
+
 GET_SEQUENCE_STATUS = Tool(
     name="get_sequence_status",
-    description="Show the outreach sequence for a lead: each step's subject, schedule, and status (pending/sent/simulated/cancelled).",
+    description="Show the outreach sequence for a lead: each step's subject, schedule, and status (awaiting_approval/pending/sent/simulated/cancelled/rejected).",
     input_schema={
         "type": "object",
         "properties": {"lead_id": {"type": "string"}},
@@ -911,6 +986,7 @@ LEAD_TOOLS = [
     FIND_PUBLIC_TENDERS, CHECK_EMAIL_DOMAIN,
     SAVE_LEAD, LIST_LEADS, UPDATE_LEAD,
     START_EMAIL_SEQUENCE, CANCEL_EMAIL_SEQUENCE, GET_SEQUENCE_STATUS,
+    LIST_UPSELL_CANDIDATES, ADD_COMPLETED_PROJECT, MARK_UPSELL_CONTACTED,
     CHECK_SENDING_DOMAIN, ANALYZE_PIPELINE_PERFORMANCE,
     SEARCH_KNOWLEDGE,
 ]

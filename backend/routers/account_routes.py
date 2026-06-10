@@ -24,6 +24,7 @@ class OrgSettingsRequest(BaseModel):
     booking_url: str | None = None
     daily_send_limit: int | None = Field(default=None, ge=1, le=200)
     business_profile: str | None = Field(default=None, max_length=2000)
+    require_approval: bool | None = None
 
 
 @router.get("/org")

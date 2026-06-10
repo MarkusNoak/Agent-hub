@@ -26,10 +26,21 @@ customer-acquisition machine (built Sweden-first):
    automatically. GDPR by construction: documented legitimate interest,
    automatic unsubscribe links, permanent suppression list, daily send
    limits. Dry-run by default until `EMAIL_ENABLED=true`.
+   **Human-in-the-loop by default:** every drafted email is held in the
+   APPROVALS view until a team member approves it (editable before send)
+   or rejects it with a reason; orgs can opt out via the
+   `require_approval` setting.
 4. **Learning loop** — win rates by signal source, industry, and score band;
    score calibration against actual outcomes; reply-rate tracking; concrete
    recommendations on the dashboard. Every closed deal sharpens next month's
    prospecting.
+   Cost accounting: every agent interaction records estimated API cost
+   (`usage_events.cost_usd`, per-model pricing) — shown on the dashboard
+   total and per agent.
+   Upsell pipeline: delivered projects (`completed_projects`, importable
+   from Visma/Fortnox or added by agents) surface as warm leads 14–60 days
+   post-delivery via `list_upsell_candidates` — pitched once, then marked
+   contacted.
 5. **Public procurement (B2G)** — active Swedish IT tenders from TED (EU's
    official database) via `find_public_tenders`: published need, published
    budget, zero cold outreach.

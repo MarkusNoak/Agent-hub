@@ -48,4 +48,30 @@ SELECT
 FROM public.lead_memory m
 WHERE EXISTS (SELECT 1 FROM v2.leads WHERE id = 'v1_' || m.lead_id::text);
 
+-- Import V1 delivered projects so the upsell pipeline (14-60 days
+-- post-delivery) keeps working in v2
+INSERT INTO v2.completed_projects (
+    id, org_id, source, external_id, project_name, company_name,
+    contact_name, contact_email, completed_at, value_sek, project_type,
+    upsell_contacted_at, created_at
+)
+SELECT
+    'v1_' || p.id::text,
+    'YOUR_ORG_ID',
+    p.source,
+    p.external_id,
+    p.project_name,
+    p.company_name,
+    p.contact_name,
+    p.contact_email,
+    p.completed_at::text,
+    p.value_sek,
+    p.project_type,
+    p.upsell_contacted_at,
+    p.created_at
+FROM public.visma_completed_projects p
+ON CONFLICT (id) DO NOTHING;
+
 SELECT count(*) AS migrated_leads FROM v2.leads WHERE id LIKE 'v1_%';
+SELECT count(*) AS migrated_projects FROM v2.completed_projects
+WHERE id LIKE 'v1_%';

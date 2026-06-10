@@ -226,17 +226,28 @@ async def start_sequence(
             "hook_type": hook,
         })
 
-    await db.create_sequence(org_id, lead_id, prepared)
+    # Human-in-the-loop: hold steps for review unless the org opted out.
+    # A human reading every outbound email before it leaves is the strongest
+    # trust guardrail there is — on by default.
+    require_approval = settings.get("require_approval", True)
+    status = "awaiting_approval" if require_approval else "pending"
+    await db.create_sequence(org_id, lead_id, prepared, status=status)
     await db.add_lead_activity(
         org_id, lead_id, "sequence_started",
-        f"{len(prepared)} steg schemalagda till {recipient}. "
+        f"{len(prepared)} steg schemalagda till {recipient}"
+        + (" (väntar på godkännande)" if require_approval else "") + ". "
         f"Relevansgrund (GDPR): {relevance_basis}",
     )
     mode = "LIVE" if email_enabled() else "DRY-RUN (EMAIL_ENABLED is off — steps will be simulated)"
-    return {"ok": True, "steps_scheduled": len(prepared), "recipient": recipient,
-            "mode": mode, "hook_type": hook,
-            "first_send": prepared[0]["send_at"]
-            + " (aligned to Tue-Thu 08-10 Swedish time)"}
+    result = {"ok": True, "steps_scheduled": len(prepared),
+              "recipient": recipient, "mode": mode, "hook_type": hook,
+              "first_send": prepared[0]["send_at"]
+              + " (aligned to Tue-Thu 08-10 Swedish time)"}
+    if require_approval:
+        result["approval"] = ("Steps are held in the approval queue — a team "
+                              "member must approve each email in the "
+                              "Approvals view before it sends.")
+    return result
 
 
 async def cancel_lead_sequence(org_id: str, lead_id: str, reason: str) -> int:

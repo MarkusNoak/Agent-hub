@@ -459,6 +459,8 @@ async function enterApp() {
     `${available}/${state.agents.length} SPECIALISTS UNLOCKED`;
 
   renderSidebar();
+  api('/api/outreach/approvals/count')
+    .then(r => updateApprovalsBadge(r.count)).catch(() => {});
   startAnimLoop();
   startWelcomeAnimation(
     document.getElementById('welcome-canvas'),
@@ -479,11 +481,13 @@ function showView(view) {
   document.getElementById('chat-area').style.display =
     showChat && state.current ? 'flex' : 'none';
   document.getElementById('leads-view').style.display     = view === 'leads' ? 'flex' : 'none';
+  document.getElementById('approvals-view').style.display = view === 'approvals' ? 'flex' : 'none';
   document.getElementById('growth-view').style.display    = view === 'growth' ? 'flex' : 'none';
   document.getElementById('dashboard-view').style.display = view === 'dashboard' ? 'flex' : 'none';
   document.getElementById('settings-view').style.display  = view === 'settings' ? 'flex' : 'none';
 
   if (view === 'leads') loadLeads();
+  if (view === 'approvals') loadApprovals();
   if (view === 'growth') loadGrowth();
   if (view === 'dashboard') loadDashboard();
   if (view === 'settings') loadSettings();
@@ -1137,6 +1141,65 @@ function copyText(btn, text) {
   setTimeout(() => { btn.textContent = 'COPY'; }, 1500);
 }
 
+// ── Approvals view ─────────────────────────────────────
+async function loadApprovals() {
+  const body = document.getElementById('approvals-body');
+  try {
+    const items = await api('/api/outreach/approvals');
+    updateApprovalsBadge(items.length);
+    if (!items.length) {
+      body.innerHTML = `<div class="dim panel-empty">NO EMAILS AWAITING APPROVAL.<br><br>
+        WHEN <span style="color:#ff9500">VANTAGE</span> DRAFTS OUTREACH, EVERY EMAIL LANDS HERE<br>
+        FOR YOUR REVIEW BEFORE IT SENDS.</div>`;
+      return;
+    }
+    body.innerHTML = items.map(s => `
+      <div class="dash-section" id="approval-${s.id}">
+        <div class="dash-label">${escHtml(s.company_name)} // STEP ${s.step}
+          <span class="dim">→ ${escHtml(s.contact_name || '')} &lt;${escHtml(s.contact_email || '')}&gt;
+          // SENDS ${escHtml((s.send_at || '').slice(0, 16))}${s.hook_type ? ' // HOOK: ' + escHtml(s.hook_type.toUpperCase()) : ''}</span>
+        </div>
+        <input class="pixel-input" id="appr-subject-${s.id}" value="${escHtml(s.subject)}"
+               style="width:100%; margin:6px 0" aria-label="Subject" />
+        <textarea class="pixel-input" id="appr-body-${s.id}" rows="8"
+                  style="width:100%; font-family:inherit" aria-label="Body">${escHtml(s.body)}</textarea>
+        <div style="margin-top:6px">
+          <button class="pixel-btn small" onclick="approveStep(${s.id})">APPROVE &amp; SEND</button>
+          <button class="pixel-btn small danger" onclick="rejectStep(${s.id})">REJECT</button>
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function updateApprovalsBadge(count) {
+  const badge = document.getElementById('approvals-badge');
+  if (badge) badge.textContent = count ? ` [${count}]` : '';
+}
+
+async function approveStep(id) {
+  const subject = document.getElementById(`appr-subject-${id}`).value;
+  const body = document.getElementById(`appr-body-${id}`).value;
+  try {
+    await api(`/api/outreach/approvals/${id}/approve`, {
+      method: 'POST', body: JSON.stringify({ subject, body }),
+    });
+  } catch (e) { alert(e.message); }
+  loadApprovals();
+}
+
+async function rejectStep(id) {
+  const reason = prompt('Reason for rejecting this email?');
+  if (!reason) return;
+  try {
+    await api(`/api/outreach/approvals/${id}/reject`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    });
+  } catch (e) { alert(e.message); }
+  loadApprovals();
+}
+
 // ── Dashboard view ─────────────────────────────────────
 function quotaBar(used, limit, color) {
   if (limit < 0) return `<div class="quota-text">${used} / UNLIMITED</div>`;
@@ -1157,8 +1220,9 @@ async function loadDashboard() {
       return `<tr>
         <td style="color:${agent?.color || 'var(--text)'}">${agent?.name || a.agent_id.toUpperCase()}</td>
         <td>${a.messages}</td>
+        <td>$${(a.cost_usd ?? 0).toFixed(4)}</td>
       </tr>`;
-    }).join('') || '<tr><td colspan="2" class="dim">NO ACTIVITY YET</td></tr>';
+    }).join('') || '<tr><td colspan="3" class="dim">NO ACTIVITY YET</td></tr>';
 
     body.innerHTML = `
       <div class="dash-grid">
@@ -1179,6 +1243,11 @@ async function loadDashboard() {
           <div class="dash-label">TOKENS // ${usage.month}</div>
           <div class="dash-value small">${(usage.input_tokens + usage.output_tokens).toLocaleString()}</div>
           <div class="dim">IN ${usage.input_tokens.toLocaleString()} / OUT ${usage.output_tokens.toLocaleString()}</div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-label">AI COST // ${usage.month}</div>
+          <div class="dash-value small">$${(usage.cost_usd ?? 0).toFixed(2)}</div>
+          <div class="dim">ESTIMATED API SPEND</div>
         </div>
       </div>
       <div class="dash-grid">
@@ -1232,7 +1301,7 @@ async function loadDashboard() {
       <div class="dash-section">
         <div class="dash-label">ACTIVITY BY AGENT</div>
         <table class="leads-table slim">
-          <thead><tr><th>AGENT</th><th>MESSAGES</th></tr></thead>
+          <thead><tr><th>AGENT</th><th>MESSAGES</th><th>COST</th></tr></thead>
           <tbody>${agentRows}</tbody>
         </table>
       </div>`;
@@ -1307,6 +1376,13 @@ async function loadSettings() {
           <input type="number" id="send-limit-input" class="pixel-input" style="max-width:120px"
                  placeholder="SENDS/DAY" value="${orgSettings.daily_send_limit || 20}" ${isAdmin ? '' : 'disabled'} />
           ${isAdmin ? '<button class="pixel-btn small" onclick="saveOutreachSettings()">SAVE</button>' : ''}
+        </div>
+        <div class="settings-row" style="margin-top:6px">
+          <label style="font-size:7px; cursor:pointer">
+            <input type="checkbox" id="require-approval-input"
+                   ${orgSettings.require_approval === false ? '' : 'checked'} ${isAdmin ? '' : 'disabled'} />
+            REQUIRE HUMAN APPROVAL BEFORE OUTREACH EMAILS SEND (RECOMMENDED)
+          </label>
         </div>
         <div class="dim" style="font-size:6px; margin-top:8px; line-height:1.8">
           EMAIL SENDING: CONFIGURED VIA SMTP_* ENV VARS. WITHOUT EMAIL_ENABLED=TRUE ALL SENDS ARE SIMULATED (DRY-RUN).
@@ -1405,6 +1481,7 @@ async function saveOutreachSettings() {
     await api('/api/org/settings', { method: 'PATCH', body: JSON.stringify({
       booking_url: document.getElementById('booking-url-input').value.trim() || null,
       daily_send_limit: parseInt(document.getElementById('send-limit-input').value) || null,
+      require_approval: document.getElementById('require-approval-input').checked,
     })});
     alert('Saved.');
   } catch (e) { alert(e.message); }

@@ -26,6 +26,7 @@ from routers import (  # noqa: E402
     growth_routes,
     knowledge_routes,
     lead_routes,
+    outreach_routes,
     public_api,
 )
 
@@ -52,6 +53,7 @@ app.include_router(account_routes.router)
 app.include_router(lead_routes.router)
 app.include_router(growth_routes.router)
 app.include_router(knowledge_routes.router)
+app.include_router(outreach_routes.router)
 app.include_router(public_api.router)
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")
@@ -213,7 +215,7 @@ async def ws_chat(
                     if total_in or total_out:
                         await db.record_usage(
                             auth.org_id, auth.user_id, agent_id,
-                            total_in, total_out,
+                            total_in, total_out, model=agent.model,
                         )
 
                 if full_response:

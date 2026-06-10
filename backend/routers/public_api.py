@@ -81,7 +81,8 @@ async def chat(req: ChatRequest, auth: AuthContext = Depends(get_current_auth)):
     await db.save_message(
         auth.org_id, auth.user_id, req.agent_id, sid, "assistant", full_text
     )
-    await db.record_usage(auth.org_id, auth.user_id, req.agent_id, total_in, total_out)
+    await db.record_usage(auth.org_id, auth.user_id, req.agent_id, total_in,
+                          total_out, model=agent.model)
 
     return {
         "session_id": sid,

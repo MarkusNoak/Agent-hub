@@ -75,6 +75,7 @@
       <nav class="main-nav" aria-label="Sections">
         <button class="nav-btn active" id="nav-agents"    onclick="showView('agents')">AGENTS</button>
         <button class="nav-btn" id="nav-leads"     onclick="showView('leads')">LEADS</button>
+        <button class="nav-btn" id="nav-approvals" onclick="showView('approvals')">APPROVALS<span id="approvals-badge"></span></button>
         <button class="nav-btn" id="nav-growth"    onclick="showView('growth')">GROWTH</button>
         <button class="nav-btn" id="nav-dashboard" onclick="showView('dashboard')">DASHBOARD</button>
         <button class="nav-btn" id="nav-settings"  onclick="showView('settings')">SETTINGS</button>
@@ -143,6 +144,19 @@
           </div>
         </header>
         <div class="panel-body" id="leads-body">
+          <div class="dim panel-empty">LOADING...</div>
+        </div>
+      </div>
+
+      <!-- Approvals view -->
+      <div class="panel-view" id="approvals-view" style="display:none">
+        <header class="panel-header">
+          <h2>OUTREACH APPROVALS</h2>
+          <div class="panel-actions">
+            <span class="dim" style="font-size:6px">HUMAN-IN-THE-LOOP // NOTHING SENDS WITHOUT YOUR OK</span>
+          </div>
+        </header>
+        <div class="panel-body" id="approvals-body">
           <div class="dim panel-empty">LOADING...</div>
         </div>
       </div>

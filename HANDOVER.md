@@ -24,19 +24,36 @@ below. The owner (Markus) wants minimal manual involvement — drive it.
 
 ## The plan (owner has approved direction: one repo, one system, V2 is the base)
 
-1. **Subtree-merge** wkit-agent-hub into this repo under `legacy/`
-   (preserve history):
-   `git subtree add --prefix=legacy <wkit-agent-hub-url> <default-branch>`
-2. **Audit** `legacy/`: architecture, how agents/cron run on Vercel, why it
-   stalled 2026-05-19 (check Vercel cron config, expired credentials,
-   error handling), and anything valuable not yet in V2.
-3. **Port the keepers into V2** (priority order):
-   - Approval queue: human-in-the-loop before outreach sends (V2 sends
-     after agent guardrails only; V1's pending-approval model is better
-     for trust — add approval status to sequence_steps + UI + approve/
-     reject endpoints)
-   - Cost tracking per agent run (V1's agent_runs.cost_usd)
-   - Any Visma/Fortnox upsell logic worth keeping
+1. ✅ DONE **Subtree-merge** — wkit-agent-hub lives under `legacy/` with
+   full history (`git log --follow legacy/...` works).
+2. ✅ DONE **Audit** `legacy/`. Key findings:
+   - V1 is a Next.js 14 pnpm monorepo (dashboard on Vercel, pg_cron in
+     Supabase POSTs to `/api/cron/tick` every minute).
+   - **Why it stalled 2026-05-19:** OAuth token refresh was never
+     implemented (`legacy/packages/connectors/src/invoicing.ts:67` —
+     "Token refresh omitted here"). Visma/Fortnox tokens expire after
+     ~1h; all API calls then 401, the approval queue stopped filling,
+     and errors only went to stdout — no retry, no alert. The 55 pending
+     approvals predate the stall.
+   - Worth keeping (now ported): approval queue, cost tracking, Visma
+     upsell window. Lower priority, NOT ported: audit_log, per-step run
+     logging, Slack approval notifications.
+3. ✅ DONE **Port the keepers into V2**:
+   - **Approval queue**: sequences now default to status
+     `awaiting_approval`; nothing sends until approved. New APPROVALS
+     view in the UI (edit subject/body, approve/reject with reason),
+     endpoints under `/api/outreach/approvals`, org setting
+     `require_approval` (default on) to opt out.
+   - **Cost tracking**: `usage_events.model` + `cost_usd` with per-model
+     pricing (`database.MODEL_PRICING`); dashboard shows monthly AI cost
+     total and per-agent cost.
+   - **Upsell pipeline**: `completed_projects` table + agent tools
+     `list_upsell_candidates` (14–60 days post-delivery, not yet
+     contacted), `add_completed_project`, `mark_upsell_contacted`.
+   - Supabase prod (`mhpmdlcdjvwglivzcgio`): migration
+     `v2_approvals_cost_upsell` APPLIED (new table + columns in schema
+     v2). `scripts/migrate_v1_leads.sql` now also imports
+     `visma_completed_projects`.
 4. **Deploy V2**: Railway/Render/Fly (NOT Vercel — websockets/schedulers),
    env keys copied from the Vercel project settings, DATABASE_URL from
    Supabase. Register org, run migrate_v1_leads.sql, verify LEADS view.
