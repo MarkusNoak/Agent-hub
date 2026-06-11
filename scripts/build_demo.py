@@ -151,6 +151,17 @@ INTEGRATIONS = {"connectors":[
   {"id":"linkedin","name":"LinkedIn","category":"Outreach","connected":False,"available":False,"detail":"Coming soon."},
 ]}
 
+OFFICE = {"agents":[
+  {"agent_id":"vantage","last_at":"2026-06-11 06:55","messages":42},
+  {"agent_id":"forge","last_at":"2026-06-10 14:20","messages":18},
+  {"agent_id":"beacon","last_at":"2026-06-09 09:10","messages":7},
+],"feed":[
+  {"kind":"created","at":"2026-06-11 06:55","text":"Visby Health Systems AB — Skördad från rekryteringssignal (scheduled körning)"},
+  {"kind":"prospecting_run","at":"2026-06-11 06:54","text":"Harvest (scheduled): 6 new leads, 11 duplicates skipped"},
+  {"kind":"sequence_started","at":"2026-06-10 09:01","text":"Visby Health Systems AB — 2 steg schemalagda till sara.lindqvist@visbyhealth-demo.se"},
+  {"kind":"reply_received","at":"2026-06-10 07:15","text":"Visby Health Systems AB — Svar klassat som 'meeting'"},
+]}
+
 CONVERSATIONS = [
   {"session_id":"demo-s1","snippet":"Hitta 10 bolag i Stockholm som rekryterar utvecklare","last_at":"2026-06-09 14:22","messages":6},
   {"session_id":"demo-s2","snippet":"Skriv outreach till Visby Health","last_at":"2026-06-08 09:10","messages":4},
@@ -215,6 +226,7 @@ const DEMO = {
   approvals: %APPROVALS%,
   conversations: %CONVERSATIONS%,
   integrations: %INTEGRATIONS%,
+  office: %OFFICE%,
 };
 const json = d => new Response(JSON.stringify(d), {status:200, headers:{'Content-Type':'application/json'}});
 window.fetch = async (url, opts={}) => {
@@ -233,6 +245,7 @@ window.fetch = async (url, opts={}) => {
   if (u.includes('/api/growth/runs')) return json(DEMO.runs);
   if (u.includes('/api/growth/insights')) return json(DEMO.insights);
   if (u.includes('/api/integrations')) return json(DEMO.integrations);
+  if (u.includes('/api/office')) return json(DEMO.office);
   if (u.includes('/api/org/settings')) return json(DEMO.settings);
   if (u.includes('/api/org')) return json(DEMO.org);
   if (u.includes('/api/usage')) return json(DEMO.usage);
@@ -285,7 +298,7 @@ for key, data in [("AGENTS",agents),("LEADS",LEADS),("LEAD_DETAIL",LEAD_DETAIL),
                   ("INSIGHTS",INSIGHTS),("ORG",ORG),("USAGE",USAGE),("ICPS",ICPS),
                   ("KNOWLEDGE",KNOWLEDGE),("KEYS",KEYS),("SETTINGS",SETTINGS),("PLANS",plans),
                   ("APPROVALS",APPROVALS),("CONVERSATIONS",CONVERSATIONS),
-                  ("INTEGRATIONS",INTEGRATIONS),
+                  ("INTEGRATIONS",INTEGRATIONS),("OFFICE",OFFICE),
                   ("CHAT_TEXT",CHAT_TEXT)]:
     shim = shim.replace("%"+key+"%", json.dumps(data, ensure_ascii=False))
 

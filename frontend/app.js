@@ -199,21 +199,38 @@ function showView(view) {
 
   const showChat = view === 'agents';
   const showHome = showChat && !state.current;
+  if (view === 'agents') {
+    document.getElementById('nav-home')?.classList.toggle('active', showHome);
+    document.getElementById('nav-agents')?.classList.toggle('active', !showHome);
+  }
   document.getElementById('welcome-screen').style.display = showHome ? 'flex' : 'none';
   if (showHome) loadHome();
   document.getElementById('chat-area').style.display =
     showChat && state.current ? 'flex' : 'none';
+  document.getElementById('office-view').style.display    = view === 'office' ? 'flex' : 'none';
   document.getElementById('leads-view').style.display     = view === 'leads' ? 'flex' : 'none';
   document.getElementById('approvals-view').style.display  = view === 'approvals' ? 'flex' : 'none';
   document.getElementById('growth-view').style.display    = view === 'growth' ? 'flex' : 'none';
   document.getElementById('dashboard-view').style.display = view === 'dashboard' ? 'flex' : 'none';
   document.getElementById('settings-view').style.display  = view === 'settings' ? 'flex' : 'none';
 
+  if (state.officeTimer) { clearInterval(state.officeTimer); state.officeTimer = null; }
+  if (view === 'office') {
+    loadOffice();
+    state.officeTimer = setInterval(loadOffice, 20000);
+  }
   if (view === 'leads') loadLeads();
   if (view === 'approvals') loadApprovals();
   if (view === 'growth') loadGrowth();
   if (view === 'dashboard') loadDashboard();
   if (view === 'settings') loadSettings();
+}
+
+function goHome() {
+  if (state.ws) { state.ws.close(); state.ws = null; }
+  state.current = null;
+  document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
+  showView('agents');
 }
 
 
@@ -430,6 +447,81 @@ function usePrompt(btn) {
   input.value = btn.textContent;
   autoResize(input);
   sendMessage();
+}
+
+// ── Office view ────────────────────────────────────────
+function agoLabel(iso) {
+  if (!iso) return null;
+  const t = new Date(iso.replace(' ', 'T') + (/[Z+]/.test(iso) ? '' : 'Z')).getTime();
+  if (isNaN(t)) return null;
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
+}
+
+function officeStatus(iso) {
+  if (!iso) return ['standby', 'Standby'];
+  const t = new Date(iso.replace(' ', 'T') + (/[Z+]/.test(iso) ? '' : 'Z')).getTime();
+  const mins = (Date.now() - t) / 60000;
+  if (mins < 10) return ['working', 'Working now'];
+  if (mins < 24 * 60) return ['recent', 'Active today'];
+  return ['standby', 'Standby'];
+}
+
+async function loadOffice() {
+  const body = document.getElementById('office-body');
+  if (!body.dataset.loaded) body.innerHTML = skeleton(4);
+  try {
+    const data = await api('/api/office');
+    const byId = {};
+    (data.agents || []).forEach(a => { byId[a.agent_id] = a; });
+
+    const desks = (state.agents || []).map(a => {
+      const st = byId[a.id] || {};
+      const [cls, label] = officeStatus(st.last_at);
+      const ago = agoLabel(st.last_at);
+      return `
+        <div class="desk ${cls}" onclick="selectAgent('${a.id}')" role="button" title="Open ${escHtml(a.name)}">
+          <div class="desk-avatar">${avatarHtml(a, 'lg')}</div>
+          <div class="desk-name">${escHtml(a.name)}</div>
+          <div class="desk-cat dim">${escHtml(a.category || '')}</div>
+          <div class="desk-status">
+            <span class="desk-dot"></span>${label}
+          </div>
+          <div class="desk-meta dim small">
+            ${st.messages ? `${st.messages} messages` : 'No conversations yet'}${ago ? ` · ${ago}` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    const feedRows = (data.feed || []).map(f => `
+      <div class="office-event">
+        <span class="office-event-dot kind-${escHtml(f.kind)}"></span>
+        <div>
+          <div class="office-event-text">${escHtml(f.text)}</div>
+          <div class="dim small">${agoLabel(f.at) || escHtml((f.at || '').slice(0, 16))}</div>
+        </div>
+      </div>`).join('') ||
+      '<div class="dim">Quiet so far — run a harvest or talk to an agent and the activity shows up here.</div>';
+
+    body.innerHTML = `
+      <div class="office-layout">
+        <div>
+          <div class="dash-label">THE FLOOR <span class="dim">// CLICK A DESK TO TALK TO THE AGENT</span></div>
+          <div class="office-grid">${desks}</div>
+        </div>
+        <div class="office-feed">
+          <div class="dash-label">LIVE WIRE <span class="dim">// LATEST ACTIVITY</span></div>
+          ${feedRows}
+        </div>
+      </div>`;
+    body.dataset.loaded = '1';
+  } catch (e) {
+    body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
+  }
 }
 
 // ── Growth view ────────────────────────────────────────
@@ -1001,6 +1093,63 @@ function scoreColor(score) {
   return 'var(--dim)';
 }
 
+function leadsViewMode() {
+  try { return localStorage.getItem('ahub_leads_view') || 'table'; }
+  catch (e) { return 'table'; }
+}
+
+function setLeadsView(mode) {
+  try { localStorage.setItem('ahub_leads_view', mode); } catch (e) { /* private mode */ }
+  syncViewToggle(mode);
+  loadLeads();
+}
+
+function syncViewToggle(mode) {
+  const t = document.getElementById('vt-table'), b = document.getElementById('vt-board');
+  if (!t || !b) return;
+  t.classList.toggle('active', mode !== 'board');
+  b.classList.toggle('active', mode === 'board');
+}
+
+function renderBoard(body, leads, statuses) {
+  const cols = statuses.map(status => {
+    const cards = leads.filter(l => l.status === status).map(l => `
+      <div class="kanban-card" draggable="true" id="kcard-${l.id}"
+           ondragstart="event.dataTransfer.setData('text/plain','${l.id}'); this.classList.add('dragging')"
+           ondragend="this.classList.remove('dragging')"
+           onclick="setLeadsView('table')">
+        <div class="kanban-card-top">
+          <div class="lead-company">${escHtml(l.company_name)}</div>
+          <span class="lead-score" style="color:${scoreColor(l.score)}">${l.score ?? '--'}</span>
+        </div>
+        <div class="dim small">${escHtml(l.contact_name || l.domain || l.source || '')}</div>
+        <div class="dim small kanban-card-meta">${escHtml(l.location || '')}</div>
+      </div>`).join('');
+    return `
+      <div class="kanban-col" data-status="${status}"
+           ondragover="event.preventDefault(); this.classList.add('drop')"
+           ondragleave="this.classList.remove('drop')"
+           ondrop="this.classList.remove('drop'); dropLead(event, '${status}')">
+        <div class="kanban-col-head">
+          <span class="kanban-col-title">${status.toUpperCase()}</span>
+          <span class="kanban-count">${leads.filter(l => l.status === status).length}</span>
+        </div>
+        <div class="kanban-cards">${cards}</div>
+      </div>`;
+  }).join('');
+  body.innerHTML = `<div class="kanban">${cols}</div>`;
+}
+
+async function dropLead(ev, status) {
+  const id = ev.dataTransfer.getData('text/plain');
+  if (!id) return;
+  try {
+    await api(`/api/leads/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    toast(`Moved to ${status}`);
+  } catch (e) { toast(e.message, 'error'); }
+  loadLeads();
+}
+
 async function loadLeads() {
   const body = document.getElementById('leads-body');
   const filter = document.getElementById('leads-filter');
@@ -1016,6 +1165,7 @@ async function loadLeads() {
   try {
     const data = await api('/api/leads' + (filter.value ? `?status=${filter.value}` : ''));
     state.leadStatuses = data.statuses;
+    syncViewToggle(leadsViewMode());
     if (leadsViewMode() === 'board' && data.leads.length) {
       renderBoard(body, data.leads, data.statuses);
       return;
