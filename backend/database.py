@@ -109,6 +109,8 @@ CREATE TABLE IF NOT EXISTS leads (
     notes            TEXT,
     outreach_draft   TEXT,
     created_by       TEXT,
+    next_action      TEXT,
+    next_action_due  TEXT,
     created_at       TIMESTAMPTZ DEFAULT now(),
     updated_at       TIMESTAMPTZ DEFAULT now()
 );
@@ -190,6 +192,21 @@ CREATE TABLE IF NOT EXISTS suppression_list (
     created_at  TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (org_id, email)
 );
+
+CREATE TABLE IF NOT EXISTS crm_accounts (
+    id             TEXT PRIMARY KEY,
+    org_id         TEXT NOT NULL,
+    company_name   TEXT NOT NULL,
+    org_number     TEXT,
+    domain         TEXT,
+    contact_name   TEXT,
+    contact_email  TEXT,
+    status         TEXT NOT NULL DEFAULT 'customer',
+    monthly_value  INTEGER,
+    notes          TEXT,
+    created_at     TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_accounts_org ON crm_accounts (org_id, status);
 
 CREATE TABLE IF NOT EXISTS prospecting_runs (
     id                  TEXT PRIMARY KEY,
@@ -392,6 +409,20 @@ async def init_db() -> None:
                 PRIMARY KEY (org_id, email)
             );
 
+            CREATE TABLE IF NOT EXISTS crm_accounts (
+                id             TEXT PRIMARY KEY,
+                org_id         TEXT NOT NULL,
+                company_name   TEXT NOT NULL,
+                org_number     TEXT,
+                domain         TEXT,
+                contact_name   TEXT,
+                contact_email  TEXT,
+                status         TEXT NOT NULL DEFAULT 'customer',
+                monthly_value  INTEGER,
+                notes          TEXT,
+                created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS prospecting_runs (
                 id                  TEXT PRIMARY KEY,
                 org_id              TEXT NOT NULL,
@@ -413,6 +444,11 @@ async def init_db() -> None:
             cols = [r[1] for r in await cur.fetchall()]
         if "org_number" not in cols:
             await db.execute("ALTER TABLE leads ADD COLUMN org_number TEXT")
+        if "next_action" not in cols:
+            await db.execute("ALTER TABLE leads ADD COLUMN next_action TEXT")
+            await db.execute(
+                "ALTER TABLE leads ADD COLUMN next_action_due TEXT"
+            )
         # Migration: per-org settings JSON (booking URL, send limits, ...)
         async with db.execute("PRAGMA table_info(organizations)") as cur:
             org_cols = [r[1] for r in await cur.fetchall()]
@@ -686,7 +722,16 @@ async def block_company(org_id: str, company_name: str | None,
 
 async def is_company_blocked(org_id: str, company_name: str | None,
                              org_number: str | None) -> dict | None:
-    """Returns the block record if the company is in cooldown, else None."""
+    """Returns the block record if the company is in cooldown, else None.
+
+    Existing customers and partners (CRM accounts) are permanently blocked
+    from harvest and outreach — prospecting your own customers is the
+    fastest way to look like a robot."""
+    account = await find_account_for_company(org_id, company_name, org_number)
+    if account and account["status"] != "former":
+        return {"org_id": org_id, "key": account["company_name"],
+                "reason": f"befintlig {account['status']} (CRM)",
+                "until": "9999-12-31"}
     keys = [k for k in (_norm_orgnr(org_number),
                         (company_name or "").strip().lower()) if k]
     if not keys:
@@ -701,6 +746,130 @@ async def is_company_blocked(org_id: str, company_name: str | None,
         ) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
+
+
+# ── CRM accounts (existing customers/partners) ───────────────────────────────
+
+
+ACCOUNT_STATUSES = ["customer", "partner", "former"]
+
+
+def _parse_account(row) -> dict:
+    return dict(row)
+
+
+async def create_account(org_id: str, data: dict) -> str:
+    account_id = new_id()
+    async with dbdriver.connect() as db:
+        await db.execute(
+            "INSERT INTO crm_accounts (id, org_id, company_name, org_number, "
+            "domain, contact_name, contact_email, status, monthly_value, "
+            "notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (account_id, org_id, data["company_name"],
+             data.get("org_number"), data.get("domain"),
+             data.get("contact_name"), data.get("contact_email"),
+             data.get("status") or "customer",
+             data.get("monthly_value"), data.get("notes")),
+        )
+        await db.commit()
+    return account_id
+
+
+async def list_accounts(org_id: str, status: str | None = None) -> list[dict]:
+    sql = ("SELECT *, CAST(created_at AS TEXT) AS created_at FROM "
+           "crm_accounts WHERE org_id = ?")
+    params: list = [org_id]
+    if status:
+        sql += " AND status = ?"
+        params.append(status)
+    sql += " ORDER BY company_name"
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(sql, params) as cur:
+            return [_parse_account(r) for r in await cur.fetchall()]
+
+
+async def update_account(org_id: str, account_id: str, fields: dict) -> bool:
+    allowed = {"company_name", "org_number", "domain", "contact_name",
+               "contact_email", "status", "monthly_value", "notes"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return False
+    sets = ", ".join(f"{k} = ?" for k in updates)
+    async with dbdriver.connect() as db:
+        cur = await db.execute(
+            f"UPDATE crm_accounts SET {sets} WHERE id = ? AND org_id = ?",
+            [*updates.values(), account_id, org_id],
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def delete_account(org_id: str, account_id: str) -> None:
+    async with dbdriver.connect() as db:
+        await db.execute(
+            "DELETE FROM crm_accounts WHERE id = ? AND org_id = ?",
+            (account_id, org_id),
+        )
+        await db.commit()
+
+
+async def find_account_for_company(org_id: str, company_name: str | None,
+                                   org_number: str | None) -> dict | None:
+    """Match on org number or legal-form name variants — the same matching
+    the lead dedupe uses."""
+    conditions, params = [], []
+    if _norm_orgnr(org_number):
+        conditions.append(
+            "REPLACE(REPLACE(COALESCE(org_number,''), '-', ''), ' ', '') = ?"
+        )
+        params.append(_norm_orgnr(org_number))
+    if company_name and company_name.strip():
+        variants = _name_variants(company_name)
+        conditions.append(
+            "LOWER(company_name) IN (" + ", ".join("?" * len(variants)) + ")"
+        )
+        params.extend(variants)
+    if not conditions:
+        return None
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM crm_accounts WHERE org_id = ? AND ("
+            + " OR ".join(conditions) + ") LIMIT 1",
+            [org_id, *params],
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def list_followups(org_id: str) -> dict:
+    """The 'waiting on you' queue: due/overdue next actions plus leads that
+    have silently gone stale."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    stale_cutoff = (datetime.now(timezone.utc)
+                    - timedelta(days=14)).strftime("%Y-%m-%d")
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, company_name, status, score, next_action, "
+            "next_action_due, contact_name FROM leads "
+            "WHERE org_id = ? AND next_action_due IS NOT NULL "
+            "AND status NOT IN ('won','lost') AND next_action_due <= ? "
+            "ORDER BY next_action_due",
+            (org_id, today),
+        ) as cur:
+            due = [dict(r) for r in await cur.fetchall()]
+        async with db.execute(
+            "SELECT id, company_name, status, score, "
+            "CAST(updated_at AS TEXT) AS updated_at FROM leads "
+            "WHERE org_id = ? AND status IN ('qualified','contacted') "
+            "AND next_action_due IS NULL "
+            "AND CAST(updated_at AS TEXT) < ? ORDER BY updated_at LIMIT 10",
+            (org_id, stale_cutoff),
+        ) as cur:
+            stale = [dict(r) for r in await cur.fetchall()]
+    return {"due": due, "stale": stale, "today": today}
 
 
 async def is_suppressed(org_id: str, email: str) -> bool:
@@ -1375,14 +1544,34 @@ async def list_leads(
             return [dict(r) for r in await cur.fetchall()]
 
 
+# Follow-up engine: every status move sets the next concrete action with a
+# deadline, so the pipeline can never rot silently. (days, action)
+FOLLOWUP_DEFAULTS = {
+    "qualified": (3, "Starta outreach — utkastet ligger på leadet"),
+    "contacted": (7, "Inget svar ännu — följ upp med ny vinkel eller stäng"),
+    "meeting": (2, "Förbered mötet — kör Dossier på leadet"),
+}
+
+
 async def update_lead(org_id: str, lead_id: str, fields: dict) -> bool:
     allowed = {
         "company_name", "domain", "org_number", "industry", "company_size",
         "location", "contact_name", "contact_title", "contact_email",
         "contact_linkedin", "score", "score_reason", "status", "notes",
-        "outreach_draft",
+        "outreach_draft", "next_action", "next_action_due",
     }
     updates = {k: v for k, v in fields.items() if k in allowed}
+    if "status" in updates and "next_action" not in updates:
+        rule = FOLLOWUP_DEFAULTS.get(updates["status"])
+        if rule:
+            days, action = rule
+            updates["next_action"] = action
+            updates["next_action_due"] = (
+                datetime.now(timezone.utc) + timedelta(days=days)
+            ).strftime("%Y-%m-%d")
+        else:
+            updates["next_action"] = None
+            updates["next_action_due"] = None
     if not updates:
         return False
     sets = ", ".join(f"{k} = ?" for k in updates)

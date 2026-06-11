@@ -151,6 +151,42 @@ INTEGRATIONS = {"connectors":[
   {"id":"linkedin","name":"LinkedIn","category":"Outreach","connected":False,"available":False,"detail":"Coming soon."},
 ]}
 
+ACCOUNTS = {"accounts":[
+  {"id":"A1","company_name":"Bergmans Bygg AB","org_number":"556011-2233","domain":"bergmansbygg.se",
+   "contact_name":"Lars Bergman","contact_email":"lars@bergmansbygg.se","status":"customer","monthly_value":28000,
+   "notes":"Webb + drift sedan 2024","created_at":"2026-01-10"},
+  {"id":"A2","company_name":"Nordic Padel Group","org_number":"559344-5566","domain":"nordicpadel.se",
+   "contact_name":"Emma Sjö","contact_email":"emma@nordicpadel.se","status":"customer","monthly_value":12000,
+   "notes":"App-underhåll","created_at":"2026-03-02"},
+],"statuses":["customer","partner","former"]}
+
+FOLLOWUPS = {"today":"2026-06-11","due":[
+  {"id":"L3","company_name":"Køge Logistik ApS","status":"qualified","score":71,
+   "next_action":"Starta outreach — utkastet ligger på leadet","next_action_due":"2026-06-10","contact_name":"Mads Eriksen"},
+  {"id":"L2","company_name":"Fjord Analytics AS","status":"contacted","score":78,
+   "next_action":"Inget svar ännu — följ upp med ny vinkel eller stäng","next_action_due":"2026-06-11","contact_name":"Henrik Dahl"},
+],"stale":[{"id":"L5","company_name":"Baltik Components Oy","status":"contacted","score":44,"updated_at":"2026-05-20"}]}
+
+DOSSIER_MD = """# Dossier: Visby Health Systems AB
+
+## Läget
+- **Status:** meeting · **Score:** 95 · **Källa:** signal:hiring
+- **Kontakt:** Sara Lindqvist (CEO) · sara.lindqvist@visbyhealth-demo.se
+
+## Digital närvaro
+- **Sajt:** visbyhealth-demo.se — Visby Health
+- **Tech:** React, AWS
+- **Digital mognad:** 72/100
+
+## Rekryterar just nu
+- Frontendutvecklare React (Göteborg)
+- Fullstackutvecklare (Göteborg)
+
+## Tre saker att ta upp
+- De har sökt fyra utvecklare på fyra månader — fråga hur rekryteringen påverkar roadmapen.
+- Annonserna nämner React/AWS — exakt vår husstack, visa Acme-caset.
+- Sajten saknar bokningsflöde för demo — konkret quick win att föreslå."""
+
 ICP_PRESETS_DEMO = [
   {"id":"systemutveckling","label":"Systemutveckling — bolag i utvecklingsfas","description":"Bolag i hela Sverige som rekryterar utvecklare, tar in kapital eller expanderar.","signals":["Hiring","Funding","Expansion"]},
   {"id":"startups-scaleups","label":"Startups & scaleups","description":"Nystartade bolag (utan webbplats flaggas), kapitalrundor och ledningsbyten — MVP till skalning.","signals":["Newco","Funding","Expansion","Leadership"]},
@@ -237,6 +273,9 @@ const DEMO = {
   integrations: %INTEGRATIONS%,
   office: %OFFICE%,
   icpPresets: %ICP_PRESETS_DEMO%,
+  accounts: %ACCOUNTS%,
+  followups: %FOLLOWUPS%,
+  dossier: %DOSSIER_MD%,
 };
 const json = d => new Response(JSON.stringify(d), {status:200, headers:{'Content-Type':'application/json'}});
 window.fetch = async (url, opts={}) => {
@@ -249,6 +288,10 @@ window.fetch = async (url, opts={}) => {
     if (opts.method && opts.method!=='GET') return json({ok:true});
     return json({leads: DEMO.leads, statuses:['new','qualified','contacted','meeting','won','lost']});
   }
+  if (u.includes('/api/crm/accounts')) { if (opts.method && opts.method!=='GET') return json({ok:true}); return json(DEMO.accounts); }
+  if (u.includes('/api/crm/followups')) return json(DEMO.followups);
+  if (u.includes('/api/crm/convert')) return json({ok:true});
+  if (u.includes('/dossier')) return json({markdown: DEMO.dossier});
   if (u.includes('/api/growth/icp-presets')) return json(DEMO.icpPresets);
   if (u.includes('/from-preset/')) return json({ok:true});
   if (u.includes('/api/growth/icps') && opts.method==='POST') return json(DEMO.icps[0]);
@@ -310,7 +353,7 @@ for key, data in [("AGENTS",agents),("LEADS",LEADS),("LEAD_DETAIL",LEAD_DETAIL),
                   ("INSIGHTS",INSIGHTS),("ORG",ORG),("USAGE",USAGE),("ICPS",ICPS),
                   ("KNOWLEDGE",KNOWLEDGE),("KEYS",KEYS),("SETTINGS",SETTINGS),("PLANS",plans),
                   ("APPROVALS",APPROVALS),("CONVERSATIONS",CONVERSATIONS),
-                  ("INTEGRATIONS",INTEGRATIONS),("OFFICE",OFFICE),("ICP_PRESETS_DEMO",ICP_PRESETS_DEMO),
+                  ("INTEGRATIONS",INTEGRATIONS),("OFFICE",OFFICE),("ICP_PRESETS_DEMO",ICP_PRESETS_DEMO),("ACCOUNTS",ACCOUNTS),("FOLLOWUPS",FOLLOWUPS),("DOSSIER_MD",DOSSIER_MD),
                   ("CHAT_TEXT",CHAT_TEXT)]:
     shim = shim.replace("%"+key+"%", json.dumps(data, ensure_ascii=False))
 
