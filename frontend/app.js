@@ -471,6 +471,31 @@ function officeStatus(iso) {
   return ['standby', 'Standby'];
 }
 
+const OFFICE_ZONES = [
+  ['Revenue floor', ['revenue']],
+  ['Operations', ['operations']],
+  ['Engineering & data', ['engineering', 'data', 'security']],
+  ['Strategy & content', ['strategy', 'content', 'knowledge', 'general']],
+];
+
+function deskHtml(a, st) {
+  const [cls, label] = officeStatus(st.last_at);
+  const ago = agoLabel(st.last_at);
+  return `
+    <div class="desk ${cls}" onclick="selectAgent('${a.id}')" role="button" title="Open ${escHtml(a.name)}">
+      <div class="desk-avatar">${avatarHtml(a, 'lg')}</div>
+      <div class="desk-name">${escHtml(a.name)}</div>
+      <div class="desk-cat dim">${escHtml(a.category || '')}</div>
+      <div class="desk-status">
+        <span class="desk-dot"></span>${label}
+      </div>
+      ${st.last_task ? `<div class="desk-task">“${escHtml(st.last_task)}”</div>` : ''}
+      <div class="desk-meta dim small">
+        ${st.messages ? `${st.messages} messages` : 'No conversations yet'}${ago ? ` · ${ago}` : ''}
+      </div>
+    </div>`;
+}
+
 async function loadOffice() {
   const body = document.getElementById('office-body');
   if (!body.dataset.loaded) body.innerHTML = skeleton(4);
@@ -479,23 +504,29 @@ async function loadOffice() {
     const byId = {};
     (data.agents || []).forEach(a => { byId[a.agent_id] = a; });
 
-    const desks = (state.agents || []).map(a => {
-      const st = byId[a.id] || {};
-      const [cls, label] = officeStatus(st.last_at);
-      const ago = agoLabel(st.last_at);
+    const placed = new Set();
+    const zones = OFFICE_ZONES.map(([zone, cats]) => {
+      const members = (state.agents || []).filter(a => cats.includes(a.category));
+      members.forEach(a => placed.add(a.id));
+      if (!members.length) return '';
+      const working = members.filter(a => officeStatus((byId[a.id] || {}).last_at)[0] === 'working').length;
       return `
-        <div class="desk ${cls}" onclick="selectAgent('${a.id}')" role="button" title="Open ${escHtml(a.name)}">
-          <div class="desk-avatar">${avatarHtml(a, 'lg')}</div>
-          <div class="desk-name">${escHtml(a.name)}</div>
-          <div class="desk-cat dim">${escHtml(a.category || '')}</div>
-          <div class="desk-status">
-            <span class="desk-dot"></span>${label}
+        <div class="office-zone">
+          <div class="office-zone-head">
+            <span class="office-zone-name">${escHtml(zone)}</span>
+            <span class="dim small">${members.length} agents${working ? ` · <span class="zone-live">${working} working</span>` : ''}</span>
           </div>
-          <div class="desk-meta dim small">
-            ${st.messages ? `${st.messages} messages` : 'No conversations yet'}${ago ? ` · ${ago}` : ''}
-          </div>
+          <div class="office-grid">${members.map(a => deskHtml(a, byId[a.id] || {})).join('')}</div>
         </div>`;
     }).join('');
+    const rest = (state.agents || []).filter(a => !placed.has(a.id));
+    const restHtml = rest.length
+      ? `<div class="office-zone">
+           <div class="office-zone-head"><span class="office-zone-name">Floaters</span></div>
+           <div class="office-grid">${rest.map(a => deskHtml(a, byId[a.id] || {})).join('')}</div>
+         </div>`
+      : '';
+    const desks = zones + restHtml;
 
     const feedRows = (data.feed || []).map(f => `
       <div class="office-event">
@@ -511,7 +542,7 @@ async function loadOffice() {
       <div class="office-layout">
         <div>
           <div class="dash-label">THE FLOOR <span class="dim">// CLICK A DESK TO TALK TO THE AGENT</span></div>
-          <div class="office-grid">${desks}</div>
+          ${desks}
         </div>
         <div class="office-feed">
           <div class="dash-label">LIVE WIRE <span class="dim">// LATEST ACTIVITY</span></div>
@@ -529,9 +560,21 @@ async function loadGrowth() {
   const body = document.getElementById('growth-body');
   body.innerHTML = skeleton(5);
   try {
-    const [icps, runs] = await Promise.all([
+    const [icps, runs, presets] = await Promise.all([
       api('/api/growth/icps'), api('/api/growth/runs'),
+      api('/api/growth/icp-presets').catch(() => []),
     ]);
+    state.icpCache = icps;
+    const haveNames = new Set(icps.map(i => i.name));
+    const presetCards = (presets || []).filter(p => !haveNames.has(p.label)).map(p => `
+      <div class="preset-card">
+        <div class="preset-label">${escHtml(p.label)}</div>
+        <div class="preset-desc dim">${escHtml(p.description)}</div>
+        <div class="preset-foot">
+          <span class="dim small">${p.signals.join(' · ')}</span>
+          <button class="pixel-btn small" onclick="addPreset('${p.id}', this)">ADD</button>
+        </div>
+      </div>`).join('');
 
     const icpRows = icps.map(icp => `
       <tr>
@@ -541,9 +584,10 @@ async function loadGrowth() {
             ${icp.regions?.length ? ' // ' + escHtml(icp.regions.join(', ')) : ''}</div>
         </td>
         <td>${icp.auto_run ? '<span style="color:#44ff88">WEEKLY</span>' : '<span class="dim">MANUAL</span>'}</td>
-        <td>${['Hiring', icp.include_new_companies && 'Newco', icp.include_funding && 'Funding', icp.include_expansion && 'Expansion', icp.include_leadership && 'Leadership', icp.include_tenders && 'Tenders'].filter(Boolean).join(' · ')}</td>
+        <td>${[(icp.target_roles || []).length ? 'Hiring' : null, icp.include_new_companies && 'Newco', icp.include_funding && 'Funding', icp.include_expansion && 'Expansion', icp.include_leadership && 'Leadership', icp.include_tenders && 'Tenders'].filter(Boolean).join(' · ') || 'Hiring (standardroller)'}</td>
         <td>
           <button class="pixel-btn small" onclick="runIcp('${icp.id}', this)">RUN NOW</button>
+          <button class="pixel-btn small" onclick="editIcp('${icp.id}')">EDIT</button>
           <button class="pixel-btn small" onclick="toggleIcpAuto('${icp.id}', ${icp.auto_run ? 'false' : 'true'})">${icp.auto_run ? 'PAUSE' : 'AUTO'}</button>
           <button class="pixel-btn small danger" onclick="removeIcp('${icp.id}')">DEL</button>
         </td>
@@ -562,6 +606,12 @@ async function loadGrowth() {
       </tr>`).join('') || '<tr><td colspan="5" class="dim">NO RUNS YET</td></tr>';
 
     body.innerHTML = `
+      ${presetCards ? `
+      <div class="dash-section">
+        <div class="dash-label">QUICK START <span class="dim">// FÄRDIGA PROFILER FÖR VÅRT ERBJUDANDE — ETT KLICK, SEDAN RUN NOW</span></div>
+        <div class="preset-grid">${presetCards}</div>
+      </div>` : ''}
+
       <div class="dash-section">
         <div class="dash-label">ICP PROFILES <span class="dim">// WHAT SIGNALS TO HARVEST</span></div>
         ${icps.length ? `
@@ -569,7 +619,8 @@ async function loadGrowth() {
           <thead><tr><th>PROFILE</th><th>SCHEDULE</th><th>SIGNALS</th><th></th></tr></thead>
           <tbody>${icpRows}</tbody>
         </table>` : '<div class="dim" style="line-height:2">NO ICP YET — CREATE ONE BELOW. LEADS WILL BE HARVESTED FROM COMPANIES HIRING THESE ROLES.</div>'}
-        <div class="settings-row" style="margin-top:14px">
+        <div class="dash-label" id="icp-form-label" style="margin-top:18px">NEW PROFILE</div>
+        <div class="settings-row" style="margin-top:8px">
           <input type="text" id="icp-name" class="pixel-input" placeholder="PROFILE NAME (E.G. WEBB STHLM)" />
           <input type="text" id="icp-roles" class="pixel-input" placeholder="ROLES, COMMA-SEP (frontendutvecklare, ...)" />
           <input type="text" id="icp-regions" class="pixel-input" placeholder="REGIONS (Stockholm, ...)" />
@@ -582,7 +633,8 @@ async function loadGrowth() {
           <label class="dim small"><input type="checkbox" id="icp-leadership" /> New executives</label>
           <label class="dim small"><input type="checkbox" id="icp-tenders" /> Public tenders</label>
           <label class="dim small"><input type="checkbox" id="icp-auto" checked /> Weekly auto-run</label>
-          <button class="pixel-btn small" onclick="createIcp()">CREATE</button>
+          <button class="pixel-btn small" id="icp-submit" onclick="createIcp()">CREATE</button>
+          <button class="pixel-btn small" id="icp-cancel-edit" style="display:none" onclick="cancelIcpEdit()">CANCEL</button>
         </div>
       </div>
 
@@ -603,23 +655,67 @@ function toggleRunDigest(id) {
   if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
 }
 
-async function createIcp() {
-  const name = document.getElementById('icp-name').value.trim();
-  if (!name) { toast('Profile name required', 'error'); return; }
+function icpFormData() {
   const split = v => v.split(',').map(s => s.trim()).filter(Boolean);
+  return {
+    name: document.getElementById('icp-name').value.trim(),
+    what_we_sell: document.getElementById('icp-sell').value.trim() || null,
+    target_roles: split(document.getElementById('icp-roles').value),
+    regions: split(document.getElementById('icp-regions').value),
+    include_new_companies: document.getElementById('icp-newco').checked,
+    include_funding: document.getElementById('icp-funding').checked,
+    include_expansion: document.getElementById('icp-expansion').checked,
+    include_leadership: document.getElementById('icp-leadership').checked,
+    include_tenders: document.getElementById('icp-tenders').checked,
+    auto_run: document.getElementById('icp-auto').checked,
+  };
+}
+
+function editIcp(id) {
+  const icp = (state.icpCache || []).find(i => i.id === id);
+  if (!icp) return;
+  state.editingIcp = id;
+  document.getElementById('icp-form-label').textContent = `EDITING: ${icp.name.toUpperCase()}`;
+  document.getElementById('icp-name').value = icp.name || '';
+  document.getElementById('icp-sell').value = icp.what_we_sell || '';
+  document.getElementById('icp-roles').value = (icp.target_roles || []).join(', ');
+  document.getElementById('icp-regions').value = (icp.regions || []).join(', ');
+  document.getElementById('icp-newco').checked = !!icp.include_new_companies;
+  document.getElementById('icp-funding').checked = !!icp.include_funding;
+  document.getElementById('icp-expansion').checked = !!icp.include_expansion;
+  document.getElementById('icp-leadership').checked = !!icp.include_leadership;
+  document.getElementById('icp-tenders').checked = !!icp.include_tenders;
+  document.getElementById('icp-auto').checked = !!icp.auto_run;
+  document.getElementById('icp-submit').textContent = 'SAVE CHANGES';
+  document.getElementById('icp-cancel-edit').style.display = '';
+  document.getElementById('icp-name').focus();
+}
+
+function cancelIcpEdit() {
+  state.editingIcp = null;
+  loadGrowth();
+}
+
+async function addPreset(id, btn) {
+  btn.disabled = true; btn.textContent = '…';
   try {
-    await api('/api/growth/icps', { method: 'POST', body: JSON.stringify({
-      name,
-      what_we_sell: document.getElementById('icp-sell').value.trim() || null,
-      target_roles: split(document.getElementById('icp-roles').value),
-      regions: split(document.getElementById('icp-regions').value),
-      include_new_companies: document.getElementById('icp-newco').checked,
-      include_funding: document.getElementById('icp-funding').checked,
-      include_expansion: document.getElementById('icp-expansion').checked,
-      include_leadership: document.getElementById('icp-leadership').checked,
-      include_tenders: document.getElementById('icp-tenders').checked,
-      auto_run: document.getElementById('icp-auto').checked,
-    })});
+    await api(`/api/growth/icps/from-preset/${id}`, { method: 'POST' });
+    toast('Profile added — press RUN NOW to harvest');
+    loadGrowth();
+  } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'ADD'; }
+}
+
+async function createIcp() {
+  const data = icpFormData();
+  if (!data.name) { toast('Profile name required', 'error'); return; }
+  try {
+    if (state.editingIcp) {
+      await api(`/api/growth/icps/${state.editingIcp}`, { method: 'PATCH', body: JSON.stringify(data) });
+      state.editingIcp = null;
+      toast('Profile updated');
+    } else {
+      await api('/api/growth/icps', { method: 'POST', body: JSON.stringify(data) });
+    }
     loadGrowth();
   } catch (e) { toast(e.message, 'error'); }
 }

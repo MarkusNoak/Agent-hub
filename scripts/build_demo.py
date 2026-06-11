@@ -151,9 +151,18 @@ INTEGRATIONS = {"connectors":[
   {"id":"linkedin","name":"LinkedIn","category":"Outreach","connected":False,"available":False,"detail":"Coming soon."},
 ]}
 
+ICP_PRESETS_DEMO = [
+  {"id":"systemutveckling","label":"Systemutveckling — bolag i utvecklingsfas","description":"Bolag i hela Sverige som rekryterar utvecklare, tar in kapital eller expanderar.","signals":["Hiring","Funding","Expansion"]},
+  {"id":"startups-scaleups","label":"Startups & scaleups","description":"Nystartade bolag (utan webbplats flaggas), kapitalrundor och ledningsbyten — MVP till skalning.","signals":["Newco","Funding","Expansion","Leadership"]},
+  {"id":"digital-marknadsforing","label":"Digital marknadsföring — alla branscher","description":"Bolag som anställer marknadsroller, byter marknadschef eller expanderar.","signals":["Hiring","Expansion","Leadership"]},
+  {"id":"ai-implementation","label":"AI-implementation","description":"Bolag som rekryterar data/AI-roller eller just fått kapital — mogna för AI.","signals":["Hiring","Funding","Expansion","Leadership"]},
+  {"id":"offentlig","label":"Offentlig sektor — IT-upphandlingar","description":"Aktiva IT-upphandlingar från TED; BEACON gör bid/no-bid.","signals":["Tenders"]},
+  {"id":"ehandel","label":"E-handel som växer","description":"Bolag som rekryterar e-handelsroller eller expanderar.","signals":["Hiring","Funding","Expansion"]},
+]
+
 OFFICE = {"agents":[
-  {"agent_id":"vantage","last_at":"2026-06-11 06:55","messages":42},
-  {"agent_id":"forge","last_at":"2026-06-10 14:20","messages":18},
+  {"agent_id":"vantage","last_at":"2026-06-11 06:55","messages":42,"last_task":"Hitta 10 bolag i Stockholm som rekryterar React-utvecklare och ta fram outreach"},
+  {"agent_id":"forge","last_at":"2026-06-10 14:20","messages":18,"last_task":"Granska arkitekturen för kundportalen innan sprintstart"},
   {"agent_id":"beacon","last_at":"2026-06-09 09:10","messages":7},
 ],"feed":[
   {"kind":"created","at":"2026-06-11 06:55","text":"Visby Health Systems AB — Skördad från rekryteringssignal (scheduled körning)"},
@@ -227,6 +236,7 @@ const DEMO = {
   conversations: %CONVERSATIONS%,
   integrations: %INTEGRATIONS%,
   office: %OFFICE%,
+  icpPresets: %ICP_PRESETS_DEMO%,
 };
 const json = d => new Response(JSON.stringify(d), {status:200, headers:{'Content-Type':'application/json'}});
 window.fetch = async (url, opts={}) => {
@@ -239,6 +249,8 @@ window.fetch = async (url, opts={}) => {
     if (opts.method && opts.method!=='GET') return json({ok:true});
     return json({leads: DEMO.leads, statuses:['new','qualified','contacted','meeting','won','lost']});
   }
+  if (u.includes('/api/growth/icp-presets')) return json(DEMO.icpPresets);
+  if (u.includes('/from-preset/')) return json({ok:true});
   if (u.includes('/api/growth/icps') && opts.method==='POST') return json(DEMO.icps[0]);
   if (u.includes('/run')) return json({run_id:'RX',leads_created:3,duplicates_skipped:5,signals_found:14,digest:DEMO.runs[0].digest});
   if (u.includes('/api/growth/icps')) return json(DEMO.icps);
@@ -298,7 +310,7 @@ for key, data in [("AGENTS",agents),("LEADS",LEADS),("LEAD_DETAIL",LEAD_DETAIL),
                   ("INSIGHTS",INSIGHTS),("ORG",ORG),("USAGE",USAGE),("ICPS",ICPS),
                   ("KNOWLEDGE",KNOWLEDGE),("KEYS",KEYS),("SETTINGS",SETTINGS),("PLANS",plans),
                   ("APPROVALS",APPROVALS),("CONVERSATIONS",CONVERSATIONS),
-                  ("INTEGRATIONS",INTEGRATIONS),("OFFICE",OFFICE),
+                  ("INTEGRATIONS",INTEGRATIONS),("OFFICE",OFFICE),("ICP_PRESETS_DEMO",ICP_PRESETS_DEMO),
                   ("CHAT_TEXT",CHAT_TEXT)]:
     shim = shim.replace("%"+key+"%", json.dumps(data, ensure_ascii=False))
 

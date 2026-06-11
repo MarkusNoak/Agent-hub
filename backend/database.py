@@ -887,6 +887,20 @@ async def office_snapshot(org_id: str) -> dict:
         ) as cur:
             agents = [dict(r) for r in await cur.fetchall()]
 
+        # What each agent is working on: its latest user request, truncated
+        async with db.execute(
+            "SELECT c.agent_id, c.content FROM conversations c "
+            "JOIN (SELECT agent_id, MAX(created_at) AS m FROM conversations "
+            "      WHERE org_id = ? AND role = 'user' GROUP BY agent_id) t "
+            "ON t.agent_id = c.agent_id AND c.created_at = t.m "
+            "WHERE c.org_id = ? AND c.role = 'user'",
+            (org_id, org_id),
+        ) as cur:
+            snippets = {r["agent_id"]: r["content"] for r in await cur.fetchall()}
+        for a in agents:
+            snippet = (snippets.get(a["agent_id"]) or "").strip().replace("\n", " ")
+            a["last_task"] = (snippet[:90] + "…") if len(snippet) > 90 else (snippet or None)
+
         feed: list[dict] = []
         async with db.execute(
             "SELECT a.kind, a.content, CAST(a.created_at AS TEXT) AS at, "

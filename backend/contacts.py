@@ -15,8 +15,10 @@ from enrichment.website import analyze_website
 from leadgen import get_provider
 
 DECISION_MAKER_TITLES = [
-    "VD", "CEO", "CTO", "Founder", "Grundare",
-    "Head of IT", "Head of Digital", "IT-chef", "Marknadschef",
+    "CEO", "VD", "CTO", "CIO", "COO", "Founder", "Co-founder", "Owner",
+    "Managing Director", "Grundare", "IT-chef",
+    "Head of IT", "Head of Digital", "Head of Engineering",
+    "Head of Marketing", "Marknadschef", "E-commerce Manager",
 ]
 
 
@@ -31,7 +33,11 @@ async def _resolve_domain(provider, company_name: str) -> str | None:
                 keywords=company_name, per_page=10
             )
         except Exception as e:
+            # "error" also prevents caching — a transient provider failure
+            # must not block this company for the cache TTL
             return {"error": str(e)}
+        if not results:
+            return {"companies": [], "error": "empty (not cached)"}
         return {"companies": results}
 
     data = await cached_fetch(
@@ -44,6 +50,20 @@ async def _resolve_domain(provider, company_name: str) -> str | None:
         name = (company.get("company_name") or "").lower()
         if company.get("domain") and any(t in name for t in tokens):
             return company["domain"]
+
+    # Free fallback: guess the obvious Swedish domain and verify via DNS.
+    # Harvested leads rarely carry a domain, and Apollo's company search is
+    # weak on small Swedish ABs — this rescues most of them.
+    from enrichment.signals import check_website_exists
+    try:
+        probe = await cached_fetch(
+            "dns_site", {"name": company_name},
+            lambda: check_website_exists(company_name),
+        )
+    except Exception:
+        probe = {}
+    if probe.get("has_website") and probe.get("domain"):
+        return probe["domain"]
     return None
 
 
@@ -57,8 +77,11 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
         if domain:
             await db.update_lead(org_id, lead["id"], {"domain": domain})
 
-    # 1. Person-level data via the provider
+    # 1. Person-level data via the provider — two passes: decision-maker
+    # titles first, then anyone at the company (better than nothing, and
+    # small Swedish companies often have no title-tagged people in Apollo)
     person = None
+    provider_error = None
     if domain or lead.get("company_name"):
         async def fetch_people() -> dict:
             try:
@@ -68,8 +91,19 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
                     keywords=None if domain else lead["company_name"],
                     per_page=5,
                 )
+                if not results:
+                    results = await provider.search_people(
+                        titles=None,
+                        company_domains=[domain] if domain else None,
+                        keywords=None if domain else lead["company_name"],
+                        per_page=5,
+                    )
             except Exception as e:
                 return {"error": str(e)}
+            if not results:
+                # "error" prevents caching: an empty answer must not be
+                # served from cache for a week when the user retries
+                return {"people": [], "error": "empty (not cached)"}
             return {"people": results}
 
         data = await cached_fetch(
@@ -79,6 +113,9 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
             fetch_people,
         )
         people = data.get("people") or []
+        err = data.get("error")
+        if err and err != "empty (not cached)":
+            provider_error = err
 
         # Guard: never attach a contact from a DIFFERENT company. Match on
         # exact domain when we have one, else on company-name tokens.
@@ -136,6 +173,18 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
                     "note": "Inbox address mined from the website — no named "
                             "decision-maker found."}
 
+    if provider_error:
+        # An invalid key or quota problem must not masquerade as "no contact"
+        return {"found": False, "source": provider.name,
+                "note": f"Provider error from {provider.name}: "
+                        f"{provider_error[:200]} — check the API key and "
+                        "plan limits."}
+    if not domain:
+        return {"found": False, "source": provider.name,
+                "note": ("Could not resolve a website for this company, so "
+                         "neither the data provider nor the site scan had "
+                         "anything to search. Add the domain on the lead "
+                         "and try again.")}
     return {"found": False, "source": provider.name,
             "note": ("No contact found. "
                      + ("Try VANTAGE's search_people with different titles."

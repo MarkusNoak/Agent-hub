@@ -31,6 +31,109 @@ from enrichment.sweden import allabolag_newly_registered
 from plans import get_plan, within_quota
 
 DEFAULT_ROLES = ["systemutvecklare", "frontendutvecklare", "apputvecklare"]
+
+# Ready-made ICP profiles for a Swedish web/app consultancy — one click in
+# the GROWTH view instead of building from scratch. The payloads are plain
+# create_icp input, so users can add one and then tweak it freely.
+ICP_PRESETS = [
+    {
+        "id": "systemutveckling",
+        "label": "Systemutveckling — bolag i utvecklingsfas",
+        "description": ("Bolag i hela Sverige som rekryterar utvecklare, "
+                        "tar in kapital eller expanderar — köper "
+                        "systemutveckling och digitala lösningar."),
+        "payload": {
+            "name": "Systemutveckling — bolag i utvecklingsfas",
+            "what_we_sell": ("systemutveckling och digitala lösningar "
+                             "(webb, appar, integrationer)"),
+            "target_roles": ["frontendutvecklare", "systemutvecklare",
+                             "apputvecklare", "fullstackutvecklare"],
+            "regions": [],
+            "include_funding": True,
+            "include_expansion": True,
+        },
+    },
+    {
+        "id": "startups-scaleups",
+        "label": "Startups & scaleups",
+        "description": ("Nystartade bolag (de utan webbplats flaggas), "
+                        "färska kapitalrundor och ledningsbyten — hela "
+                        "resan från MVP till skalning."),
+        "payload": {
+            "name": "Startups & scaleups",
+            "what_we_sell": ("digitala lösningar för startups och scaleups "
+                             "— MVP, webb och app"),
+            "target_roles": [],
+            "regions": [],
+            "include_new_companies": True,
+            "include_funding": True,
+            "include_leadership": True,
+            "include_expansion": True,
+        },
+    },
+    {
+        "id": "digital-marknadsforing",
+        "label": "Digital marknadsföring — alla branscher",
+        "description": ("Bolag som anställer marknadsroller, byter "
+                        "marknadschef eller expanderar — de investerar i "
+                        "synlighet just nu."),
+        "payload": {
+            "name": "Digital marknadsföring — alla branscher",
+            "what_we_sell": ("digital marknadsföring (SEO, SEM, content "
+                             "och sociala medier)"),
+            "target_roles": ["marknadschef", "digital marknadsförare",
+                             "marknadskoordinator", "growth marketer"],
+            "regions": [],
+            "include_expansion": True,
+            "include_leadership": True,
+        },
+    },
+    {
+        "id": "ai-implementation",
+        "label": "AI-implementation",
+        "description": ("Bolag som rekryterar data/AI-roller eller just "
+                        "fått kapital — mogna för AI i sina processer."),
+        "payload": {
+            "name": "AI-implementation",
+            "what_we_sell": ("AI-implementation och automation av "
+                             "affärsprocesser"),
+            "target_roles": ["data scientist", "ai-utvecklare",
+                             "machine learning engineer", "data engineer"],
+            "regions": [],
+            "include_funding": True,
+            "include_leadership": True,
+            "include_expansion": True,
+        },
+    },
+    {
+        "id": "offentlig",
+        "label": "Offentlig sektor — IT-upphandlingar",
+        "description": ("Aktiva IT-upphandlingar från TED. Publicerat behov "
+                        "och budget; BEACON gör bid/no-bid."),
+        "payload": {
+            "name": "Offentlig sektor — IT-upphandlingar",
+            "what_we_sell": "utvecklingstjänster mot offentlig sektor",
+            "target_roles": [],
+            "regions": [],
+            "include_tenders": True,
+        },
+    },
+    {
+        "id": "ehandel",
+        "label": "E-handel som växer",
+        "description": ("Bolag som rekryterar e-handelsroller eller "
+                        "expanderar — behov av butik, integrationer, fart."),
+        "payload": {
+            "name": "E-handel som växer",
+            "what_we_sell": "e-handelsutveckling (Shopify och headless)",
+            "target_roles": ["e-handelsansvarig", "e-handelsutvecklare",
+                             "frontendutvecklare"],
+            "regions": [],
+            "include_expansion": True,
+            "include_funding": True,
+        },
+    },
+]
 SCHEDULE_INTERVAL_DAYS = 7
 SCHEDULER_TICK_SECONDS = 3600
 
@@ -304,11 +407,21 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
             notes.append(f"{label} misslyckades: {e}")
             return {}
 
-    harvest = await _safe("Rekryteringssignalen", cached_fetch(
-        "jobs_harvest", {"roles": roles, "regions": regions},
-        lambda: search_hiring_companies(roles, regions, max_companies=25),
-    ))
-    companies = harvest.get("companies") or []
+    # Hiring runs when the ICP names roles. An ICP with no roles but other
+    # signals enabled (e.g. a tenders-only profile) skips it — defaulting to
+    # developer ads there would pollute the pipeline with off-profile leads.
+    other_signals = any(icp.get(k) for k in (
+        "include_new_companies", "include_funding", "include_tenders",
+        "include_expansion", "include_leadership"))
+    include_hiring = bool(icp.get("target_roles")) or not other_signals
+
+    companies: list[dict] = []
+    if include_hiring:
+        harvest = await _safe("Rekryteringssignalen", cached_fetch(
+            "jobs_harvest", {"roles": roles, "regions": regions},
+            lambda: search_hiring_companies(roles, regions, max_companies=25),
+        ))
+        companies = harvest.get("companies") or []
 
     new_companies: list[dict] = []
     if icp.get("include_new_companies"):

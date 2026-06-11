@@ -65,16 +65,10 @@ async def register(req: RegisterRequest, request: Request):
     user_id = await db.create_user(
         org_id, req.email, hash_password(req.password), req.name, role="owner"
     )
-    # Onboarding: a starter ICP so the GROWTH view never meets the user
-    # empty. auto_run stays off until they make it theirs.
-    await db.create_icp(org_id, {
-        "name": "Min första ICP (redigera mig)",
-        "what_we_sell": None,
-        "target_roles": ["systemutvecklare", "frontendutvecklare"],
-        "regions": [],
-        "include_new_companies": False,
-        "auto_run": False,
-    })
+    # Onboarding: seed the strongest ready-made profile so the GROWTH view
+    # never meets the user empty. auto_run stays off until they activate it.
+    import growth
+    await db.create_icp(org_id, dict(growth.ICP_PRESETS[0]["payload"]))
     token = create_token(user_id, org_id, "owner")
     return {"token": token, "user_id": user_id, "org_id": org_id, "role": "owner"}
 
