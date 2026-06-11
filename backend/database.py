@@ -143,6 +143,8 @@ CREATE TABLE IF NOT EXISTS icp_profiles (
     include_new_companies INTEGER NOT NULL DEFAULT 0,
     include_funding INTEGER NOT NULL DEFAULT 0,
     include_tenders INTEGER NOT NULL DEFAULT 0,
+    include_expansion INTEGER NOT NULL DEFAULT 0,
+    include_leadership INTEGER NOT NULL DEFAULT 0,
     auto_run        INTEGER NOT NULL DEFAULT 0,
     min_score       INTEGER DEFAULT 0,
     created_at      TIMESTAMPTZ DEFAULT now()
@@ -336,6 +338,8 @@ async def init_db() -> None:
                 include_new_companies INTEGER NOT NULL DEFAULT 0,
                 include_funding INTEGER NOT NULL DEFAULT 0,
                 include_tenders INTEGER NOT NULL DEFAULT 0,
+                include_expansion INTEGER NOT NULL DEFAULT 0,
+                include_leadership INTEGER NOT NULL DEFAULT 0,
                 auto_run        INTEGER NOT NULL DEFAULT 0,
                 created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -427,6 +431,13 @@ async def init_db() -> None:
             )
             await db.execute(
                 "ALTER TABLE icp_profiles ADD COLUMN include_tenders INTEGER DEFAULT 0"
+            )
+        if "include_expansion" not in icp_cols:
+            await db.execute(
+                "ALTER TABLE icp_profiles ADD COLUMN include_expansion INTEGER DEFAULT 0"
+            )
+            await db.execute(
+                "ALTER TABLE icp_profiles ADD COLUMN include_leadership INTEGER DEFAULT 0"
             )
         # Migration: outreach hook-type for A/B learning
         async with db.execute("PRAGMA table_info(sequence_steps)") as cur:
@@ -737,14 +748,16 @@ async def create_icp(org_id: str, data: dict) -> str:
         await db.execute(
             "INSERT INTO icp_profiles (id, org_id, name, what_we_sell, "
             "target_roles, regions, include_new_companies, include_funding, "
-            "include_tenders, auto_run) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "include_tenders, include_expansion, include_leadership, auto_run) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (icp_id, org_id, data["name"], data.get("what_we_sell"),
              json.dumps(data.get("target_roles") or [], ensure_ascii=False),
              json.dumps(data.get("regions") or [], ensure_ascii=False),
              int(bool(data.get("include_new_companies"))),
              int(bool(data.get("include_funding"))),
              int(bool(data.get("include_tenders"))),
+             int(bool(data.get("include_expansion"))),
+             int(bool(data.get("include_leadership"))),
              int(bool(data.get("auto_run")))),
         )
         await db.commit()
@@ -761,6 +774,8 @@ def _parse_icp(row: dict) -> dict:
     row["include_new_companies"] = bool(row["include_new_companies"])
     row["include_funding"] = bool(row.get("include_funding"))
     row["include_tenders"] = bool(row.get("include_tenders"))
+    row["include_expansion"] = bool(row.get("include_expansion"))
+    row["include_leadership"] = bool(row.get("include_leadership"))
     row["auto_run"] = bool(row["auto_run"])
     return row
 
@@ -797,7 +812,8 @@ async def update_icp(org_id: str, icp_id: str, data: dict) -> bool:
             sets.append(f"{key} = ?")
             params.append(json.dumps(data[key] or [], ensure_ascii=False))
     for key in ("include_new_companies", "include_funding",
-                "include_tenders", "auto_run"):
+                "include_tenders", "include_expansion",
+                "include_leadership", "auto_run"):
         if key in data:
             sets.append(f"{key} = ?")
             params.append(int(bool(data[key])))
@@ -1167,6 +1183,26 @@ def _norm_orgnr(org_number: str | None) -> str | None:
     return digits or None
 
 
+_LEGAL_SUFFIXES = (" aktiebolag", " ab", " handelsbolag", " hb", " kb")
+
+
+def _name_variants(name: str) -> list[str]:
+    """The same company appears with and without its legal form across
+    sources ("Visby Health Systems" in a headline, "Visby Health Systems AB"
+    in JobTech) — match all deterministic variants."""
+    lower = name.strip().lower()
+    base = lower
+    for suffix in _LEGAL_SUFFIXES:
+        if base.endswith(suffix):
+            base = base[: -len(suffix)].strip()
+            break
+    if base.startswith("ab "):
+        base = base[3:].strip()
+    variants = {lower, base, f"{base} ab", f"ab {base}",
+                f"{base} aktiebolag", f"{base} hb", f"{base} kb"}
+    return [v for v in variants if v]
+
+
 async def find_duplicate_lead(
     org_id: str,
     company_name: str | None = None,
@@ -1196,9 +1232,12 @@ async def find_duplicate_lead(
     if contact_email:
         conditions.append("LOWER(COALESCE(contact_email,'')) = ?")
         params.append(contact_email.strip().lower())
-    if company_name:
-        conditions.append("LOWER(company_name) = ?")
-        params.append(company_name.strip().lower())
+    if company_name and company_name.strip():
+        variants = _name_variants(company_name)
+        conditions.append(
+            "LOWER(company_name) IN (" + ", ".join("?" * len(variants)) + ")"
+        )
+        params.extend(variants)
     if not conditions:
         return None
 

@@ -874,7 +874,8 @@ START_EMAIL_SEQUENCE = Tool(
             "relevance_basis": {"type": "string", "description": "Why this outreach is relevant to the recipient's role (GDPR documentation)"},
             "hook_type": {"type": "string",
                           "enum": ["hiring", "news", "tech_gap", "maturity",
-                                   "funding", "referral", "other"],
+                                   "funding", "expansion", "leadership",
+                                   "referral", "other"],
                           "description": "The opening angle of step 1 — tracked so the learning loop can measure which angles get replies"},
             "steps": {
                 "type": "array",

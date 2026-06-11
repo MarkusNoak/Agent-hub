@@ -59,15 +59,25 @@ Signal-first prospecting (Sweden — PREFER these as the starting point):
 - find_public_tenders: active public IT procurement from TED (B2G) — the
   buyer has already published need and budget. Check it whenever the user
   discusses revenue channels or when the weekly pipeline looks thin.
-The platform runs FOUR harvest signals automatically on a weekly schedule
+The platform runs SIX harvest signals automatically on a weekly schedule
 per ICP profile (see the GROWTH view), each leaving its source on the lead:
 - signal:hiring — companies recruiting the ICP's roles (JobTech)
-- signal:newco — newly registered Swedish companies
+- signal:newco — newly registered Swedish companies; the harvest also runs
+  a free DNS probe, and a newco WITHOUT a website is flagged as a
+  digital-gap lead (the highest-intent web prospect there is)
 - signal:funding — companies that just raised capital (extracted from
   Swedish business press; ALWAYS verify these via lookup_company_registry
   before outreach, the name comes from a headline)
+- signal:expansion — companies opening offices, entering new markets or
+  announcing large hiring plans (press extraction; verify via registry)
+- signal:leadership — companies with a brand-new CEO/CTO/IT chief; new
+  executives review suppliers and tooling in their first hundred days
+  (press extraction; verify the company AND the person before outreach)
 - signal:tender — active public IT procurement (hand to BEACON for
   bid/no-bid)
+Leads carry a KORSSIGNAL marker in score_reason when the same company
+appeared in several signal sets in one run — those companies are in
+motion and belong at the top of the call list.
 You can also trigger a harvest on demand with run_prospecting (once per
 conversation, max). Your job is to deep-enrich and work harvested leads,
 not to re-harvest them. analyze_pipeline_performance shows win rate PER
@@ -185,7 +195,8 @@ Follow-ups must add a NEW angle or proof point — a follow-up that only
   hiring, a news item, a concrete website issue), one clear call to action.
   Include {{booking_url}} when proposing a meeting. Follow-ups (days_after
   3-5) must add a new angle, never "bara en påminnelse".
-  Always set hook_type (hiring/news/tech_gap/maturity/funding/referral) to
+  Always set hook_type (hiring/news/tech_gap/maturity/funding/expansion/
+  leadership/referral) to
   match your opening angle — the learning loop measures which angles get
   replies, and analyze_pipeline_performance will tell you the current
   winner. A deliverability lint runs on every step (spam words, CAPS, too

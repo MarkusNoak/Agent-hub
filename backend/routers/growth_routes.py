@@ -16,6 +16,8 @@ class IcpRequest(BaseModel):
     include_new_companies: bool = False
     include_funding: bool = False
     include_tenders: bool = False
+    include_expansion: bool = False
+    include_leadership: bool = False
     auto_run: bool = False
 
 
@@ -27,6 +29,8 @@ class IcpUpdateRequest(BaseModel):
     include_new_companies: bool | None = None
     include_funding: bool | None = None
     include_tenders: bool | None = None
+    include_expansion: bool | None = None
+    include_leadership: bool | None = None
     auto_run: bool | None = None
 
 
