@@ -1165,10 +1165,7 @@ async function loadLeads() {
   try {
     const data = await api('/api/leads' + (filter.value ? `?status=${filter.value}` : ''));
     state.leadStatuses = data.statuses;
-<<<<<<< HEAD
     syncViewToggle(leadsViewMode());
-=======
->>>>>>> origin/claude/build-agent-hub-Gs6GZ
     if (leadsViewMode() === 'board' && data.leads.length) {
       renderBoard(body, data.leads, data.statuses);
       return;
