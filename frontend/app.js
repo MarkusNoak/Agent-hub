@@ -49,8 +49,27 @@ function confirmDialog(message, danger = false) {
 }
 
 function skeleton(rows = 4) {
-  return `<div class="skeleton-stack">${Array.from({length: rows})
+  return `<div class="skeleton-stack">
+    <div class="thinking dim">Agenterna tänker<span class="tdots"><i></i><i></i><i></i></span></div>
+    ${Array.from({length: rows})
     .map((_, i) => `<div class="skeleton" style="width:${88 - i * 9}%"></div>`).join('')}</div>`;
+}
+
+function scoreRing(score, size = 36) {
+  if (score == null) return '<span class="dim">--</span>';
+  const r = (size / 2) - 3, c = 2 * Math.PI * r;
+  const off = c * (1 - Math.min(score, 100) / 100);
+  return `
+    <span class="score-ring" style="width:${size}px;height:${size}px">
+      <svg viewBox="0 0 ${size} ${size}">
+        <circle class="ring-bg" cx="${size/2}" cy="${size/2}" r="${r}" />
+        <circle class="ring-val" cx="${size/2}" cy="${size/2}" r="${r}"
+          stroke="${scoreColor(score)}"
+          stroke-dasharray="${c.toFixed(1)}"
+          style="--ring-c:${c.toFixed(1)}; stroke-dashoffset:${off.toFixed(1)}" />
+      </svg>
+      <span class="ring-num" style="color:${scoreColor(score)}">${score}</span>
+    </span>`;
 }
 
 // ── Mobile sidebar ─────────────────────────────────────
@@ -503,18 +522,36 @@ const OFFICE_ZONES = [
   ['Strategy & content', ['strategy', 'content', 'knowledge', 'general']],
 ];
 
+const IDLE_QUIPS = [
+  'Redo för uppdrag.', 'Väntar vid kaffemaskinen ☕', 'Skärper pennan…',
+  'Läser på om branschen.', 'Håller skrivbordet varmt.', 'Stretchar inför nästa körning.',
+];
+
+function deskBubble(a, st, cls) {
+  if (cls === 'working') {
+    const task = st.last_task ? `“${escHtml(st.last_task)}”` : 'Arbetar';
+    return `<div class="desk-bubble live">${task}<span class="tdots"><i></i><i></i><i></i></span></div>`;
+  }
+  if (st.last_task) {
+    return `<div class="desk-bubble">“${escHtml(st.last_task)}”</div>`;
+  }
+  const idx = ([...a.id].reduce((s, ch) => s + ch.charCodeAt(0), 0)
+               + new Date().getHours()) % IDLE_QUIPS.length;
+  return `<div class="desk-bubble idle">${IDLE_QUIPS[idx]}</div>`;
+}
+
 function deskHtml(a, st) {
   const [cls, label] = officeStatus(st.last_at);
   const ago = agoLabel(st.last_at);
   return `
     <div class="desk ${cls}" onclick="selectAgent('${a.id}')" role="button" title="Open ${escHtml(a.name)}">
+      ${deskBubble(a, st, cls)}
       <div class="desk-avatar">${avatarHtml(a, 'lg')}</div>
       <div class="desk-name">${escHtml(a.name)}</div>
       <div class="desk-cat dim">${escHtml(a.category || '')}</div>
       <div class="desk-status">
         <span class="desk-dot"></span>${label}
       </div>
-      ${st.last_task ? `<div class="desk-task">“${escHtml(st.last_task)}”</div>` : ''}
       <div class="desk-meta dim small">
         ${st.messages ? `${st.messages} messages` : 'No conversations yet'}${ago ? ` · ${ago}` : ''}
       </div>
@@ -1341,7 +1378,7 @@ function renderBoard(body, leads, statuses) {
            onclick="setLeadsView('table')">
         <div class="kanban-card-top">
           <div class="lead-company">${escHtml(l.company_name)}</div>
-          <span class="lead-score" style="color:${scoreColor(l.score)}">${l.score ?? '--'}</span>
+          ${scoreRing(l.score, 30)}
         </div>
         <div class="dim small">${escHtml(l.contact_name || l.domain || l.source || '')}</div>
         <div class="dim small kanban-card-meta">${escHtml(l.location || '')}</div>
@@ -1392,15 +1429,18 @@ async function loadLeads() {
       return;
     }
     if (!data.leads.length) {
-      body.innerHTML = `<div class="dim panel-empty">NO LEADS YET.<br><br>
-        ASK <span style="color:#ff9500">VANTAGE</span> TO PROSPECT FOR YOU —<br>
-        E.G. "FIND 5 LOGISTICS COMPANIES IN SWEDEN AND SAVE THE BEST LEADS"</div>`;
+      body.innerHTML = `<div class="panel-empty empty-state">
+        <div class="empty-mark">«</div>
+        <div class="empty-title">Tomt på golvet.</div>
+        <div class="dim">Släpp loss VANTAGE — eller tryck RUN NOW under Growth så skördar maskinen åt dig.</div>
+        <button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="selectAgent('vantage')">Väck VANTAGE</button>
+      </div>`;
       return;
     }
 
     const rows = data.leads.map(l => `
       <tr class="lead-row" onclick="toggleLeadDetail('${l.id}')">
-        <td><span class="lead-score" style="color:${scoreColor(l.score)}">${l.score ?? '--'}</span></td>
+        <td>${scoreRing(l.score)}</td>
         <td>
           <div class="lead-company">${escHtml(l.company_name)}</div>
           <div class="dim">${escHtml(l.domain || '')}</div>
