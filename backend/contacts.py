@@ -132,6 +132,37 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
         person = next((p for p in people if p.get("contact_email")),
                       people[0] if people else None)
 
+        # Apollo's api_search returns no emails by design — reveal the
+        # selected person via People Enrichment (one credit, cached 14d)
+        if (person and not person.get("contact_email")
+                and hasattr(provider, "enrich_person")):
+            async def fetch_enrich() -> dict:
+                try:
+                    enriched = await provider.enrich_person(
+                        person_id=person.get("provider_id"),
+                        name=person.get("contact_name"),
+                        domain=domain,
+                    )
+                except Exception as e:
+                    return {"error": str(e)}
+                if not enriched:
+                    return {"person": None, "error": "empty (not cached)"}
+                return {"person": enriched}
+
+            data = await cached_fetch(
+                "provider_enrich",
+                {"provider": provider.name,
+                 "pid": person.get("provider_id"),
+                 "who": person.get("contact_name"), "domain": domain},
+                fetch_enrich,
+            )
+            if data.get("person"):
+                merged = {**person, **{k: v for k, v in data["person"].items() if v}}
+                person = merged
+            err = data.get("error")
+            if err and err != "empty (not cached)" and not provider_error:
+                provider_error = err
+
     if person and (person.get("contact_email") or person.get("contact_name")):
         updates = {k: v for k, v in {
             "contact_name": person.get("contact_name"),
