@@ -600,6 +600,24 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
                             "heuristik, verifiera vid kontakt.")
                 elif gap.get("has_website") and gap.get("domain"):
                     note = f"Trolig webbplats: {gap['domain']} (DNS-träff)."
+                    # Free RDAP layer: a freshly registered domain means
+                    # they are building their presence RIGHT NOW
+                    try:
+                        from enrichment.signals import domain_age
+                        age = await cached_fetch(
+                            "rdap", {"domain": gap["domain"]},
+                            lambda d=gap["domain"]: domain_age(d),
+                        )
+                        if (age.get("age_days") is not None
+                                and age["age_days"] < 120):
+                            score += 5
+                            reason += (f"; domänen nyregistrerad "
+                                       f"({age.get('registered')}) — bygger "
+                                       "sin digitala närvaro just nu (+5)")
+                            note += (f" Domän registrerad "
+                                     f"{age.get('registered')}.")
+                    except Exception:
+                        pass
 
             score, reason = _apply_cross_boost(
                 presence, "newco", name, company.get("org_number"),
@@ -885,11 +903,155 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
                     if case else f", varav {refined} AI-förfinade")
         notes.append(msg + " — granska i leadet eller låt VANTAGE vässa.")
 
+    # Free qualification layer: size & money from allabolag's public data
+    # on the same top leads that get contacts and refined drafts
+    qualified = 0
+    for lead_id in created_ids[:8]:
+        try:
+            if await _qualify_financials(org_id, lead_id):
+                qualified += 1
+        except Exception:
+            continue
+    if qualified:
+        notes.append(f"Storlek/omsättning hämtad för {qualified} leads "
+                     "(allabolag publik data).")
+
+    # Hygiene pass: free upkeep of the EXISTING pipeline every run
+    notes.extend(await _hygiene_pass(org_id))
+
     digest = _build_digest(icp, stats, top_leads, notes)
     run_id = await db.save_prospecting_run(
         org_id, icp.get("id"), trigger, stats, digest
     )
     return {"run_id": run_id, **stats, "digest": digest}
+
+
+SIZE_SWEET_SPOT = (5, 500)
+
+
+async def _qualify_financials(org_id: str, lead_id: str) -> bool:
+    """Append public size/revenue from allabolag to the lead and bump the
+    score when the company is in our sweet spot. Free, cached 30 days."""
+    from enrichment.sweden import allabolag_search
+    lead = await db.get_lead(org_id, lead_id)
+    if not lead or "Storlek:" in (lead.get("notes") or ""):
+        return False
+    data = await cached_fetch(
+        "registry_se", {"q": lead["company_name"], "fin": 1},
+        lambda: _wrap_list(allabolag_search(lead["company_name"])),
+    )
+    orgnr = (lead.get("org_number") or "").replace("-", "")
+    match = None
+    for r in data.get("results") or []:
+        r_orgnr = (r.get("org_number") or "").replace("-", "")
+        if orgnr and r_orgnr == orgnr:
+            match = r
+            break
+        if not orgnr and _norm_company_key(r.get("company_name")) ==                 _norm_company_key(lead["company_name"]):
+            match = r
+            break
+    if not match or not (match.get("employees") or match.get("revenue")):
+        return False
+
+    parts = []
+    if match.get("employees"):
+        parts.append(f"{match['employees']} anställda")
+    if match.get("revenue"):
+        parts.append(f"omsättning {match['revenue']}")
+    note = "Storlek: " + ", ".join(parts) + " (allabolag)."
+    updates: dict = {
+        "notes": ((lead.get("notes") or "") + " | " + note).strip(" |"),
+    }
+    try:
+        emp = int(re.sub(r"[^0-9]", "", str(match.get("employees") or "")))
+    except ValueError:
+        emp = 0
+    if SIZE_SWEET_SPOT[0] <= emp <= SIZE_SWEET_SPOT[1]:
+        updates["score"] = min((lead.get("score") or 0) + 5, 98)
+        updates["score_reason"] = ((lead.get("score_reason") or "")
+                                   + f"; rätt storlek ({emp} anställda, +5)")
+    await db.update_lead(org_id, lead_id, updates)
+    return True
+
+
+async def _wrap_list(coro) -> dict:
+    return {"results": await coro}
+
+
+async def _hygiene_pass(org_id: str) -> list[str]:
+    """Zero-cost pipeline upkeep, runs with every harvest:
+    - Site watch: 'no website' leads that just launched one get flagged —
+      the window is closing, contact them now.
+    - Registry watch: open leads whose VAT registration is gone get
+      auto-disqualified before any more attention is spent on them."""
+    from enrichment.cache import cache_set, make_key
+    from enrichment.signals import check_website_exists
+    from enrichment.sweden import vies_lookup
+
+    notes: list[str] = []
+    leads = await db.list_leads(org_id, limit=500)
+    open_statuses = {"new", "qualified", "contacted"}
+
+    # Site watch
+    launched = 0
+    watchlist = [L for L in leads
+                 if L.get("source") == "signal:newco"
+                 and not L.get("domain")
+                 and "Ingen webbplats hittad" in (L.get("notes") or "")
+                 and L.get("status") in open_statuses][:5]
+    for lead in watchlist:
+        try:
+            probe = await check_website_exists(lead["company_name"])
+        except Exception:
+            continue
+        await cache_set("dns_site", make_key({"name": lead["company_name"]}),
+                        probe)
+        if probe.get("has_website") and probe.get("domain"):
+            await db.update_lead(org_id, lead["id"], {
+                "domain": probe["domain"],
+                "score": min((lead.get("score") or 0) + 10, 98),
+                "score_reason": ((lead.get("score_reason") or "")
+                                 + "; NY WEBBPLATS UPPTÄCKT — de bygger "
+                                   "just nu (+10)"),
+                "notes": ((lead.get("notes") or "")
+                          + f" | Webbplats lanserad: {probe['domain']} — "
+                            "fönstret stänger, kontakta nu."),
+            })
+            await db.add_lead_activity(
+                org_id, lead["id"], "site_launched",
+                f"Sajtvakt: {probe['domain']} är nu live — bolaget bygger "
+                "sin digitala närvaro i detta nu.",
+            )
+            launched += 1
+    if launched:
+        notes.append(f"SAJTVAKT: {launched} lead(s) utan webbplats har just "
+                     "lanserat en — högsta prioritet att kontakta.")
+
+    # Registry watch (VIES is authoritative for active VAT registration)
+    disqualified = 0
+    candidates = [L for L in leads
+                  if L.get("org_number")
+                  and L.get("status") in ("new", "qualified")][:8]
+    for lead in candidates:
+        try:
+            reg = await cached_fetch(
+                "registry", {"vies": lead["org_number"]},
+                lambda o=lead["org_number"]: vies_lookup(o),
+            )
+        except Exception:
+            continue
+        if reg and str(reg.get("status", "")).startswith("not VAT-registered"):
+            await db.update_lead(org_id, lead["id"], {"status": "lost"})
+            await db.add_lead_activity(
+                org_id, lead["id"], "disqualified",
+                "Registervakt: bolaget är inte momsregistrerat enligt VIES "
+                "— auto-diskvalificerat innan mer tid spenderas.",
+            )
+            disqualified += 1
+    if disqualified:
+        notes.append(f"REGISTERVAKT: {disqualified} lead(s) "
+                     "auto-diskvalificerade (ej momsregistrerade).")
+    return notes
 
 
 async def _newco_fetch(region: str | None) -> dict:

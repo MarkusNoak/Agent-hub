@@ -94,6 +94,8 @@ ORG_KEYS = {"orgnr", "organisationnumber", "organisationsnummer", "orgnumber",
             "organisationNumber", "orgNumber"}
 LOC_KEYS = {"location", "city", "postort", "municipality", "kommun", "ort"}
 EMPLOYEE_KEYS = {"employees", "antalanstallda", "numberofemployees"}
+REVENUE_KEYS = {"omsattning", "nettoomsattning", "revenue", "turnover",
+                "oms", "revenueksek"}
 
 
 def _dig_companies(node, found: list[dict], depth: int = 0) -> None:
@@ -124,8 +126,13 @@ def _dig_companies(node, found: list[dict], depth: int = 0) -> None:
                  if k in lower and lower[k] not in (None, "")),
                 None,
             )
+            rev = next(
+                (str(lower[k]) for k in (k.lower() for k in REVENUE_KEYS)
+                 if k in lower and lower[k] not in (None, "")),
+                None,
+            )
             found.append({"name": name, "orgnr": org, "location": loc,
-                          "employees": emp})
+                          "employees": emp, "revenue": rev})
         for v in node.values():
             _dig_companies(v, found, depth + 1)
     elif isinstance(node, list):
@@ -161,7 +168,8 @@ def parse_allabolag_search(html: str) -> list[dict]:
             name = re.sub(r"\s+", " ", m.group(2)).strip()
             if name and not name.isdigit():
                 results.append({"name": name, "orgnr": m.group(1),
-                                "location": None, "employees": None})
+                                "location": None, "employees": None,
+                                "revenue": None})
 
     # Dedupe by org number, keep order
     seen, unique = set(), []
@@ -183,6 +191,7 @@ def _norm_allabolag(r: dict) -> dict:
         "legal_form": None,
         "industry": None,
         "employees": r.get("employees"),
+        "revenue": r.get("revenue"),
         "address": r.get("location"),
         "registered": None,
         "website": None,

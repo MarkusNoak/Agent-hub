@@ -560,3 +560,40 @@ async def check_email_domain(domain: str) -> dict:
         "note": None if mx_hosts else
                 "No MX records — emails to this domain will bounce.",
     }
+
+
+async def domain_age(domain: str) -> dict:
+    """Registration date for .se/.nu domains via Internetstiftelsen's free
+    RDAP API. A freshly registered domain means the company is building its
+    digital presence RIGHT NOW — the sharpest timing signal there is for a
+    web seller."""
+    root = domain.lower().strip().removeprefix("https://")\
+        .removeprefix("http://").removeprefix("www.").split("/")[0]
+    if not root.endswith((".se", ".nu")):
+        return {"domain": root, "registered": None,
+                "note": "RDAP age check covers .se/.nu only."}
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.get(
+            f"https://rdap.iis.se/domain/{root}",
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        )
+        if resp.status_code == 404:
+            return {"domain": root, "registered": None,
+                    "note": "Domain not registered."}
+        resp.raise_for_status()
+        data = resp.json()
+    registered = None
+    for event in data.get("events") or []:
+        if event.get("eventAction") == "registration":
+            registered = (event.get("eventDate") or "")[:10]
+            break
+    age_days = None
+    if registered:
+        from datetime import date
+        try:
+            y, m, d = (int(x) for x in registered.split("-"))
+            age_days = (date.today() - date(y, m, d)).days
+        except ValueError:
+            pass
+    return {"domain": root, "registered": registered, "age_days": age_days,
+            "source": "rdap.iis.se (Internetstiftelsen)"}

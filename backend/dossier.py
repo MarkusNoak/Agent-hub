@@ -63,10 +63,18 @@ async def build_dossier(org_id: str, lead: dict) -> dict:
                   f"{r.get('legal_form') or ''} {r.get('status') or ''}".strip(),
                   f"- Adress: {r.get('address') or '–'}", ""]
 
+    age = None
+    if domain:
+        from enrichment.signals import domain_age
+        age = await _safe(cached_fetch(
+            "rdap", {"domain": domain}, lambda: domain_age(domain),
+        ))
     if site and not site.get("error"):
         maturity = site.get("digital_maturity") or {}
         lines += ["## Digital närvaro",
-                  f"- **Sajt:** {site.get('domain')} — {site.get('title') or ''}",
+                  f"- **Sajt:** {site.get('domain')} — {site.get('title') or ''}"
+                  + (f" · domän registrerad {age['registered']}"
+                     if age and age.get("registered") else ""),
                   f"- **Tech:** {', '.join(site.get('tech_stack') or []) or 'inget identifierat'}",
                   f"- **Digital mognad:** {maturity.get('score', '–')}/100"]
         for issue in (maturity.get("issues") or [])[:4]:
