@@ -22,6 +22,11 @@ DECISION_MAKER_TITLES = [
 ]
 
 
+def _is_decision_title(title: str | None) -> bool:
+    t = (title or "").lower()
+    return any(w.lower() in t for w in DECISION_MAKER_TITLES)
+
+
 def contact_provider_live() -> bool:
     return bool(os.environ.get("APOLLO_API_KEY"))
 
@@ -163,6 +168,72 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
             if err and err != "empty (not cached)" and not provider_error:
                 provider_error = err
 
+    # 1b. Free waterfall: the company's own team/contact pages. Swedish SMB
+    # sites usually list people — names, titles, often personal addresses.
+    # Also yields the org's email pattern for careful, MX-checked guessing.
+    guessed = False
+    if domain and (not person or not person.get("contact_email")):
+        from enrichment.signals import check_email_domain
+        from enrichment.website import apply_email_pattern, mine_site_people
+
+        async def fetch_site_people() -> dict:
+            try:
+                result = await mine_site_people(domain)
+            except Exception as e:
+                return {"error": str(e)}
+            if not (result.get("people") or result.get("personal_emails")
+                    or result.get("generic_emails")):
+                return {**result, "error": "empty (not cached)"}
+            return result
+
+        site = await cached_fetch("website_people", {"domain": domain},
+                                  fetch_site_people)
+        site_people = site.get("people") or []
+        pattern = site.get("email_pattern")
+
+        def _same_person(a: str | None, b: str | None) -> bool:
+            ta = {t.lower() for t in (a or "").split() if len(t) > 2}
+            tb = {t.lower() for t in (b or "").split() if len(t) > 2}
+            return bool(ta and tb and ta & tb)
+
+        async def _mx_ok() -> bool:
+            try:
+                mx = await cached_fetch("mx", {"domain": domain},
+                                        lambda: check_email_domain(domain))
+                return bool(mx.get("accepts_email"))
+            except Exception:
+                return False
+
+        if person and not person.get("contact_email"):
+            match = next((p for p in site_people
+                          if p.get("email")
+                          and _same_person(p["name"],
+                                           person.get("contact_name"))), None)
+            if match:
+                person = {**person, "contact_email": match["email"]}
+            elif pattern and person.get("contact_name") and await _mx_ok():
+                guess = apply_email_pattern(pattern,
+                                            person["contact_name"], domain)
+                if guess:
+                    person = {**person, "contact_email": guess}
+                    guessed = True
+
+        if not person and site_people:
+            ranked = sorted(
+                site_people,
+                key=lambda p: (not _is_decision_title(p.get("title")),
+                               not p.get("email")),
+            )
+            cand = dict(ranked[0])
+            email = cand.get("email")
+            if not email and pattern and await _mx_ok():
+                email = apply_email_pattern(pattern, cand["name"], domain)
+                guessed = bool(email)
+            if email or cand.get("name"):
+                person = {"contact_name": cand.get("name"),
+                          "contact_title": cand.get("title"),
+                          "contact_email": email}
+
     if person and (person.get("contact_email") or person.get("contact_name")):
         updates = {k: v for k, v in {
             "contact_name": person.get("contact_name"),
@@ -171,16 +242,23 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
             "contact_linkedin": person.get("contact_linkedin"),
         }.items() if v}
         await db.update_lead(org_id, lead["id"], updates)
+        suffix = (" [MÖNSTERGISSAD ADRESS — verifiera innan utskick]"
+                  if guessed else "")
         await db.add_lead_activity(
             org_id, lead["id"], "contact_found",
-            f"Kontakt via {provider.name}: "
-            f"{person.get('contact_name') or '?'} "
+            f"Kontakt: {person.get('contact_name') or '?'} "
             f"({person.get('contact_title') or '?'}) "
-            f"{person.get('contact_email') or 'ingen e-post'}",
+            f"{person.get('contact_email') or 'ingen e-post'}{suffix}",
         )
+        note = None
+        if guessed:
+            note = ("Adressen är härledd ur företagets e-postmönster och "
+                    "MX-verifierad på domännivå — verifiera mottagaren "
+                    "innan utskick.")
+        elif not contact_provider_live():
+            note = "DEMO DATA — connect APOLLO_API_KEY for live contacts."
         return {"found": True, "source": provider.name, "contact": updates,
-                "note": None if contact_provider_live() else
-                "DEMO DATA — connect APOLLO_API_KEY for live contacts."}
+                "note": note}
 
     # 2. Free fallback: public emails on the company website
     if domain:
