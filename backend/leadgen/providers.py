@@ -65,8 +65,15 @@ def _norm_company(org: dict, source: str) -> dict:
 
 def _norm_person(p: dict, source: str) -> dict:
     org = p.get("organization") or {}
+    name = p.get("name")
+    if not name and p.get("first_name"):
+        # api_search masks last names on some plans; a usable first name
+        # still beats nothing, and enrich_person reveals the rest
+        last = p.get("last_name") or ""
+        name = f"{p['first_name']} {last}".strip()
     return {
-        "contact_name": p.get("name"),
+        "provider_id": p.get("id"),
+        "contact_name": name,
         "contact_title": p.get("title"),
         "contact_email": p.get("email")
         if p.get("email") not in (None, "email_not_unlocked@domain.com")
@@ -98,7 +105,11 @@ class ApolloProvider(LeadProvider):
                     "Content-Type": "application/json",
                 },
             )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                # Apollo puts the actual reason in the body — surface it
+                raise RuntimeError(
+                    f"Apollo {resp.status_code} on {path}: {resp.text[:300]}"
+                )
             return resp.json()
 
     async def search_companies(
@@ -130,9 +141,26 @@ class ApolloProvider(LeadProvider):
             payload["q_organization_domains_list"] = company_domains
         if keywords:
             payload["q_keywords"] = keywords
-        data = await self._post("/mixed_people/search", payload)
+        data = await self._post("/mixed_people/api_search", payload)
         people = data.get("people", []) + data.get("contacts", [])
         return [_norm_person(p, "apollo") for p in people]
+
+    async def enrich_person(self, person_id: str | None = None,
+                            name: str | None = None,
+                            domain: str | None = None) -> dict | None:
+        """People Enrichment — reveals the email for a person found via
+        search (api_search never returns emails). Costs one credit."""
+        payload: dict = {"reveal_personal_emails": False}
+        if person_id:
+            payload["id"] = person_id
+        elif name and domain:
+            payload["name"] = name
+            payload["domain"] = domain
+        else:
+            return None
+        data = await self._post("/people/match", payload)
+        person = data.get("person")
+        return _norm_person(person, "apollo") if person else None
 
     async def enrich_company(self, domain: str) -> dict | None:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -230,6 +258,16 @@ class DemoProvider(LeadProvider):
             ]
             results = filtered or results
         return [{**p, "source": "demo"} for p in results[:per_page]]
+
+    async def enrich_person(self, person_id: str | None = None,
+                            name: str | None = None,
+                            domain: str | None = None) -> dict | None:
+        for p in _DEMO_PEOPLE:
+            if person_id and p.get("provider_id") == person_id:
+                return {**p, "source": "demo"}
+            if name and (p.get("contact_name") or "").lower() == name.lower():
+                return {**p, "source": "demo"}
+        return None
 
     async def enrich_company(self, domain: str) -> dict | None:
         for c in _DEMO_COMPANIES:
