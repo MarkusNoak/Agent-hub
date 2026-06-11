@@ -850,20 +850,40 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
         except Exception as e:
             notes.append(f"Kontakt-berikning misslyckades: {e}")
 
-    # Sourcing-time outreach templates: every new lead leaves the harvest
-    # with a ready-to-review draft (refined by VANTAGE / edited in Approvals)
+    # Sourcing-time outreach: deterministic template for every lead (free),
+    # then the top leads get an LLM-refined version grounded in the lead's
+    # signal facts and the org's reference cases — lint-gated, template kept
+    # on any failure.
+    import outreach_writer
+    settings = await db.get_org_settings(org_id)
+    cases = await db.list_knowledge(org_id, kind="case", limit=1)
+    case = cases[0] if cases else None
+
     drafted = 0
-    for lead_id in created_ids:
+    refined = 0
+    for i, lead_id in enumerate(created_ids):
         lead = await db.get_lead(org_id, lead_id)
         if not lead or lead.get("outreach_draft"):
             continue
         draft = _draft_for_lead(lead, icp)
-        if draft:
-            await db.update_lead(org_id, lead_id, {"outreach_draft": draft})
-            drafted += 1
+        if not draft:
+            continue
+        if i < outreach_writer.MAX_REFINED_PER_RUN:
+            better = await outreach_writer.refine_draft(
+                {**lead, "outreach_draft": draft}, icp,
+                settings.get("business_profile"), case,
+            )
+            if better:
+                draft = better
+                refined += 1
+        await db.update_lead(org_id, lead_id, {"outreach_draft": draft})
+        drafted += 1
     if drafted:
-        notes.append(f"Outreach-mallar genererade för {drafted} nya leads — "
-                     "granska/justera under leadet eller låt VANTAGE vässa dem.")
+        msg = f"Outreach-utkast genererade för {drafted} nya leads"
+        if refined:
+            msg += (f", varav {refined} AI-förfinade mot era referenscase"
+                    if case else f", varav {refined} AI-förfinade")
+        notes.append(msg + " — granska i leadet eller låt VANTAGE vässa.")
 
     digest = _build_digest(icp, stats, top_leads, notes)
     run_id = await db.save_prospecting_run(

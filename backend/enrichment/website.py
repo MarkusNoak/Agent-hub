@@ -228,3 +228,152 @@ async def analyze_website(domain: str) -> dict:
         "digital_maturity": digital_maturity(html, tech, https_ok, response_ms),
         "source": "website",
     }
+
+
+# ── People mining: named contacts from team/contact pages ────────────────────
+
+PEOPLE_PATHS = ["/kontakt", "/om-oss", "/team", "/medarbetare", "/personal",
+                "/about", "/om", "/kontakta-oss", "/contact"]
+
+TITLE_WORDS = (
+    r"VD|vice vd|CEO|CTO|CIO|COO|CFO|CMO|Grundare|Founder|Co-founder|"
+    r"Partner|Ägare|Försäljningschef|Marknadschef|IT-chef|Teknikchef|"
+    r"Digitaliseringschef|E-handelschef|Verksamhetschef|Kontorschef|"
+    r"Affärsutvecklare|Head of [A-Za-z ]{2,20}|Managing Director"
+)
+NAME_RE = re.compile(r"\b([A-ZÅÄÖ][a-zåäöé]+(?:-[A-ZÅÄÖ][a-zåäöé]+)?\s+"
+                     r"[A-ZÅÄÖ][a-zåäöé]+(?:-[A-ZÅÄÖ][a-zåäöé]+)?)\b")
+TITLE_RE = re.compile(rf"\b({TITLE_WORDS})\b", re.IGNORECASE)
+GENERIC_LOCALPARTS = {"info", "hello", "hej", "contact", "kontakt", "sales",
+                      "post", "mail", "office", "support", "career", "jobb"}
+
+
+def _strip_tags(html: str) -> str:
+    text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html,
+                  flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", "  ", text)
+    return re.sub(r"\s+", " ", text)
+
+
+def _email_pattern(local: str, first: str, last: str) -> str | None:
+    """Classify how a personal address is built from the name."""
+    if local == f"{first}.{last}":
+        return "first.last"
+    if local == first:
+        return "first"
+    if local == f"{first[0]}{last}":
+        return "flast"
+    if local == f"{first}{last}":
+        return "firstlast"
+    return None
+
+
+def _ascii_name(part: str) -> str:
+    return (part.lower().translate(str.maketrans("åäöé", "aaoe")))
+
+
+def apply_email_pattern(pattern: str, full_name: str, domain: str) -> str | None:
+    parts = [p for p in full_name.strip().split() if p]
+    if len(parts) < 2:
+        return None
+    first, last = _ascii_name(parts[0]), _ascii_name(parts[-1])
+    local = {"first.last": f"{first}.{last}", "first": first,
+             "flast": f"{first[0]}{last}", "firstlast": f"{first}{last}"
+             }.get(pattern)
+    return f"{local}@{domain.removeprefix('www.')}" if local else None
+
+
+def _mine_people_from_text(text: str, emails: list[str]) -> list[dict]:
+    """Pair Name ↔ Title ↔ personal email by proximity in page text."""
+    people: dict[str, dict] = {}
+    # Titles capitalized like names ("Managing Director") must not count
+    def _plausible_name(name: str) -> bool:
+        return not any(TITLE_RE.fullmatch(tok) for tok in name.split())
+
+    names = [(m.start(), m.group(1)) for m in NAME_RE.finditer(text)
+             if _plausible_name(m.group(1))]
+    for m in TITLE_RE.finditer(text):
+        if not names:
+            break
+        pos, name = min(names, key=lambda n: abs(n[0] - m.start()))
+        if abs(pos - m.start()) > 120:
+            continue
+        entry = people.setdefault(name, {"name": name, "title": None,
+                                         "email": None})
+        if not entry["title"]:
+            entry["title"] = m.group(1)
+    for email in emails:
+        local = email.split("@")[0]
+        tokens = re.split(r"[._-]", local)
+        for name, entry in people.items():
+            parts = [_ascii_name(p) for p in name.split()]
+            if any(t and t in parts for t in tokens):
+                entry["email"] = entry["email"] or email
+    return list(people.values())
+
+
+async def mine_site_people(domain: str) -> dict:
+    """Free decision-maker discovery: scan the site's team/contact pages for
+    named people, their titles, personal addresses, and the company's email
+    pattern (for careful guessing). Swedish SMB sites very often list the
+    whole team — this beats paid providers on coverage there."""
+    url = _normalize_url(domain)
+    host = re.sub(r"^https?://", "", url).split("/")[0]
+    root = host.removeprefix("www.")
+
+    personal: list[str] = []
+    generic: list[str] = []
+    people: list[dict] = []
+    pages_checked: list[str] = []
+
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+        for path in ["/"] + PEOPLE_PATHS:
+            if len(pages_checked) >= 5:
+                break
+            html = await _fetch(client, url.rstrip("/") + path)
+            if not html:
+                continue
+            pages_checked.append(path)
+            page_emails = []
+            for email in EMAIL_RE.findall(html):
+                email = email.lower().rstrip(".")
+                if EMAIL_JUNK.search(email) or not email.endswith("@" + root):
+                    continue
+                local = email.split("@")[0]
+                bucket = generic if local in GENERIC_LOCALPARTS else personal
+                if email not in bucket:
+                    bucket.append(email)
+                page_emails.append(email)
+            text = _strip_tags(html)
+            for person in _mine_people_from_text(text, page_emails):
+                if not any(p["name"] == person["name"] for p in people):
+                    people.append(person)
+
+    pattern = None
+    for email in personal:
+        local = email.split("@")[0]
+        for person in people:
+            parts = [p for p in person["name"].split() if p]
+            if len(parts) >= 2:
+                got = _email_pattern(local, _ascii_name(parts[0]),
+                                     _ascii_name(parts[-1]))
+                if got:
+                    pattern = got
+                    break
+        if pattern:
+            break
+    if not pattern and personal:
+        # No name to anchor on — infer from shape alone
+        local = personal[0].split("@")[0]
+        if "." in local:
+            pattern = "first.last"
+
+    return {
+        "domain": root,
+        "people": people[:10],
+        "personal_emails": personal[:10],
+        "generic_emails": generic[:5],
+        "email_pattern": pattern,
+        "pages_checked": pages_checked,
+        "source": "website",
+    }
