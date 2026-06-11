@@ -1829,3 +1829,105 @@ body::after {
   .waiting-item { grid-template-columns: 80px 1fr; }
   .waiting-action { grid-column: 1 / -1; }
 }
+
+/* ── Personality layer: rings, bubbles, tactility ───── */
+
+/* Score rings */
+.score-ring { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.score-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-bg { fill: none; stroke: rgba(255,248,235,.1); stroke-width: 3; }
+.ring-val {
+  fill: none; stroke-width: 3; stroke-linecap: round;
+  animation: ring-in .9s cubic-bezier(.3,.9,.4,1);
+}
+@keyframes ring-in { from { stroke-dashoffset: var(--ring-c); } }
+.ring-num {
+  position: absolute;
+  font-size: 11px; font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+/* Office speech bubbles */
+.desk { position: relative; padding-top: 14px; }
+.desk-bubble {
+  position: relative;
+  margin: 0 auto 10px;
+  max-width: 95%;
+  background: rgba(255,248,235,.09);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  border-bottom-left-radius: 3px;
+  padding: 7px 10px;
+  font-size: 11.5px; font-style: italic;
+  color: var(--text-2);
+  line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 32px;
+}
+.desk-bubble.live {
+  border-color: rgba(61,220,151,.35);
+  background: rgba(61,220,151,.08);
+  color: var(--text);
+}
+.desk-bubble.idle { opacity: .65; }
+
+/* Typing dots */
+.tdots { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: baseline; }
+.tdots i {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: currentColor; opacity: .4;
+  animation: tdot 1.2s ease-in-out infinite;
+}
+.tdots i:nth-child(2) { animation-delay: .2s; }
+.tdots i:nth-child(3) { animation-delay: .4s; }
+@keyframes tdot { 0%,100% { opacity: .25; transform: translateY(0); }
+                  40% { opacity: 1; transform: translateY(-3px); } }
+
+/* Gentle idle breathing on every desk avatar */
+@keyframes idle-breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+.desk .desk-avatar .avatar { animation: idle-breathe 4.5s ease-in-out infinite; }
+.desk.working .desk-avatar .avatar { animation: desk-breathe 2.4s ease-in-out infinite; }
+
+/* Tactile: drag tilt, landing, column glow, button press */
+.kanban-card.dragging {
+  opacity: .85;
+  transform: rotate(3deg) scale(1.04);
+  box-shadow: 0 18px 40px rgba(0,0,0,.55);
+  cursor: grabbing;
+}
+.kanban-col.drop {
+  border-color: var(--accent);
+  background-image:
+    linear-gradient(rgba(240,173,30,.07), rgba(240,173,30,.07)),
+    linear-gradient(155deg, rgba(240,173,30,.4), rgba(240,173,30,.15));
+  background-origin: border-box; background-clip: padding-box, border-box;
+  animation: col-pulse 1s ease-in-out infinite;
+}
+@keyframes col-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(240,173,30,.25); }
+                       50% { box-shadow: 0 0 0 6px rgba(240,173,30,0); } }
+.kanban .kanban-card { animation: card-land .3s cubic-bezier(.34,1.5,.64,1); }
+@keyframes card-land { from { transform: translateY(4px) scale(.98); opacity: .6; } }
+.btn:active, .pixel-btn:active, .nav-btn:active, .vt-btn:active,
+.agent-card:active, .desk:active { transform: scale(.97); }
+
+/* Thinking loader + empty states */
+.thinking { font-size: 12px; margin-bottom: 10px; letter-spacing: .04em; }
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.empty-mark {
+  width: 52px; height: 52px;
+  border-radius: 16px;
+  background: var(--grad);
+  color: var(--ink);
+  font-size: 28px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 26px rgba(240,173,30,.35);
+  margin-bottom: 6px;
+  animation: idle-breathe 4s ease-in-out infinite;
+}
+.empty-title { font-size: 16px; font-weight: 700; color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ring-val, .tdots i, .desk .desk-avatar .avatar, .kanban .kanban-card,
+  .kanban-col.drop, .empty-mark { animation: none; }
+}
