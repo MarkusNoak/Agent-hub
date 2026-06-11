@@ -875,6 +875,48 @@ async def list_prospecting_runs(org_id: str, limit: int = 20) -> list[dict]:
             return [dict(r) for r in await cur.fetchall()]
 
 
+async def office_snapshot(org_id: str) -> dict:
+    """Per-agent activity + a recent event feed for the Office view."""
+    async with dbdriver.connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT agent_id, CAST(MAX(created_at) AS TEXT) AS last_at, "
+            "COUNT(*) AS messages FROM conversations "
+            "WHERE org_id = ? GROUP BY agent_id",
+            (org_id,),
+        ) as cur:
+            agents = [dict(r) for r in await cur.fetchall()]
+
+        feed: list[dict] = []
+        async with db.execute(
+            "SELECT a.kind, a.content, CAST(a.created_at AS TEXT) AS at, "
+            "l.company_name FROM lead_activities a "
+            "JOIN leads l ON l.id = a.lead_id "
+            "WHERE a.org_id = ? ORDER BY a.created_at DESC LIMIT 14",
+            (org_id,),
+        ) as cur:
+            for r in await cur.fetchall():
+                feed.append({
+                    "kind": r["kind"], "at": r["at"],
+                    "text": f"{r['company_name']} — {r['content']}",
+                })
+        async with db.execute(
+            "SELECT trigger, leads_created, duplicates_skipped, "
+            "CAST(created_at AS TEXT) AS at FROM prospecting_runs "
+            "WHERE org_id = ? ORDER BY created_at DESC LIMIT 5",
+            (org_id,),
+        ) as cur:
+            for r in await cur.fetchall():
+                feed.append({
+                    "kind": "prospecting_run", "at": r["at"],
+                    "text": (f"Harvest ({r['trigger']}): "
+                             f"{r['leads_created']} new leads, "
+                             f"{r['duplicates_skipped']} duplicates skipped"),
+                })
+        feed.sort(key=lambda x: x["at"] or "", reverse=True)
+    return {"agents": agents, "feed": feed[:18]}
+
+
 async def last_scheduled_run_at(org_id: str) -> str | None:
     async with dbdriver.connect() as db:
         async with db.execute(

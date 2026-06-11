@@ -36,6 +36,16 @@ FIELDS = [
     "estimated-value-cur-glo",
 ]
 
+# Minimal field set guaranteed to exist — used when the rich request is
+# rejected (TED returns 400 for any unknown field name or query clause)
+SAFE_FIELDS = [
+    "publication-number",
+    "notice-title",
+    "buyer-name",
+    "buyer-country",
+    "publication-date",
+]
+
 
 def _first(value) -> str | None:
     """TED fields are sometimes lists or language maps — normalize to str."""
@@ -67,6 +77,30 @@ def _norm_notice(n: dict) -> dict:
     }
 
 
+async def _ted_search(client: httpx.AsyncClient, headers: dict,
+                      query: str, fields: list[str], limit: int) -> dict:
+    resp = await client.post(
+        TED_SEARCH_URL,
+        json={
+            "query": query,
+            "fields": fields,
+            "limit": min(limit, 25),
+            "page": 1,
+            "scope": "ACTIVE",
+            "paginationMode": "PAGE_NUMBER",
+        },
+        headers=headers,
+    )
+    if resp.status_code == 400:
+        # Surface TED's own validation message — a bare 400 is undebuggable
+        raise httpx.HTTPStatusError(
+            f"TED rejected the query (400): {resp.text[:300]}",
+            request=resp.request, response=resp,
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+
 async def find_tenders(
     category: str = "it",
     country: str = "SWE",
@@ -74,7 +108,8 @@ async def find_tenders(
     limit: int = 10,
 ) -> dict:
     cpv = CPV_PRESETS.get(category.lower(), CPV_PRESETS["it"])
-    query = (f"(classification-cpv IN ({cpv}*)) "
+    # Wildcard via '=' term match; wildcards inside IN (...) are rejected
+    query = (f"(classification-cpv={cpv[:2]}*) "
              f"AND (buyer-country IN ({country}))")
     if keywords:
         safe = keywords.replace('"', "")
@@ -87,20 +122,19 @@ async def find_tenders(
         headers["Authorization"] = f"Bearer {api_key}"
 
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        resp = await client.post(
-            TED_SEARCH_URL,
-            json={
-                "query": query,
-                "fields": FIELDS,
-                "limit": min(limit, 25),
-                "page": 1,
-                "scope": "ACTIVE",
-                "paginationMode": "PAGE_NUMBER",
-            },
-            headers=headers,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            data = await _ted_search(client, headers, query, FIELDS, limit)
+        except httpx.HTTPStatusError as e:
+            if e.response is None or e.response.status_code != 400:
+                raise
+            # Degrade gracefully: minimal guaranteed fields, exact-match
+            # query with documented grammar only (no wildcards, no keyword
+            # clause). Field names and query grammar shift between TED
+            # releases; the fallback keeps the tender signal alive.
+            fallback_q = (f"(classification-cpv IN ({cpv})) "
+                          f"AND (buyer-country IN ({country}))")
+            data = await _ted_search(client, headers, fallback_q,
+                                     SAFE_FIELDS, limit)
 
     notices = [_norm_notice(n) for n in data.get("notices") or []]
     return {
