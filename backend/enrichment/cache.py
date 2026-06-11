@@ -24,6 +24,7 @@ TTL_HOURS = {
     "jobs_harvest": 12,
     "newco": 24,
     "dns_site": 30 * 24,        # whether a company has a website at all
+    "rdap": 90 * 24,            # domain registration dates never change
     "website_people": 7 * 24,
     "provider_companies": 7 * 24,   # paid provider searches — cache hardest
     "provider_people": 7 * 24,
