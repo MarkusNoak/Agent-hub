@@ -25,6 +25,7 @@ from routers import (  # noqa: E402
     approval_routes,
     auth_routes,
     conversation_routes,
+    crm_routes,
     growth_routes,
     integration_routes,
     knowledge_routes,
@@ -58,6 +59,7 @@ app.include_router(growth_routes.router)
 app.include_router(knowledge_routes.router)
 app.include_router(approval_routes.router)
 app.include_router(conversation_routes.router)
+app.include_router(crm_routes.router)
 app.include_router(integration_routes.router)
 app.include_router(office_routes.router)
 app.include_router(public_api.router)

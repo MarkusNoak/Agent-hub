@@ -116,6 +116,17 @@ async def get_lead(lead_id: str, auth: AuthContext = Depends(get_current_auth)):
     return lead
 
 
+@router.post("/{lead_id}/dossier")
+async def lead_dossier(lead_id: str,
+                       auth: AuthContext = Depends(get_current_auth)):
+    """Meeting prep: free enrichment battery compiled to a one-pager."""
+    lead = await db.get_lead(auth.org_id, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    import dossier
+    return await dossier.build_dossier(auth.org_id, lead)
+
+
 @router.post("/{lead_id}/find-contact")
 async def find_contact(
     lead_id: str, auth: AuthContext = Depends(get_current_auth)

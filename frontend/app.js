@@ -208,6 +208,7 @@ function showView(view) {
   document.getElementById('chat-area').style.display =
     showChat && state.current ? 'flex' : 'none';
   document.getElementById('office-view').style.display    = view === 'office' ? 'flex' : 'none';
+  document.getElementById('customers-view').style.display = view === 'customers' ? 'flex' : 'none';
   document.getElementById('leads-view').style.display     = view === 'leads' ? 'flex' : 'none';
   document.getElementById('approvals-view').style.display  = view === 'approvals' ? 'flex' : 'none';
   document.getElementById('growth-view').style.display    = view === 'growth' ? 'flex' : 'none';
@@ -219,6 +220,7 @@ function showView(view) {
     loadOffice();
     state.officeTimer = setInterval(loadOffice, 20000);
   }
+  if (view === 'customers') loadCustomers();
   if (view === 'leads') loadLeads();
   if (view === 'approvals') loadApprovals();
   if (view === 'growth') loadGrowth();
@@ -281,12 +283,29 @@ async function loadHome() {
   const firstName = (state.me?.name || '').split(' ')[0];
 
   let ins = null, usage = null, runs = [], icps = [], orgSettings = {};
+  let followups = { due: [], stale: [] };
   try {
-    [ins, usage, runs, icps, orgSettings] = await Promise.all([
+    [ins, usage, runs, icps, orgSettings, followups] = await Promise.all([
       api('/api/growth/insights'), api('/api/usage'), api('/api/growth/runs'),
       api('/api/growth/icps'), api('/api/org/settings'),
+      api('/api/crm/followups').catch(() => ({ due: [], stale: [] })),
     ]);
   } catch (e) { /* stats are decorative — home must still render */ }
+
+  const waitingRows = [
+    ...(followups.due || []).map(f => `
+      <div class="waiting-item ${f.next_action_due < followups.today ? 'overdue' : ''}" onclick="showView('leads')">
+        <span class="waiting-due">${escHtml(f.next_action_due || '')}</span>
+        <span class="waiting-co">${escHtml(f.company_name)}</span>
+        <span class="waiting-action dim">${escHtml(f.next_action || '')}</span>
+      </div>`),
+    ...(followups.stale || []).map(f => `
+      <div class="waiting-item stale" onclick="showView('leads')">
+        <span class="waiting-due">stilla</span>
+        <span class="waiting-co">${escHtml(f.company_name)}</span>
+        <span class="waiting-action dim">Ingen rörelse sedan ${escHtml((f.updated_at || '').slice(0, 10))} — ny vinkel eller stäng</span>
+      </div>`),
+  ].join('');
 
   const open = ins ? (ins.total_leads - (ins.funnel.won || 0) - (ins.funnel.lost || 0)) : 0;
   const lastRun = runs && runs[0];
@@ -319,6 +338,12 @@ async function loadHome() {
       <button class="btn btn-ghost" onclick="showView('leads')">Open pipeline</button>
       ${ins?.recommendations?.length ? '' : ''}
     </div>
+
+    ${waitingRows ? `
+    <div class="home-waiting">
+      <div class="home-section-label">Waiting on you <span class="dim">// ${(followups.due || []).length + (followups.stale || []).length} leads</span></div>
+      ${waitingRows}
+    </div>` : ''}
 
     ${checklistHtml(orgSettings, icps, runs, ins)}
 
@@ -553,6 +578,106 @@ async function loadOffice() {
   } catch (e) {
     body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
   }
+}
+
+async function showDossier(id, btn) {
+  const out = document.getElementById(`dossier-${id}`);
+  btn.disabled = true; btn.textContent = 'Bygger…';
+  try {
+    const d = await api(`/api/leads/${id}/dossier`, { method: 'POST' });
+    out.style.display = '';
+    out.innerHTML = `<div class="dossier">${DOMPurify.sanitize(marked.parse(d.markdown || ''))}</div>`;
+  } catch (e) { toast(e.message, 'error'); }
+  btn.disabled = false; btn.textContent = 'Dossier';
+}
+
+async function convertLead(id) {
+  if (!await confirmDialog('Gör detta lead till kund? Bolaget utesluts då permanent ur skörd och outreach.')) return;
+  try {
+    await api(`/api/crm/convert/${id}`, { method: 'POST' });
+    toast('Konverterad till kund — skyddad från outreach');
+    loadLeads();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Customers (CRM) ────────────────────────────────────
+async function loadCustomers() {
+  const body = document.getElementById('customers-body');
+  body.innerHTML = skeleton(4);
+  try {
+    const data = await api('/api/crm/accounts');
+    const rows = (data.accounts || []).map(a => `
+      <tr>
+        <td>
+          <div class="lead-company">${escHtml(a.company_name)}</div>
+          <div class="dim">${escHtml(a.domain || a.org_number || '')}</div>
+        </td>
+        <td>
+          <div>${escHtml(a.contact_name || '–')}</div>
+          <div class="dim">${escHtml(a.contact_email || '')}</div>
+        </td>
+        <td>
+          <select class="pixel-select" onchange="updateAccount('${a.id}', { status: this.value })">
+            ${data.statuses.map(s => `<option value="${s}" ${s === a.status ? 'selected' : ''}>${s.toUpperCase()}</option>`).join('')}
+          </select>
+        </td>
+        <td>${a.monthly_value ? a.monthly_value.toLocaleString() + ' kr/mån' : '<span class="dim">–</span>'}</td>
+        <td class="dim">${escHtml((a.notes || '').slice(0, 60))}</td>
+        <td><button class="pixel-btn small danger" onclick="removeAccount('${a.id}')">DEL</button></td>
+      </tr>`).join('') ||
+      '<tr><td colspan="6" class="dim">INGA KUNDER ÄN — LÄGG TILL ERA BEFINTLIGA KUNDER SÅ SKYDDAS DE FRÅN ALL OUTREACH, ELLER KONVERTERA VUNNA LEADS.</td></tr>';
+
+    const mrr = (data.accounts || []).reduce((s, a) => s + (a.monthly_value || 0), 0);
+    body.innerHTML = `
+      <div class="dash-section">
+        <div class="dash-label">CUSTOMER REGISTER <span class="dim">// ${(data.accounts || []).length} RELATIONER${mrr ? ' · ' + mrr.toLocaleString() + ' KR/MÅN' : ''} — PERMANENT UTESLUTNA UR SKÖRD & OUTREACH</span></div>
+        <table class="leads-table">
+          <thead><tr><th>COMPANY</th><th>CONTACT</th><th>STATUS</th><th>VALUE</th><th>NOTES</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="settings-row" style="margin-top:14px">
+          <input type="text" id="acc-name" class="pixel-input" placeholder="FÖRETAGSNAMN" />
+          <input type="text" id="acc-orgnr" class="pixel-input" style="max-width:140px" placeholder="ORGNR" />
+          <input type="text" id="acc-domain" class="pixel-input" style="max-width:160px" placeholder="DOMÄN" />
+        </div>
+        <div class="settings-row">
+          <input type="text" id="acc-contact" class="pixel-input" placeholder="KONTAKTPERSON" />
+          <input type="email" id="acc-email" class="pixel-input" placeholder="E-POST" />
+          <input type="number" id="acc-value" class="pixel-input" style="max-width:140px" placeholder="KR/MÅN" />
+          <button class="pixel-btn small" onclick="addAccount()">ADD CUSTOMER</button>
+        </div>
+      </div>`;
+  } catch (e) {
+    body.innerHTML = `<div class="dim panel-empty">ERROR: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function addAccount() {
+  const name = document.getElementById('acc-name').value.trim();
+  if (!name) { toast('Företagsnamn krävs', 'error'); return; }
+  try {
+    await api('/api/crm/accounts', { method: 'POST', body: JSON.stringify({
+      company_name: name,
+      org_number: document.getElementById('acc-orgnr').value.trim() || null,
+      domain: document.getElementById('acc-domain').value.trim() || null,
+      contact_name: document.getElementById('acc-contact').value.trim() || null,
+      contact_email: document.getElementById('acc-email').value.trim() || null,
+      monthly_value: parseInt(document.getElementById('acc-value').value) || null,
+    })});
+    toast('Kund tillagd — skyddad från outreach');
+    loadCustomers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function updateAccount(id, fields) {
+  try { await api(`/api/crm/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(fields) }); toast('Sparat'); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+async function removeAccount(id) {
+  if (!await confirmDialog('Ta bort från kundregistret? Bolaget kan då skördas igen.', true)) return;
+  try { await api(`/api/crm/accounts/${id}`, { method: 'DELETE' }); } catch (e) { toast(e.message, 'error'); }
+  loadCustomers();
 }
 
 // ── Growth view ────────────────────────────────────────
@@ -1303,10 +1428,15 @@ async function loadLeads() {
             <div><span class="dim">LOCATION</span><br>${escHtml(l.location || '--')}</div>
             <div><span class="dim">SOURCE</span><br>${escHtml(l.source || '--')}</div>
           </div>
-          ${!l.contact_email ? `<div class="lead-section">
-            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); findContact('${l.id}', this)">Find contact</button>
-            <span class="dim small"> Searches decision-makers via the data provider, falls back to public site emails</span>
+          ${l.next_action ? `<div class="lead-section next-action ${l.next_action_due && l.next_action_due < new Date().toISOString().slice(0,10) ? 'overdue' : ''}">
+            <span class="dim">NEXT ACTION</span> ${escHtml(l.next_action)} <span class="dim">· senast ${escHtml(l.next_action_due || '')}</span>
           </div>` : ''}
+          <div class="lead-section lead-actions-row">
+            ${!l.contact_email ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); findContact('${l.id}', this)">Find contact</button>` : ''}
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); showDossier('${l.id}', this)">Dossier</button>
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); convertLead('${l.id}')">Gör till kund</button>
+          </div>
+          <div class="lead-section dossier-out" id="dossier-${l.id}" style="display:none"></div>
           ${l.score_reason ? `<div class="lead-section"><span class="dim">SCORE RATIONALE</span><br>${escHtml(l.score_reason)}</div>` : ''}
           ${l.notes ? `<div class="lead-section"><span class="dim">NOTES</span><br>${escHtml(l.notes)}</div>` : ''}
           ${l.outreach_draft ? `

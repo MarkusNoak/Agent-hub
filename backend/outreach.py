@@ -214,6 +214,13 @@ async def start_sequence(
     if await db.is_suppressed(org_id, recipient):
         return {"error": f"{recipient} has opted out (suppression list). "
                          "Do not contact; mark the lead lost."}
+    account = await db.find_account_for_company(
+        org_id, lead.get("company_name"), lead.get("org_number"))
+    if account and account["status"] != "former":
+        return {"error": f"{lead.get('company_name')} är en befintlig "
+                         f"{account['status']} i kundregistret — kalla "
+                         "utskick till egna kunder är blockerade. Prata "
+                         "med dem direkt i stället."}
     if await db.has_active_sequence(org_id, lead_id):
         return {"error": "An active sequence already exists for this lead. "
                          "Cancel it first if you want to replace it."}

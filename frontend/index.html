@@ -85,6 +85,7 @@
         <button class="nav-btn" id="nav-agents"    onclick="showView('agents')">Agents</button>
         <button class="nav-btn" id="nav-office"    onclick="showView('office')">Office</button>
         <button class="nav-btn" id="nav-leads"     onclick="showView('leads')">Leads</button>
+        <button class="nav-btn" id="nav-customers" onclick="showView('customers')">Customers</button>
         <button class="nav-btn" id="nav-approvals" onclick="showView('approvals')">Approvals <span class="nav-badge" id="approvals-badge" style="display:none">0</span></button>
         <button class="nav-btn" id="nav-growth"    onclick="showView('growth')">Growth</button>
         <button class="nav-btn" id="nav-dashboard" onclick="showView('dashboard')">Dashboard</button>
@@ -176,6 +177,19 @@
           </div>
         </header>
         <div class="panel-body" id="leads-body">
+          <div class="dim panel-empty">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Customers view -->
+      <div class="panel-view" id="customers-view" style="display:none">
+        <header class="panel-header">
+          <h2>Customers</h2>
+          <div class="panel-actions">
+            <span class="dim small">Your real relationships — permanently excluded from harvest & outreach</span>
+          </div>
+        </header>
+        <div class="panel-body" id="customers-body">
           <div class="dim panel-empty">Loading…</div>
         </div>
       </div>
