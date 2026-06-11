@@ -39,6 +39,45 @@ async def list_icps(auth: AuthContext = Depends(get_current_auth)):
     return await db.list_icps(auth.org_id)
 
 
+@router.get("/icp-presets")
+async def list_icp_presets(auth: AuthContext = Depends(get_current_auth)):
+    return [{"id": p["id"], "label": p["label"],
+             "description": p["description"],
+             "signals": _preset_signals(p["payload"])}
+            for p in growth.ICP_PRESETS]
+
+
+def _preset_signals(payload: dict) -> list[str]:
+    sigs = []
+    if payload.get("target_roles"):
+        sigs.append("Hiring")
+    if payload.get("include_new_companies"):
+        sigs.append("Newco")
+    if payload.get("include_funding"):
+        sigs.append("Funding")
+    if payload.get("include_expansion"):
+        sigs.append("Expansion")
+    if payload.get("include_leadership"):
+        sigs.append("Leadership")
+    if payload.get("include_tenders"):
+        sigs.append("Tenders")
+    return sigs
+
+
+@router.post("/icps/from-preset/{preset_id}")
+async def create_icp_from_preset(preset_id: str,
+                                 auth: AuthContext = Depends(get_current_auth)):
+    preset = next((p for p in growth.ICP_PRESETS if p["id"] == preset_id), None)
+    if not preset:
+        raise HTTPException(status_code=404, detail="Unknown preset")
+    existing = await db.list_icps(auth.org_id)
+    if any(i["name"] == preset["payload"]["name"] for i in existing):
+        raise HTTPException(status_code=409,
+                            detail="This profile is already added")
+    icp_id = await db.create_icp(auth.org_id, preset["payload"])
+    return await db.get_icp(auth.org_id, icp_id)
+
+
 @router.post("/icps")
 async def create_icp(req: IcpRequest,
                      auth: AuthContext = Depends(get_current_auth)):
