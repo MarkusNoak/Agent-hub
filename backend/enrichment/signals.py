@@ -285,14 +285,10 @@ def extract_funding_companies(items: list[dict]) -> list[dict]:
     return found
 
 
-async def scan_funding_news(topic: str | None = None, limit: int = 10) -> dict:
-    """Scan Swedish business press for fresh funding rounds — companies that
-    just raised capital fund digital projects. Returns headlines for the
-    agent to extract company names from."""
-    query = '"tar in" OR "kapitalrunda" OR "miljoner i en runda" OR "nyemission"'
-    if topic:
-        query = f"{topic} ({query})"
-    locale = NEWS_LOCALES["sv"]
+async def _news_rss_search(query: str, limit: int = 10,
+                           language: str = "sv") -> list[dict]:
+    """Shared Google News RSS search → list of headline items."""
+    locale = NEWS_LOCALES.get(language, NEWS_LOCALES["sv"])
     async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
         resp = await client.get(
             "https://news.google.com/rss/search",
@@ -314,6 +310,17 @@ async def scan_funding_news(topic: str | None = None, limit: int = 10) -> dict:
         })
         if len(items) >= limit:
             break
+    return items
+
+
+async def scan_funding_news(topic: str | None = None, limit: int = 10) -> dict:
+    """Scan Swedish business press for fresh funding rounds — companies that
+    just raised capital fund digital projects. Returns headlines for the
+    agent to extract company names from."""
+    query = '"tar in" OR "kapitalrunda" OR "miljoner i en runda" OR "nyemission"'
+    if topic:
+        query = f"{topic} ({query})"
+    items = await _news_rss_search(query, limit)
     return {
         "topic": topic,
         "headlines": items,
@@ -321,6 +328,197 @@ async def scan_funding_news(topic: str | None = None, limit: int = 10) -> dict:
                  "enrich the relevant ones." if items else
                  "No recent funding news matched."),
     }
+
+
+def _clean_headline(title: str) -> str:
+    # Google News appends " - Source"; drop the final segment
+    if " - " in title:
+        title = title.rsplit(" - ", 1)[0].strip()
+    return title
+
+
+def _plausible_company(name: str) -> bool:
+    lower = name.lower()
+    return bool(
+        name and name[0].isupper()
+        and len(name.split()) <= 6
+        and not any(lower.startswith(g) for g in GENERIC_SUBJECTS)
+    )
+
+
+# Swedish expansion headlines: new offices, market entries, big hiring plans.
+# Same playbook as funding — tight patterns, deterministic, zero LLM cost.
+EXPANSION_PATTERNS = [
+    (re.compile(r"^(?P<co>[^–—:|]{2,60}?)\s+(?:öppnar|etablerar)\s+"
+                r"(?:nytt\s+|ett\s+)?kontor\s+i\s+(?P<detail>.{2,40})$",
+                re.IGNORECASE),
+     "office", "öppnar kontor i {}"),
+    (re.compile(r"^(?P<co>[^–—:|]{2,60}?)\s+expanderar\s+(?:till|i)\s+"
+                r"(?P<detail>.{2,40})$", re.IGNORECASE),
+     "market", "expanderar till {}"),
+    (re.compile(r"^(?P<co>[^–—:|]{2,60}?)\s+etablerar\s+sig\s+i\s+"
+                r"(?P<detail>.{2,40})$", re.IGNORECASE),
+     "market", "etablerar sig i {}"),
+    (re.compile(r"^(?P<co>[^–—:|]{2,60}?)\s+(?:anställer|nyanställer)\s+"
+                r"(?P<detail>\d{2,4})(?:\s|$)", re.IGNORECASE),
+     "hiring_plan", "anställer {} personer"),
+]
+
+
+def extract_expansion_companies(items: list[dict]) -> list[dict]:
+    """Deterministically pull expanding companies out of Swedish headlines.
+    Conservative: only canonical patterns, generic subjects skipped."""
+    found, seen = [], set()
+    for item in items:
+        title = _clean_headline((item.get("title") or "").strip())
+        for pattern, kind, template in EXPANSION_PATTERNS:
+            m = pattern.match(title)
+            if not m:
+                continue
+            company = m.group("co").strip().strip('"”“').strip()
+            if not _plausible_company(company):
+                break
+            key = company.lower()
+            if key in seen:
+                break
+            seen.add(key)
+            detail = (m.group("detail") or "").strip().rstrip(".")
+            found.append({
+                "company_name": company,
+                "detail": template.format(detail),
+                "kind": kind,
+                "headline": title,
+                "link": item.get("link"),
+                "published": item.get("published"),
+            })
+            break
+    return found
+
+
+async def scan_expansion_news(limit: int = 20) -> dict:
+    """Swedish expansion/establishment headlines — companies opening offices,
+    entering new markets or announcing large hiring plans. Growth that size
+    almost always drags digital projects with it."""
+    query = ('"öppnar nytt kontor" OR "expanderar till" OR '
+             '"etablerar sig i" OR "nyanställer"')
+    items = await _news_rss_search(query, limit)
+    return {"headlines": items}
+
+
+# New executives review suppliers and digital tooling in their first months —
+# a leadership change is a fresh-door signal for outreach.
+LEADERSHIP_ROLES = (r"vd|vice vd|cto|cio|cfo|cdo|it-chef|teknikchef|"
+                    r"digitaliseringschef|marknadschef|e-handelschef")
+LEADERSHIP_PATTERNS = [
+    # "Anna Svensson blir ny vd på Bolaget AB"
+    re.compile(rf"^(?P<person>[A-ZÅÄÖ][^–—:|]{{2,40}}?)\s+"
+               rf"(?:blir|utses till|tillträder som)\s+ny\s+"
+               rf"(?P<role>{LEADERSHIP_ROLES})\s+(?:på|för|i|hos)\s+"
+               rf"(?P<co>.{{2,60}})$", re.IGNORECASE),
+    # "Bolaget AB får ny vd" / "Bolaget utser Anna Svensson till ny vd"
+    re.compile(rf"^(?P<co>[^–—:|]{{2,60}}?)\s+"
+               rf"(?:får|utser|rekryterar|hämtar)\s+"
+               rf"(?:(?P<person>[A-ZÅÄÖ][^–—:|]{{2,40}}?)\s+"
+               rf"(?:till|som)\s+)?ny\s+(?P<role>{LEADERSHIP_ROLES})\b", re.IGNORECASE),
+]
+
+
+def extract_leadership_changes(items: list[dict]) -> list[dict]:
+    """Deterministically pull leadership changes (company + role, person when
+    the headline names one) out of Swedish business headlines."""
+    found, seen = [], set()
+    for item in items:
+        title = _clean_headline((item.get("title") or "").strip())
+        for pattern in LEADERSHIP_PATTERNS:
+            m = pattern.match(title)
+            if not m:
+                continue
+            company = m.group("co").strip().strip('"”“').strip()
+            if not _plausible_company(company):
+                break
+            key = company.lower()
+            if key in seen:
+                break
+            seen.add(key)
+            person = (m.groupdict().get("person") or "").strip() or None
+            found.append({
+                "company_name": company,
+                "person": person,
+                "role": m.group("role").lower(),
+                "headline": title,
+                "link": item.get("link"),
+                "published": item.get("published"),
+            })
+            break
+    return found
+
+
+async def scan_leadership_news(limit: int = 20) -> dict:
+    """Swedish executive-change headlines — new CEOs/CTOs/IT chiefs review
+    suppliers and digital tooling in their first hundred days."""
+    query = ('"blir ny vd" OR "får ny vd" OR "tillträder som vd" OR '
+             '"ny cto" OR "ny it-chef" OR "ny digitaliseringschef"')
+    items = await _news_rss_search(query, limit)
+    return {"headlines": items}
+
+
+# ── Website-existence probe (digital-gap signal) ──────────────────────────────
+
+_DOMAIN_SUFFIXES = (" aktiebolag", " ab", " handelsbolag", " hb",
+                    " kommanditbolag", " kb", " ekonomisk förening", " ek för")
+_DOMAIN_TRANSLATE = str.maketrans("åäöéü", "aaoeu")
+
+
+def _domain_candidates(company_name: str) -> list[str]:
+    """Guess the .se domains a Swedish company would most likely register."""
+    base = company_name.lower().strip()
+    for suffix in _DOMAIN_SUFFIXES:
+        if base.endswith(suffix):
+            base = base[: -len(suffix)].strip()
+    base = base.translate(_DOMAIN_TRANSLATE)
+    base = re.sub(r"[^a-z0-9 -]", "", base)
+    words = [w for w in base.split() if w]
+    if not words:
+        return []
+    candidates = []
+    joined = "".join(words)
+    if 3 <= len(joined) <= 30:
+        candidates.append(f"{joined}.se")
+    if len(words) > 1:
+        hyphenated = "-".join(words)
+        if len(hyphenated) <= 30:
+            candidates.append(f"{hyphenated}.se")
+    return candidates[:2]
+
+
+async def check_website_exists(company_name: str) -> dict:
+    """Free DNS probe: does this company appear to have a website at all?
+
+    Heuristic by design — it only checks the most likely .se domains, so
+    has_website=False means "no site found on expected domains", not proof.
+    A newly registered company without a website is the highest-intent
+    prospect there is for web development."""
+    candidates = _domain_candidates(company_name)
+    if not candidates:
+        return {"company": company_name, "has_website": None,
+                "checked": [], "note": "Company name not domainable."}
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        for domain in candidates:
+            resp = await client.get(
+                "https://dns.google/resolve",
+                params={"name": domain, "type": "A"},
+                headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            answers = resp.json().get("Answer") or []
+            if any(a.get("type") == 1 for a in answers):
+                return {"company": company_name, "has_website": True,
+                        "domain": domain, "checked": candidates}
+
+    return {"company": company_name, "has_website": False, "domain": None,
+            "checked": candidates,
+            "note": "No A record on expected .se domains (heuristic)."}
 
 
 async def check_email_domain(domain: str) -> dict:

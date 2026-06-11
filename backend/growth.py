@@ -11,14 +11,20 @@ duplicates, and the top prospects to contact first.
 """
 
 import asyncio
+import re
 import traceback
 from datetime import datetime, timezone
 
 import database as db
 from enrichment.cache import cached_fetch
 from enrichment.signals import (
+    check_website_exists,
+    extract_expansion_companies,
     extract_funding_companies,
+    extract_leadership_changes,
+    scan_expansion_news,
     scan_funding_news,
+    scan_leadership_news,
     search_hiring_companies,
 )
 from enrichment.sweden import allabolag_newly_registered
@@ -90,6 +96,60 @@ def _score_hiring_company(company: dict, icp: dict) -> tuple[int, str]:
     return min(score, 95), "Signalscore: " + "; ".join(reasons)
 
 
+def _norm_company_key(name: str | None) -> str | None:
+    """Normalized company-name key for cross-signal matching."""
+    if not name:
+        return None
+    base = name.lower().strip()
+    base = re.sub(r"\b(aktiebolag|ab|handelsbolag|hb|kb|as|aps|oy|ltd)\b", "", base)
+    base = re.sub(r"[^a-zåäö0-9]+", "", base)
+    return base or None
+
+
+SIGNAL_LABELS = {
+    "hiring": "rekryterar", "newco": "nyregistrerat", "funding": "ny finansiering",
+    "expansion": "expanderar", "leadership": "ledningsbyte",
+}
+
+
+def _mark_presence(presence: dict, signal: str,
+                   name: str | None, org_number: str | None) -> None:
+    orgnr = (org_number or "").replace("-", "")
+    if orgnr:
+        presence.setdefault(f"org:{orgnr}", set()).add(signal)
+    key = _norm_company_key(name)
+    if key:
+        presence.setdefault(f"name:{key}", set()).add(signal)
+
+
+def _cross_signals(presence: dict, signal: str,
+                   name: str | None, org_number: str | None) -> list[str]:
+    """Other signals this company also appeared in during this run."""
+    sigs: set[str] = set()
+    orgnr = (org_number or "").replace("-", "")
+    if orgnr:
+        sigs |= presence.get(f"org:{orgnr}", set())
+    key = _norm_company_key(name)
+    if key:
+        sigs |= presence.get(f"name:{key}", set())
+    return sorted(sigs - {signal})
+
+
+def _apply_cross_boost(presence: dict, signal: str, name: str | None,
+                       org_number: str | None,
+                       score: int, reason: str) -> tuple[int, str]:
+    """Stacked signals are the strongest buying indicator we have: a company
+    that is hiring AND just raised AND has a new CTO is in motion. +12 per
+    extra signal, capped at 98."""
+    others = _cross_signals(presence, signal, name, org_number)
+    if not others:
+        return score, reason
+    boost = min(12 * len(others), 98 - score)
+    labels = ", ".join(SIGNAL_LABELS.get(s, s) for s in others)
+    return (score + max(boost, 0),
+            reason + f"; KORSSIGNAL: även {labels} (+{max(boost, 0)})")
+
+
 async def _learned_score_floor(org_id: str) -> tuple[int, str | None]:
     """Outcome-calibrated harvest threshold: when the org has enough closed
     deals and the scoring is predictive, skip harvesting below the level
@@ -147,11 +207,40 @@ def _draft_for_lead(lead: dict, icp: dict) -> str | None:
                 f"nästa vecka? {{{{booking_url}}}}\n\nVänliga hälsningar")
 
     if source == "signal:newco":
-        return (f"{greeting}\n\nert bolag registrerades nyligen — i det "
-                f"skedet avgör den digitala grunden hur snabbt ni kan börja "
-                f"sälja.\n\nVi arbetar med {sell} och sätter upp webbplats "
-                f"och digitala flöden för nystartade bolag på ett par "
-                f"veckor.\n\nVill du se ett par exempel? "
+        no_site = "Ingen webbplats hittad" in notes
+        opening = ("ert bolag registrerades nyligen och vi hittade ingen "
+                   "webbplats ännu" if no_site
+                   else "ert bolag registrerades nyligen")
+        return (f"{greeting}\n\n{opening} — i det skedet avgör den digitala "
+                f"grunden hur snabbt ni kan börja sälja.\n\nVi arbetar med "
+                f"{sell} och sätter upp webbplats och digitala flöden för "
+                f"nystartade bolag på ett par veckor.\n\nVill du se ett par "
+                f"exempel? {{{{booking_url}}}}\n\nVänliga hälsningar")
+
+    if source == "signal:expansion":
+        detail = None
+        if "Expansion: " in notes:
+            detail = notes.split("Expansion: ", 1)[1].split("|")[0].strip()
+        opening = (f"såg att ni {detail}" if detail
+                   else "såg nyheten om er expansion")
+        return (f"{greeting}\n\n{opening} — tillväxt i den takten brukar "
+                f"sätta press på både webb och interna system.\n\nVi arbetar "
+                f"med {sell} och förstärker bolag i exakt det läget, utan "
+                f"att ni behöver vänta in nyrekryteringar.\n\nHar du 20 "
+                f"minuter nästa vecka? {{{{booking_url}}}}\n\nVänliga hälsningar")
+
+    if source == "signal:leadership":
+        role = None
+        if "Ledningsbyte: ny " in notes:
+            role = notes.split("Ledningsbyte: ny ", 1)[1]
+            role = role.split("—")[0].split("|")[0].strip()
+        opening = (f"såg att ni nyligen fått ny {role}"
+                   if role else "såg nyheten om er nya ledning")
+        return (f"{greeting}\n\n{opening} — de första månaderna i en sådan "
+                f"roll handlar ofta om att se över verktyg och "
+                f"leverantörer.\n\nVi arbetar med {sell} och brukar i det "
+                f"läget göra en kort teknisk genomlysning som underlag för "
+                f"prioriteringarna.\n\nVill du ha en sådan? "
                 f"{{{{booking_url}}}}\n\nVänliga hälsningar")
 
     return None  # tenders go through BEACON's bid process, not cold email
@@ -203,34 +292,80 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
     if floor_note:
         notes.append(floor_note)
 
-    # ── Signal 1: companies hiring the roles we deliver ──
-    try:
-        harvest = await cached_fetch(
-            "jobs_harvest",
-            {"roles": roles, "regions": regions},
-            lambda: search_hiring_companies(roles, regions, max_companies=25),
-        )
-        companies = harvest.get("companies") or []
-    except Exception as e:
-        companies = []
-        notes.append(f"Rekryteringssignalen misslyckades: {e}")
+    # ── Prefetch every enabled signal once, then build the cross-signal
+    # presence map: a company appearing in several independent signal sets
+    # is the strongest prospect of the run, whatever the combination.
+    region = (icp.get("regions") or [None])[0]
 
-    stats["signals_found"] += len(companies)
-
-    # Cross-signal stacking: same company in several signal sets → boost
-    newco_keys: set[str] = set()
-    if icp.get("include_new_companies"):
+    async def _safe(label: str, coro):
         try:
-            region = (icp.get("regions") or [None])[0]
-            fresh = await cached_fetch(
-                "newco", {"region": region}, lambda: _newco_fetch(region),
-            )
-            for c in fresh.get("companies") or []:
-                if c.get("org_number"):
-                    newco_keys.add(c["org_number"].replace("-", ""))
-        except Exception:
-            pass
+            return await coro
+        except Exception as e:
+            notes.append(f"{label} misslyckades: {e}")
+            return {}
 
+    harvest = await _safe("Rekryteringssignalen", cached_fetch(
+        "jobs_harvest", {"roles": roles, "regions": regions},
+        lambda: search_hiring_companies(roles, regions, max_companies=25),
+    ))
+    companies = harvest.get("companies") or []
+
+    new_companies: list[dict] = []
+    if icp.get("include_new_companies"):
+        fresh = await _safe("Nyregistrerade-signalen", cached_fetch(
+            "newco", {"region": region}, lambda: _newco_fetch(region),
+        ))
+        new_companies = fresh.get("companies") or []
+
+    funded: list[dict] = []
+    if icp.get("include_funding"):
+        news = await _safe("Finansieringssignalen", cached_fetch(
+            "news", {"funding_harvest": 1}, lambda: _funding_fetch(),
+        ))
+        funded = extract_funding_companies(news.get("headlines") or [])
+
+    expanding: list[dict] = []
+    if icp.get("include_expansion"):
+        news = await _safe("Expansionssignalen", cached_fetch(
+            "news", {"expansion_harvest": 1}, lambda: scan_expansion_news(20),
+        ))
+        expanding = extract_expansion_companies(news.get("headlines") or [])
+
+    new_leaders: list[dict] = []
+    if icp.get("include_leadership"):
+        news = await _safe("Ledningsbytessignalen", cached_fetch(
+            "news", {"leadership_harvest": 1},
+            lambda: scan_leadership_news(20),
+        ))
+        new_leaders = extract_leadership_changes(news.get("headlines") or [])
+
+    presence: dict[str, set] = {}
+    for c in companies:
+        _mark_presence(presence, "hiring", c.get("company_name"), c.get("org_number"))
+    for c in new_companies:
+        _mark_presence(presence, "newco", c.get("company_name"), c.get("org_number"))
+    for c in funded:
+        _mark_presence(presence, "funding", c.get("company_name"), None)
+    for c in expanding:
+        _mark_presence(presence, "expansion", c.get("company_name"), None)
+    for c in new_leaders:
+        _mark_presence(presence, "leadership", c.get("company_name"), None)
+
+    # Run-local dedupe on normalized name: a company in motion should be ONE
+    # lead with stacked evidence (KORSSIGNAL), never one lead per signal.
+    created_keys: set[str] = set()
+
+    def _created_this_run(name: str | None) -> bool:
+        key = _norm_company_key(name)
+        return bool(key) and key in created_keys
+
+    def _remember_created(name: str | None) -> None:
+        key = _norm_company_key(name)
+        if key:
+            created_keys.add(key)
+
+    # ── Signal 1: companies hiring the roles we deliver ──
+    stats["signals_found"] += len(companies)
     skipped_low = 0
     for company in companies:
         used = await db.count_leads_this_month(org_id)
@@ -257,10 +392,10 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
             continue
 
         score, reason = _score_hiring_company(company, icp)
-        orgnr_key = (company.get("org_number") or "").replace("-", "")
-        if orgnr_key and orgnr_key in newco_keys:
-            score = min(score + 15, 98)
-            reason += "; DUBBEL SIGNAL: även nyregistrerat bolag (+15)"
+        score, reason = _apply_cross_boost(
+            presence, "hiring", company["company_name"],
+            company.get("org_number"), score, reason,
+        )
 
         if score < effective_min:
             skipped_low += 1
@@ -288,6 +423,7 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
         )
         stats["leads_created"] += 1
         created_ids.append(lead_id)
+        _remember_created(company["company_name"])
         top_leads.append({
             "company_name": company["company_name"],
             "score": score,
@@ -304,62 +440,84 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
 
     # ── Signal 2: newly registered companies (optional per ICP) ──
     if icp.get("include_new_companies"):
-        try:
-            region = (icp.get("regions") or [None])[0]
-            fresh = await cached_fetch(
-                "newco", {"region": region},
-                lambda: _newco_fetch(region),
-            )
-            new_companies = fresh.get("companies") or []
-        except Exception as e:
-            new_companies = []
-            notes.append(f"Nyregistrerade-signalen misslyckades: {e}")
-
         stats["signals_found"] += len(new_companies)
+        gap_checked = 0
         for company in new_companies:
+            name = company.get("company_name", "Unknown")
             used = await db.count_leads_this_month(org_id)
             if not within_quota(used, plan.leads_per_month):
                 break
             if await db.is_company_blocked(
-                org_id, company.get("company_name"), company.get("org_number")
+                org_id, name, company.get("org_number")
             ):
                 stats["duplicates_skipped"] += 1
                 continue
             dupe = await db.find_duplicate_lead(
                 org_id,
-                company_name=company.get("company_name"),
+                company_name=name,
                 org_number=company.get("org_number"),
             )
-            if dupe:
+            if dupe or _created_this_run(name):
                 stats["duplicates_skipped"] += 1
                 continue
+
+            score = 40
+            reason = ("Signalscore: nyregistrerat bolag — behöver "
+                      "sannolikt webb/IT-grund (+basnivå)")
+            note = None
+
+            # Digital-gap layer: a brand-new company with no website is the
+            # highest-intent web prospect there is. DNS probes are free;
+            # cap per run to keep harvests fast.
+            if gap_checked < 8:
+                gap_checked += 1
+                try:
+                    gap = await cached_fetch(
+                        "dns_site", {"name": name},
+                        lambda n=name: check_website_exists(n),
+                    )
+                except Exception:
+                    gap = {}
+                if gap.get("has_website") is False:
+                    score += 15
+                    reason += ("; ingen webbplats hittad på förväntade "
+                               "domäner — digital lucka (+15)")
+                    note = (f"Ingen webbplats hittad (kollade "
+                            f"{', '.join(gap.get('checked') or [])}) — "
+                            "heuristik, verifiera vid kontakt.")
+                elif gap.get("has_website") and gap.get("domain"):
+                    note = f"Trolig webbplats: {gap['domain']} (DNS-träff)."
+
+            score, reason = _apply_cross_boost(
+                presence, "newco", name, company.get("org_number"),
+                score, reason,
+            )
+
             lead_id = await db.create_lead(org_id, None, {
-                "company_name": company.get("company_name", "Unknown"),
+                "company_name": name,
                 "org_number": company.get("org_number"),
                 "location": company.get("address"),
                 "source": "signal:newco",
-                "score": 40,
-                "score_reason": "Signalscore: nyregistrerat bolag — behöver "
-                                "sannolikt webb/IT-grund (+basnivå)",
+                "score": score,
+                "score_reason": reason,
+                "notes": note,
             })
             await db.add_lead_activity(
                 org_id, lead_id, "created",
                 f"Skördad som nyregistrerat bolag ({trigger} körning)",
             )
             stats["leads_created"] += 1
+            created_ids.append(lead_id)
+            _remember_created(name)
+            if score >= 55:
+                top_leads.append({
+                    "company_name": name, "score": score,
+                    "why": "nyregistrerat utan webbplats — hög potential"
+                           if "digital lucka" in reason else "nyregistrerat bolag",
+                })
 
     # ── Signal 3: fresh funding rounds (optional per ICP) ──
     if icp.get("include_funding"):
-        try:
-            news = await cached_fetch(
-                "news", {"funding_harvest": 1},
-                lambda: _funding_fetch(),
-            )
-            funded = extract_funding_companies(news.get("headlines") or [])
-        except Exception as e:
-            funded = []
-            notes.append(f"Finansieringssignalen misslyckades: {e}")
-
         stats["signals_found"] += len(funded)
         added = 0
         for company in funded:
@@ -374,17 +532,22 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
             dupe = await db.find_duplicate_lead(
                 org_id, company_name=company["company_name"]
             )
-            if dupe:
+            if dupe or _created_this_run(company["company_name"]):
                 stats["duplicates_skipped"] += 1
                 continue
             score = 65 if " ab" in company["company_name"].lower() + " " else 60
+            reason = ("Signalscore: ny finansiering "
+                      f"({company.get('amount') or 'okänt belopp'}) — "
+                      "färskt kapital finansierar digitala projekt (+15)")
+            score, reason = _apply_cross_boost(
+                presence, "funding", company["company_name"], None,
+                score, reason,
+            )
             lead_id = await db.create_lead(org_id, None, {
                 "company_name": company["company_name"],
                 "source": "signal:funding",
                 "score": score,
-                "score_reason": "Signalscore: ny finansiering "
-                                f"({company.get('amount') or 'okänt belopp'}) — "
-                                "färskt kapital finansierar digitala projekt (+15)",
+                "score_reason": reason,
                 "notes": f"Rubrik: {company['headline']} | {company.get('link') or ''} "
                          "| VERIFIERA bolaget via registerkoll innan outreach.",
             })
@@ -394,13 +557,120 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
             )
             stats["leads_created"] += 1
             created_ids.append(lead_id)
+            _remember_created(company["company_name"])
             added += 1
             top_leads.append({
                 "company_name": company["company_name"], "score": score,
                 "why": f"tar in {company.get('amount') or 'kapital'} enligt media",
             })
 
-    # ── Signal 4: public tenders (optional per ICP) ──
+    # ── Signal 4: expansion & establishment news (optional per ICP) ──
+    if icp.get("include_expansion"):
+        stats["signals_found"] += len(expanding)
+        added = 0
+        for company in expanding:
+            if added >= 5:
+                break
+            used = await db.count_leads_this_month(org_id)
+            if not within_quota(used, plan.leads_per_month):
+                break
+            if await db.is_company_blocked(org_id, company["company_name"], None):
+                stats["duplicates_skipped"] += 1
+                continue
+            dupe = await db.find_duplicate_lead(
+                org_id, company_name=company["company_name"]
+            )
+            if dupe or _created_this_run(company["company_name"]):
+                stats["duplicates_skipped"] += 1
+                continue
+            score = 65 if company.get("kind") == "hiring_plan" else 60
+            reason = (f"Signalscore: expansion ({company['detail']}) — "
+                      "tillväxt i den skalan drar med sig digitala projekt")
+            score, reason = _apply_cross_boost(
+                presence, "expansion", company["company_name"], None,
+                score, reason,
+            )
+            lead_id = await db.create_lead(org_id, None, {
+                "company_name": company["company_name"],
+                "source": "signal:expansion",
+                "score": score,
+                "score_reason": reason,
+                "notes": f"Expansion: {company['detail']} | "
+                         f"Rubrik: {company['headline']} | "
+                         f"{company.get('link') or ''} "
+                         "| VERIFIERA bolaget via registerkoll innan outreach.",
+            })
+            await db.add_lead_activity(
+                org_id, lead_id, "created",
+                f"Skördad från expansionssignal ({trigger} körning)",
+            )
+            stats["leads_created"] += 1
+            created_ids.append(lead_id)
+            _remember_created(company["company_name"])
+            added += 1
+            top_leads.append({
+                "company_name": company["company_name"], "score": score,
+                "why": company["detail"] + " enligt media",
+            })
+
+    # ── Signal 5: leadership changes (optional per ICP) ──
+    if icp.get("include_leadership"):
+        stats["signals_found"] += len(new_leaders)
+        added = 0
+        for company in new_leaders:
+            if added >= 5:
+                break
+            used = await db.count_leads_this_month(org_id)
+            if not within_quota(used, plan.leads_per_month):
+                break
+            if await db.is_company_blocked(org_id, company["company_name"], None):
+                stats["duplicates_skipped"] += 1
+                continue
+            dupe = await db.find_duplicate_lead(
+                org_id, company_name=company["company_name"]
+            )
+            if dupe or _created_this_run(company["company_name"]):
+                stats["duplicates_skipped"] += 1
+                continue
+            role = company.get("role") or "vd"
+            person = company.get("person")
+            score = 60 if role in ("vd", "cto", "cio", "it-chef",
+                                   "digitaliseringschef") else 55
+            reason = (f"Signalscore: ny {role}"
+                      + (f" ({person})" if person else "")
+                      + " — nya ledare ser över leverantörer och digitala "
+                        "verktyg under sina första månader")
+            score, reason = _apply_cross_boost(
+                presence, "leadership", company["company_name"], None,
+                score, reason,
+            )
+            lead_id = await db.create_lead(org_id, None, {
+                "company_name": company["company_name"],
+                "contact_name": person,
+                "source": "signal:leadership",
+                "score": score,
+                "score_reason": reason,
+                "notes": f"Ledningsbyte: ny {role}"
+                         + (f" — {person}" if person else "")
+                         + f" | Rubrik: {company['headline']} | "
+                         f"{company.get('link') or ''} "
+                         "| VERIFIERA bolaget via registerkoll innan outreach.",
+            })
+            await db.add_lead_activity(
+                org_id, lead_id, "created",
+                f"Skördad från ledningsbytessignal ({trigger} körning)",
+            )
+            stats["leads_created"] += 1
+            created_ids.append(lead_id)
+            _remember_created(company["company_name"])
+            added += 1
+            top_leads.append({
+                "company_name": company["company_name"], "score": score,
+                "why": f"ny {role}" + (f" ({person})" if person else "")
+                       + " — färskt beslutsfönster",
+            })
+
+    # ── Signal 6: public tenders (optional per ICP) ──
     if icp.get("include_tenders"):
         try:
             tenders = await cached_fetch(
