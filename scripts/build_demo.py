@@ -116,7 +116,7 @@ USAGE = {**ORG["usage"], "limits":{"messages":10000,"leads":1000}}
 
 ICPS = [{"id":"I1","org_id":"demo","name":"Webb & app Sverige","what_we_sell":"webbutveckling och apputveckling i React och Node",
          "target_roles":["frontendutvecklare","systemutvecklare","apputvecklare"],"regions":["Stockholm","Göteborg"],
-         "include_new_companies":True,"include_funding":True,"include_tenders":True,"include_expansion":True,"include_leadership":True,"auto_run":True,"min_score":0,"created_at":"2026-06-01"}]
+         "include_new_companies":True,"include_funding":True,"include_tenders":True,"include_expansion":True,"include_leadership":True,"autopilot":True,"auto_run":True,"min_score":0,"created_at":"2026-06-01"}]
 
 KNOWLEDGE = {"kinds":["case","standard","offering","process","other"],
   "entries":[{"id":"K1","kind":"case","title":"E-handel för Acme AB","content":"Next.js + Stripe, +40% konvertering på 3 månader.","created_at":"2026-06-05"},

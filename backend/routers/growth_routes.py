@@ -18,6 +18,7 @@ class IcpRequest(BaseModel):
     include_tenders: bool = False
     include_expansion: bool = False
     include_leadership: bool = False
+    autopilot: bool = False
     auto_run: bool = False
 
 
@@ -31,6 +32,7 @@ class IcpUpdateRequest(BaseModel):
     include_tenders: bool | None = None
     include_expansion: bool | None = None
     include_leadership: bool | None = None
+    autopilot: bool | None = None
     auto_run: bool | None = None
 
 

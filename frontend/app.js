@@ -745,7 +745,7 @@ async function loadGrowth() {
           <div class="dim">${escHtml((icp.target_roles || []).join(', ') || 'standardroller')}
             ${icp.regions?.length ? ' // ' + escHtml(icp.regions.join(', ')) : ''}</div>
         </td>
-        <td>${icp.auto_run ? '<span style="color:#44ff88">WEEKLY</span>' : '<span class="dim">MANUAL</span>'}</td>
+        <td>${icp.auto_run ? '<span style="color:#44ff88">WEEKLY</span>' : '<span class="dim">MANUAL</span>'}${icp.autopilot ? ' <span title="Autopilot: sekvenser schemaläggs till Approvals" style="color:var(--accent)">⚡</span>' : ''}</td>
         <td>${[(icp.target_roles || []).length ? 'Hiring' : null, icp.include_new_companies && 'Newco', icp.include_funding && 'Funding', icp.include_expansion && 'Expansion', icp.include_leadership && 'Leadership', icp.include_tenders && 'Tenders'].filter(Boolean).join(' · ') || 'Hiring (standardroller)'}</td>
         <td>
           <button class="pixel-btn small" onclick="runIcp('${icp.id}', this)">RUN NOW</button>
@@ -794,6 +794,7 @@ async function loadGrowth() {
           <label class="dim small"><input type="checkbox" id="icp-expansion" /> Expansion news</label>
           <label class="dim small"><input type="checkbox" id="icp-leadership" /> New executives</label>
           <label class="dim small"><input type="checkbox" id="icp-tenders" /> Public tenders</label>
+          <label class="dim small"><input type="checkbox" id="icp-autopilot" /> Autopilot (sekvens → Approvals)</label>
           <label class="dim small"><input type="checkbox" id="icp-auto" checked /> Weekly auto-run</label>
           <button class="pixel-btn small" id="icp-submit" onclick="createIcp()">CREATE</button>
           <button class="pixel-btn small" id="icp-cancel-edit" style="display:none" onclick="cancelIcpEdit()">CANCEL</button>
@@ -829,6 +830,7 @@ function icpFormData() {
     include_expansion: document.getElementById('icp-expansion').checked,
     include_leadership: document.getElementById('icp-leadership').checked,
     include_tenders: document.getElementById('icp-tenders').checked,
+    autopilot: document.getElementById('icp-autopilot').checked,
     auto_run: document.getElementById('icp-auto').checked,
   };
 }
@@ -847,6 +849,7 @@ function editIcp(id) {
   document.getElementById('icp-expansion').checked = !!icp.include_expansion;
   document.getElementById('icp-leadership').checked = !!icp.include_leadership;
   document.getElementById('icp-tenders').checked = !!icp.include_tenders;
+  document.getElementById('icp-autopilot').checked = !!icp.autopilot;
   document.getElementById('icp-auto').checked = !!icp.auto_run;
   document.getElementById('icp-submit').textContent = 'SAVE CHANGES';
   document.getElementById('icp-cancel-edit').style.display = '';
