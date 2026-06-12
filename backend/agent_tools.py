@@ -837,6 +837,43 @@ async def _analyze_pipeline_performance(inp: dict, ctx: ToolContext) -> str:
     return _json(await insights.pipeline_insights(ctx.org_id))
 
 
+async def _list_crm_accounts(inp: dict, ctx: ToolContext) -> str:
+    accounts = await db.list_accounts(ctx.org_id,
+                                      status=inp.get("status") or None)
+    mrr = sum(a.get("monthly_value") or 0 for a in accounts)
+    return _json({
+        "accounts": [{k: a.get(k) for k in (
+            "company_name", "org_number", "domain", "contact_name",
+            "contact_email", "status", "monthly_value", "notes")}
+            for a in accounts],
+        "count": len(accounts),
+        "total_monthly_value": mrr,
+        "note": "Existing relationships — permanently excluded from "
+                "harvest and outreach.",
+    })
+
+
+LIST_CRM_ACCOUNTS = Tool(
+    name="list_customer_accounts",
+    description=(
+        "The customer register (CRM): every existing customer/partner with "
+        "contact, status and monthly value, plus the total recurring "
+        "revenue. The revenue BASE of the business — start here for any "
+        "finance, forecasting or account-management question. These "
+        "companies are permanently excluded from prospecting and outreach."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "status": {"type": "string",
+                       "enum": ["customer", "partner", "former"],
+                       "description": "Optional filter"},
+        },
+    },
+    handler=_list_crm_accounts,
+)
+
+
 ANALYZE_PIPELINE_PERFORMANCE = Tool(
     name="analyze_pipeline_performance",
     description=(
