@@ -919,11 +919,115 @@ async def run_prospecting(org_id: str, icp: dict, trigger: str) -> dict:
     # Hygiene pass: free upkeep of the EXISTING pipeline every run
     notes.extend(await _hygiene_pass(org_id))
 
+    # Autopilot (opt-in per ICP): qualifying new leads get a 2-step sequence
+    # scheduled straight into the APPROVALS inbox — a human still reviews
+    # every email before anything sends. Hard guards: score floor, verified
+    # (never pattern-guessed) address, the customer register, suppression
+    # and the spam lint, all enforced inside start_sequence.
+    if icp.get("autopilot") and created_ids:
+        queued, skipped = await _autopilot_pass(org_id, created_ids, icp)
+        if queued:
+            notes.append(f"AUTOPILOT: {queued} sekvens(er) schemalagda — "
+                         "granska och godkänn i APPROVALS innan något "
+                         "skickas.")
+        if skipped:
+            notes.append(f"Autopilot hoppade över {skipped} lead(s) "
+                         "(score under tröskel, ogiltig/gissad adress "
+                         "eller spärr).")
+
     digest = _build_digest(icp, stats, top_leads, notes)
     run_id = await db.save_prospecting_run(
         org_id, icp.get("id"), trigger, stats, digest
     )
     return {"run_id": run_id, **stats, "digest": digest}
+
+
+AUTOPILOT_MIN_SCORE = 75
+AUTOPILOT_MAX_PER_RUN = 5
+SIGNAL_HOOKS = {"signal:hiring": "hiring", "signal:funding": "funding",
+                "signal:expansion": "expansion",
+                "signal:leadership": "leadership", "signal:newco": "maturity"}
+AUTOPILOT_SUBJECTS = {
+    "signal:hiring": "Angående er rekrytering",
+    "signal:funding": "Angående er finansieringsrunda",
+    "signal:expansion": "Angående er expansion",
+    "signal:leadership": "Era digitala verktyg framåt",
+    "signal:newco": "Er digitala grund",
+}
+
+
+def _followup_body(lead: dict, icp: dict, case: dict | None) -> str:
+    first = (lead.get("contact_name") or "").split(" ")[0]
+    greeting = f"Hej {first}," if first else "Hej,"
+    proof = (f"Ett konkret exempel på vad vi gör: {case['title']}."
+             if case else
+             f"Vi arbetar med {icp.get('what_we_sell') or 'webb och appar'} "
+             "och börjar alltid med en kort genomlysning, utan kostnad.")
+    return (f"{greeting}\n\nJag skrev i förra veckan — en sak till som kan "
+            f"vara relevant: {proof}\n\nOm tajmingen är fel just nu, säg "
+            f"bara till så återkommer jag längre fram. Annars: har du 20 "
+            f"minuter? {{{{booking_url}}}}\n\nVänliga hälsningar")
+
+
+async def _autopilot_pass(org_id: str, created_ids: list[str],
+                          icp: dict) -> tuple[int, int]:
+    import outreach
+    cases = await db.list_knowledge(org_id, kind="case", limit=1)
+    case = cases[0] if cases else None
+
+    candidates = []
+    for lead_id in created_ids:
+        lead = await db.get_lead(org_id, lead_id)
+        if lead:
+            candidates.append(lead)
+    candidates.sort(key=lambda x: -(x.get("score") or 0))
+
+    queued = skipped = 0
+    for lead in candidates:
+        if queued >= AUTOPILOT_MAX_PER_RUN:
+            break
+        source = lead.get("source") or ""
+        if (source not in SIGNAL_HOOKS
+                or (lead.get("score") or 0) < AUTOPILOT_MIN_SCORE
+                or not lead.get("contact_email")
+                or not lead.get("outreach_draft")):
+            skipped += 1
+            continue
+        # Never auto-send to a pattern-guessed address — the guess label
+        # lives in the contact_found activity
+        activities = await db.list_lead_activities(org_id, lead["id"])
+        if any("MÖNSTERGISSAD" in (a.get("content") or "")
+               for a in activities):
+            skipped += 1
+            continue
+
+        steps = [
+            {"subject": AUTOPILOT_SUBJECTS.get(source, "Kort fråga"),
+             "body": lead["outreach_draft"], "days_after": 0},
+            {"subject": "Re: " + AUTOPILOT_SUBJECTS.get(source, "Kort fråga"),
+             "body": _followup_body(lead, icp, case), "days_after": 4},
+        ]
+        basis = (f"{lead.get('contact_title') or 'Kontaktperson'} på bolag "
+                 f"med aktuell {SIGNAL_HOOKS[source]}-signal "
+                 f"({(lead.get('score_reason') or '')[:120]}) — direkt "
+                 f"relevant för {icp.get('what_we_sell') or 'våra tjänster'}.")
+        try:
+            result = await outreach.start_sequence(
+                org_id, lead["id"], steps, basis,
+                hook_type=SIGNAL_HOOKS[source],
+            )
+        except Exception:
+            skipped += 1
+            continue
+        if result.get("error"):
+            skipped += 1
+            continue
+        await db.add_lead_activity(
+            org_id, lead["id"], "autopilot",
+            "Autopilot: 2-stegssekvens schemalagd till Approvals-kön.",
+        )
+        queued += 1
+    return queued, skipped
 
 
 SIZE_SWEET_SPOT = (5, 500)
