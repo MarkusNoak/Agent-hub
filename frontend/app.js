@@ -517,6 +517,7 @@ function officeStatus(iso) {
 
 const OFFICE_ZONES = [
   ['Revenue floor', ['revenue']],
+  ['Finance', ['finance']],
   ['Operations', ['operations']],
   ['Engineering & data', ['engineering', 'data', 'security']],
   ['Strategy & content', ['strategy', 'content', 'knowledge', 'general']],
