@@ -337,13 +337,44 @@ def _clean_headline(title: str) -> str:
     return title
 
 
+# Sentence words inside a "company name" mean the regex swallowed part of
+# the headline ("Parabilis Medicines genomför börsnotering och") — reject
+_NAME_STOPWORDS = {
+    "och", "som", "att", "efter", "inför", "genomför", "lanserar", "tar",
+    "får", "blir", "utser", "öppnar", "expanderar", "säkrar", "köper",
+    "säljer", "startar", "växer", "anställer", "rekryterar", "vill", "ska",
+    "kan", "när", "med", "till", "från", "om", "nu", "han", "hon", "de",
+}
+
+_PRONOUNS = {"han", "hon", "den", "det", "de", "vi", "ni", "nu", "här"}
+
+
 def _plausible_company(name: str) -> bool:
     lower = name.lower()
+    tokens = lower.split()
     return bool(
         name and name[0].isupper()
-        and len(name.split()) <= 6
+        and len(tokens) <= 6
+        and not any(t in _NAME_STOPWORDS for t in tokens)
         and not any(lower.startswith(g) for g in GENERIC_SUBJECTS)
     )
+
+
+def _plausible_person(name: str | None) -> str | None:
+    """A real person is at least two capitalized words and no pronoun or
+    title word — 'Han', 'Styrelseproffs' etc. are headline grammar, not
+    people."""
+    if not name:
+        return None
+    parts = name.strip().split()
+    if len(parts) < 2:
+        return None
+    for p in parts:
+        if not p[0].isupper() or p.lower() in _PRONOUNS:
+            return None
+        if TITLE_HINT_RE.fullmatch(p):
+            return None
+    return " ".join(parts)
 
 
 # Swedish expansion headlines: new offices, market entries, big hiring plans.
@@ -409,6 +440,8 @@ async def scan_expansion_news(limit: int = 20) -> dict:
 # a leadership change is a fresh-door signal for outreach.
 LEADERSHIP_ROLES = (r"vd|vice vd|cto|cio|cfo|cdo|it-chef|teknikchef|"
                     r"digitaliseringschef|marknadschef|e-handelschef")
+TITLE_HINT_RE = re.compile(
+    r"(?i)(vd|cto|cio|cfo|chef|proffs|ordförande|ledamot|grundare|direktör)")
 LEADERSHIP_PATTERNS = [
     # "Anna Svensson blir ny vd på Bolaget AB"
     re.compile(rf"^(?P<person>[A-ZÅÄÖ][^–—:|]{{2,40}}?)\s+"
@@ -440,7 +473,7 @@ def extract_leadership_changes(items: list[dict]) -> list[dict]:
             if key in seen:
                 break
             seen.add(key)
-            person = (m.groupdict().get("person") or "").strip() or None
+            person = _plausible_person(m.groupdict().get("person"))
             found.append({
                 "company_name": company,
                 "person": person,
