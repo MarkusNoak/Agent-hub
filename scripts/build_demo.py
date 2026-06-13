@@ -148,7 +148,7 @@ INTEGRATIONS = {"connectors":[
   {"id":"visma","name":"Visma eEkonomi","category":"Finance","connected":False,"available":False,"detail":"Coming soon."},
   {"id":"slack","name":"Slack","category":"Notifications","connected":False,"available":False,"detail":"Coming soon."},
   {"id":"trello","name":"Trello","category":"Project","connected":False,"available":False,"detail":"Coming soon."},
-  {"id":"linkedin","name":"LinkedIn","category":"Outreach","connected":False,"available":False,"detail":"Coming soon."},
+  {"id":"linkedin","name":"LinkedIn (manuellt lager)","category":"Outreach","connected":True,"available":True,"detail":"Profillänkar + connection-utkast per lead. Automatiska utskick stöds inte (LinkedIns villkor)."},
 ]}
 
 ACCOUNTS = {"accounts":[
@@ -292,6 +292,7 @@ window.fetch = async (url, opts={}) => {
   if (u.includes('/api/crm/followups')) return json(DEMO.followups);
   if (u.includes('/api/crm/convert')) return json({ok:true});
   if (u.includes('/dossier')) return json({markdown: DEMO.dossier});
+  if (u.includes('/linkedin-note')) return json({note:'Hej Sara! Jag såg att ni rekryterar just nu — vi arbetar med webb- och apputveckling och jag tror vi kan vara relevanta för er. Vill gärna koppla ihop oss här. /Markus', url:'https://www.linkedin.com/search/results/people/?keywords=Sara%20Lindqvist%20Visby%20Health', is_profile:false, char_count:186});
   if (u.includes('/api/growth/icp-presets')) return json(DEMO.icpPresets);
   if (u.includes('/from-preset/')) return json({ok:true});
   if (u.includes('/api/growth/icps') && opts.method==='POST') return json(DEMO.icps[0]);

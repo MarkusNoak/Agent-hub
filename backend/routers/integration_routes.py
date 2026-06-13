@@ -94,6 +94,16 @@ async def list_integrations(auth: AuthContext = Depends(get_current_auth)):
             ),
         },
         {
+            "id": "linkedin",
+            "name": "LinkedIn (manuellt lager)",
+            "category": "Outreach",
+            "connected": True,
+            "detail": "Profillänkar grävs fram ur sajter och Apollo; varje "
+                      "lead får ett connection-utkast (<300 tecken) att "
+                      "skicka själv. Automatiserade utskick stöds inte — "
+                      "det bryter mot LinkedIns villkor.",
+        },
+        {
             "id": "companies_house",
             "name": "Companies House (UK)",
             "category": "Data",
@@ -111,7 +121,6 @@ async def list_integrations(auth: AuthContext = Depends(get_current_auth)):
         {"id": "visma", "name": "Visma eEkonomi", "category": "Finance"},
         {"id": "slack", "name": "Slack", "category": "Notifications"},
         {"id": "trello", "name": "Trello", "category": "Project"},
-        {"id": "linkedin", "name": "LinkedIn", "category": "Outreach"},
     ]
     for c in coming_soon:
         c.update({"connected": False, "available": False, "detail": "Coming soon."})

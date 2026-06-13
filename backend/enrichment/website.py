@@ -283,6 +283,25 @@ def apply_email_pattern(pattern: str, full_name: str, domain: str) -> str | None
     return f"{local}@{domain.removeprefix('www.')}" if local else None
 
 
+LINKEDIN_PROFILE_RE = re.compile(
+    r"https?://(?:www\.)?linkedin\.com/in/[A-Za-z0-9\-_.%]+")
+
+
+def _match_profile(name: str, profiles: list[str]) -> str | None:
+    """Pair a person with a profile URL when the slug carries a name token
+    (anna-svensson-123 ↔ Anna Svensson)."""
+    tokens = [_ascii_name(p) for p in name.split() if len(p) > 2]
+    for url in profiles:
+        slug = url.rstrip("/").rsplit("/", 1)[-1].lower()
+        if sum(1 for t in tokens if t in slug) >= 2:
+            return url
+    for url in profiles:
+        slug = url.rstrip("/").rsplit("/", 1)[-1].lower()
+        if any(t in slug for t in tokens):
+            return url
+    return None
+
+
 def _mine_people_from_text(text: str, emails: list[str]) -> list[dict]:
     """Pair Name ↔ Title ↔ personal email by proximity in page text."""
     people: dict[str, dict] = {}
@@ -324,6 +343,7 @@ async def mine_site_people(domain: str) -> dict:
     personal: list[str] = []
     generic: list[str] = []
     people: list[dict] = []
+    profiles: list[str] = []
     pages_checked: list[str] = []
 
     async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
@@ -345,9 +365,15 @@ async def mine_site_people(domain: str) -> dict:
                     bucket.append(email)
                 page_emails.append(email)
             text = _strip_tags(html)
+            page_profiles = LINKEDIN_PROFILE_RE.findall(html)
             for person in _mine_people_from_text(text, page_emails):
                 if not any(p["name"] == person["name"] for p in people):
+                    person["linkedin"] = _match_profile(person["name"],
+                                                        page_profiles)
                     people.append(person)
+            for url in page_profiles:
+                if url not in profiles:
+                    profiles.append(url)
 
     pattern = None
     for email in personal:
@@ -373,6 +399,7 @@ async def mine_site_people(domain: str) -> dict:
         "people": people[:10],
         "personal_emails": personal[:10],
         "generic_emails": generic[:5],
+        "linkedin_profiles": profiles[:10],
         "email_pattern": pattern,
         "pages_checked": pages_checked,
         "source": "website",

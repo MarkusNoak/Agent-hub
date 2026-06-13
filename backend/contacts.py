@@ -204,6 +204,14 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
             except Exception:
                 return False
 
+        if person and not person.get("contact_linkedin"):
+            li = next((p.get("linkedin") for p in site_people
+                       if p.get("linkedin")
+                       and _same_person(p["name"],
+                                        person.get("contact_name"))), None)
+            if li:
+                person = {**person, "contact_linkedin": li}
+
         if person and not person.get("contact_email"):
             match = next((p for p in site_people
                           if p.get("email")
@@ -232,7 +240,8 @@ async def find_contact_for_lead(org_id: str, lead: dict) -> dict:
             if email or cand.get("name"):
                 person = {"contact_name": cand.get("name"),
                           "contact_title": cand.get("title"),
-                          "contact_email": email}
+                          "contact_email": email,
+                          "contact_linkedin": cand.get("linkedin")}
 
     if person and (person.get("contact_email") or person.get("contact_name")):
         updates = {k: v for k, v in {

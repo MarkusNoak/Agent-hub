@@ -127,6 +127,55 @@ async def lead_dossier(lead_id: str,
     return await dossier.build_dossier(auth.org_id, lead)
 
 
+LINKEDIN_NOTE_OPENINGS = {
+    "signal:hiring": "såg att ni rekryterar just nu",
+    "signal:funding": "såg nyheten om er finansiering",
+    "signal:expansion": "såg att ni expanderar",
+    "signal:leadership": "grattis till nya rollen",
+    "signal:newco": "såg att ni nyligen startat",
+}
+
+
+@router.post("/{lead_id}/linkedin-note")
+async def linkedin_note(lead_id: str,
+                        auth: AuthContext = Depends(get_current_auth)):
+    """The LinkedIn layer is deliberately MANUAL: profile links and a ready
+    connection note (<300 chars, LinkedIn's limit) — the user reviews and
+    sends personally. Automated LinkedIn messaging violates the platform's
+    terms and risks the account, so it is not and will not be built."""
+    lead = await db.get_lead(auth.org_id, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    settings = await db.get_org_settings(auth.org_id)
+    sell = (settings.get("business_profile") or "")[:60] or "digitala lösningar"
+
+    first = (lead.get("contact_name") or "").split(" ")[0]
+    opening = LINKEDIN_NOTE_OPENINGS.get(lead.get("source") or "",
+                                         "såg ert bolag i mitt flöde")
+    user = await db.get_user(auth.user_id) if auth.user_id else None
+    sender = ((user or {}).get("name") or "").split(" ")[0]
+    note = (f"Hej{' ' + first if first else ''}! Jag {opening} — vi arbetar "
+            f"med {sell.rstrip('.')} och jag tror vi kan vara relevanta för "
+            f"er. Vill gärna koppla ihop oss här."
+            + (f" /{sender}" if sender else ""))
+    note = note[:295]
+
+    url = lead.get("contact_linkedin")
+    if not url:
+        from urllib.parse import quote
+        query = " ".join(x for x in [lead.get("contact_name"),
+                                     lead.get("company_name")] if x)
+        url = ("https://www.linkedin.com/search/results/people/?keywords="
+               + quote(query))
+    await db.add_lead_activity(
+        auth.org_id, lead_id, "linkedin_note",
+        "LinkedIn-utkast genererat (manuellt utskick).",
+    )
+    return {"note": note, "url": url,
+            "is_profile": bool(lead.get("contact_linkedin")),
+            "char_count": len(note)}
+
+
 @router.post("/{lead_id}/find-contact")
 async def find_contact(
     lead_id: str, auth: AuthContext = Depends(get_current_auth)

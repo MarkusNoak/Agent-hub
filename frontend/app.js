@@ -629,6 +629,27 @@ async function showDossier(id, btn) {
   btn.disabled = false; btn.textContent = 'Dossier';
 }
 
+async function showLinkedin(id, btn) {
+  const out = document.getElementById(`dossier-${id}`);
+  btn.disabled = true;
+  try {
+    const d = await api(`/api/leads/${id}/linkedin-note`, { method: 'POST' });
+    out.style.display = '';
+    out.innerHTML = `
+      <div class="dossier">
+        <h2>LinkedIn — manuellt utskick</h2>
+        <p class="dim small">${d.is_profile ? 'Profil hittad.' : 'Ingen profil sparad — länken öppnar en sökning.'}
+        Granska och skicka själv; automatiska LinkedIn-utskick stöds inte (bryter mot LinkedIns villkor).</p>
+        <pre class="outreach-draft">${escHtml(d.note)}</pre>
+        <div class="lead-actions-row" style="margin-top:8px">
+          <a class="btn btn-primary btn-sm" href="${escHtml(d.url)}" target="_blank" rel="noopener">${d.is_profile ? 'Öppna profil' : 'Sök på LinkedIn'}</a>
+          <button class="pixel-btn small" onclick="copyText(this, ${JSON.stringify(d.note).replace(/"/g,'&quot;')})">COPY (${d.char_count}/300)</button>
+        </div>
+      </div>`;
+  } catch (e) { toast(e.message, 'error'); }
+  btn.disabled = false;
+}
+
 async function convertLead(id) {
   if (!await confirmDialog('Gör detta lead till kund? Bolaget utesluts då permanent ur skörd och outreach.')) return;
   try {
@@ -1478,6 +1499,7 @@ async function loadLeads() {
           <div class="lead-section lead-actions-row">
             ${!l.contact_email ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); findContact('${l.id}', this)">Find contact</button>` : ''}
             <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); showDossier('${l.id}', this)">Dossier</button>
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); showLinkedin('${l.id}', this)">LinkedIn</button>
             <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); convertLead('${l.id}')">Gör till kund</button>
           </div>
           <div class="lead-section dossier-out" id="dossier-${l.id}" style="display:none"></div>
